@@ -39,3 +39,18 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Zuzi Studio — runtime state
+/data
+/backups
+/tmp
+
+# Local sketches Zuzi imports during dev (her source IP — keep out of repo)
+/samples/dev-input/
+
+# IDE
+.vscode/
+.idea/
+
+# macOS
+.DS_Store

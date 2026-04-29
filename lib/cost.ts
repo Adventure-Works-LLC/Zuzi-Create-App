@@ -26,8 +26,6 @@ const PRICE_PER_IMAGE_USD: Record<ModelTier, Record<Resolution, number>> = {
   pro: { "1k": 0.134, "4k": 0.24 },
 };
 
-export const TILES_PER_GRID = 9;
-
 export function pricePerImage(
   tier: ModelTier,
   resolution: Resolution,
@@ -35,11 +33,17 @@ export function pricePerImage(
   return PRICE_PER_IMAGE_USD[tier][resolution];
 }
 
-export function pricePerGrid(
+/**
+ * Projected cost of a Submit before it runs — `pricePerImage × count`. Used by
+ * the cap-check on `POST /api/iterate` to refuse over-budget submissions before
+ * the worker fires.
+ */
+export function costFor(
   tier: ModelTier,
   resolution: Resolution,
+  count: number,
 ): number {
-  return pricePerImage(tier, resolution) * TILES_PER_GRID;
+  return pricePerImage(tier, resolution) * count;
 }
 
 /**

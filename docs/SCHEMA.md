@@ -40,6 +40,14 @@ CREATE TABLE iterations (
   resolution      TEXT NOT NULL DEFAULT '1k',      -- '1k' | '4k'
                                                    -- (model_tier × resolution = the cost cell;
                                                    --  see lib/cost.ts for the 4-tier pricing matrix)
+  tile_count      INTEGER NOT NULL DEFAULT 3,      -- number of tiles per Submit (default 3,
+                                                   -- configurable via TILE_COUNT_DEFAULT in
+                                                   -- lib/cost.ts)
+  presets         TEXT NOT NULL DEFAULT '[]',      -- JSON array of selected preset strings:
+                                                   -- 'color' | 'composition' | 'lighting' |
+                                                   -- 'background'. Empty = freeform (model
+                                                   -- chooses everything). Determines prompt
+                                                   -- via lib/gemini/imagePrompts.ts buildPrompt().
   status          TEXT NOT NULL DEFAULT 'pending', -- pending | running | done | failed
   created_at      INTEGER NOT NULL,                -- unix ms
   completed_at    INTEGER
@@ -108,7 +116,7 @@ PRAGMA foreign_keys = ON;
   branch-from-tile. All planner-era cruft removed.
 - **No `prompt_used` column on tiles.** With the single shared prompt every tile in an
   iteration carries the same string — the column was dead weight. The prompt is in
-  `lib/gemini/imagePrompt.ts`; if per-tile prompts ever come back, the column comes back.
+  `lib/gemini/imagePrompts.ts`; if per-tile prompts ever come back, the column comes back.
   Per AGENTS.md §6 schema cleanup principle.
 - **`model_tier` and `resolution`** are the only per-iteration cost knobs. Toggled in
   the Studio UI per-iteration. `model_tier` defaults to `'pro'` on the column for

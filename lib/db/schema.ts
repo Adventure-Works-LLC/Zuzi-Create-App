@@ -52,6 +52,13 @@ export const iterations = sqliteTable(
     resolution: text("resolution", { enum: ["1k", "4k"] })
       .notNull()
       .default("1k"),
+    tile_count: integer("tile_count").notNull().default(3),
+    /**
+     * JSON array of selected preset strings: 'color' | 'composition' |
+     * 'lighting' | 'background'. Empty = freeform. Determines the prompt
+     * via lib/gemini/imagePrompts.ts buildPrompt().
+     */
+    presets: text("presets").notNull().default("[]"),
     status: text("status", {
       enum: ["pending", "running", "done", "failed"],
     })
@@ -65,6 +72,10 @@ export const iterations = sqliteTable(
     index("idx_iter_source").on(t.source_id, t.created_at),
   ],
 );
+
+/** Allowed preset strings stored in iterations.presets JSON. */
+export const PRESETS = ["color", "composition", "lighting", "background"] as const;
+export type Preset = (typeof PRESETS)[number];
 
 export const tiles = sqliteTable(
   "tiles",

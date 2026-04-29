@@ -1,12 +1,18 @@
 /**
- * POST /api/iterate — kick off a 9-tile generation against a source.
+ * POST /api/iterate — kick off an N-tile generation against a source.
  *
- * Body: {requestId, sourceId, modelTier?, resolution?}
+ * Body: {requestId, sourceId, modelTier?, resolution?, count?, presets?}
  *   - requestId: client-supplied ulid for idempotency. Replays return the same
  *     iterationId.
  *   - sourceId: must reference an existing sources row.
  *   - modelTier: 'flash' | 'pro' (default 'pro' per AGENTS.md §4)
  *   - resolution: '1k' | '4k' (default '1k')
+ *   - count: integer in [1, TILE_COUNT_MAX]; default TILE_COUNT_DEFAULT.
+ *     Number of tiles to generate. Persisted on `iterations.tile_count`.
+ *   - presets: array of preset strings, subset of PRESETS (color, composition,
+ *     lighting, background). Default []. Persisted as JSON on
+ *     `iterations.presets`. Determines the prompt via
+ *     `lib/gemini/imagePrompts.ts buildPrompt()`.
  *
  * Returns: { iterationId }
  *
@@ -28,8 +34,13 @@ import {
   insertIterationAndTiles,
   monthlyUsageUsd,
 } from "@/lib/db/queries";
+import { PRESETS, type Preset } from "@/lib/db/schema";
 import { runIteration } from "@/lib/gemini/runIteration";
-import { pricePerGrid } from "@/lib/cost";
+import {
+  TILE_COUNT_DEFAULT,
+  TILE_COUNT_MAX,
+} from "@/lib/gemini/imagePrompts";
+import { costFor } from "@/lib/cost";
 
 export const runtime = "nodejs";
 
@@ -44,6 +55,37 @@ async function isAuthed(): Promise<boolean> {
   }
 }
 
+/** Parse + validate the `presets` field. Returns a deduped, stably-ordered
+ * Preset[] (matching the order in PRESETS). Throws on bad input so the route
+ * can return a clean 400. */
+function parsePresets(raw: unknown): Preset[] {
+  if (raw === undefined || raw === null) return [];
+  if (!Array.isArray(raw)) throw new Error("presets_must_be_array");
+  const allowed = new Set<string>(PRESETS);
+  const seen = new Set<Preset>();
+  for (const v of raw) {
+    if (typeof v !== "string" || !allowed.has(v)) {
+      throw new Error(`invalid_preset:${String(v).slice(0, 40)}`);
+    }
+    seen.add(v as Preset);
+  }
+  // Stable canonical order, deduped.
+  return PRESETS.filter((p) => seen.has(p));
+}
+
+/** Parse + validate the `count` field. Returns an integer in [1,
+ * TILE_COUNT_MAX]. Throws on bad input. */
+function parseCount(raw: unknown): number {
+  if (raw === undefined || raw === null) return TILE_COUNT_DEFAULT;
+  if (typeof raw !== "number" || !Number.isInteger(raw)) {
+    throw new Error("count_must_be_integer");
+  }
+  if (raw < 1 || raw > TILE_COUNT_MAX) {
+    throw new Error(`count_out_of_range:1..${TILE_COUNT_MAX}`);
+  }
+  return raw;
+}
+
 export async function POST(req: Request): Promise<Response> {
   if (!(await isAuthed())) {
     return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
@@ -54,6 +96,8 @@ export async function POST(req: Request): Promise<Response> {
     sourceId?: unknown;
     modelTier?: unknown;
     resolution?: unknown;
+    count?: unknown;
+    presets?: unknown;
   };
   try {
     body = await req.json();
@@ -77,6 +121,18 @@ export async function POST(req: Request): Promise<Response> {
   if (!sourceId)
     return NextResponse.json({ error: "missing_sourceId" }, { status: 400 });
 
+  let count: number;
+  let presets: Preset[];
+  try {
+    count = parseCount(body.count);
+    presets = parsePresets(body.presets);
+  } catch (e) {
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : "invalid_input" },
+      { status: 400 },
+    );
+  }
+
   // Idempotency: if a row already exists for this request_id, return it.
   const existing = findIterationByRequestId(requestId);
   if (existing) {
@@ -94,7 +150,7 @@ export async function POST(req: Request): Promise<Response> {
 
   // Cap check: project the worst-case cost for this iteration and refuse if it
   // would push monthly usage over the cap.
-  const projected = pricePerGrid(modelTier, resolution);
+  const projected = costFor(modelTier, resolution, count);
   const monthSoFar = monthlyUsageUsd();
   if (monthSoFar + projected > MONTHLY_USD_CAP) {
     return NextResponse.json(
@@ -108,10 +164,11 @@ export async function POST(req: Request): Promise<Response> {
     );
   }
 
-  // Insert iteration + 9 pending tiles atomically. UNIQUE on request_id catches
+  // Insert iteration + N pending tiles atomically. UNIQUE on request_id catches
   // concurrent dupes; on conflict, fall through to the existing-row branch.
   const iterationId = ulid();
   const now = Date.now();
+  const presetsJson = JSON.stringify(presets);
   try {
     insertIterationAndTiles(
       {
@@ -120,11 +177,13 @@ export async function POST(req: Request): Promise<Response> {
         source_id: sourceId,
         model_tier: modelTier,
         resolution,
+        tile_count: count,
+        presets: presetsJson,
         status: "pending",
         created_at: now,
         completed_at: null,
       },
-      Array.from({ length: 9 }, (_, idx) => ({
+      Array.from({ length: count }, (_, idx) => ({
         id: ulid(),
         iteration_id: iterationId,
         idx,

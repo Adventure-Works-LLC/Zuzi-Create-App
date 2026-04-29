@@ -105,9 +105,11 @@ export function getIteration(id: string): Iteration | undefined {
 }
 
 /**
- * Atomically insert iteration + 9 pending tiles. UNIQUE on iterations.request_id is
- * what makes idempotency safe: a concurrent retry hits the unique violation and the
- * caller falls back to `findIterationByRequestId`.
+ * Atomically insert iteration + N pending tiles (N = `iteration.tile_count`). UNIQUE
+ * on iterations.request_id is what makes idempotency safe: a concurrent retry hits the
+ * unique violation and the caller falls back to `findIterationByRequestId`. The
+ * caller is responsible for materialising `tileRows` with `idx` 0..N-1; this function
+ * just persists them.
  */
 export function insertIterationAndTiles(
   iteration: NewIteration,

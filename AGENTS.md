@@ -43,21 +43,50 @@ For every image generation call:
      The supported set is exactly: 1:1, 2:3, 3:2, 3:4, 4:3, 4:5, 5:4, 9:16, 16:9, 21:9.
   2. Pass the snapped ratio via `config.imageConfig.aspectRatio` on the generateContent call.
   3. State the snapped ratio explicitly inside the prompt text (belt-and-suspenders) — see
-     `buildImagePrompt(aspectRatio)` in `lib/gemini/imagePrompt.ts`.
+     `buildPrompt({ presets, aspectRatio })` in `lib/gemini/imagePrompts.ts`.
 
 Any image-generation entry point that calls Gemini without all three steps is a bug.
 
 ## 4. "Make this beautiful" tool — and the session loop
 
 This is a "make this beautiful" tool. The model is given the input painting and asked to
-reimagine it with new colors of its own choosing. Same prompt sent on 9 parallel calls,
-temperature default (1.0), so each call produces a different result.
+reimagine it. Same prompt is sent on every parallel call within an iteration, temperature
+default (1.0), so each call produces a different result.
 
-**The model picks the colors.** There is no planner, no directive set, no taxonomy of
+**The model picks the answers.** There is no planner, no directive set, no taxonomy of
 color schemes, no allowed/forbidden vocabulary. The model's creative judgment IS the
 feature.
 
-What the prompt enforces (preserve everything except color):
+### The input language: 4 checkboxes, no description field
+
+The user input is **exclusively four preset checkboxes** — `Color`, `Composition`,
+`Lighting`, `Background` — multi-select 0..4. There is **no free-text prompt field**.
+This is a hard product invariant: a description field would push the tool from "make
+this beautiful" toward "do what I say," which is the wrong product. Anyone tempted to
+add a description input as "just one more knob" should re-read this paragraph and the
+plan's reference docs first.
+
+The checkboxes determine the prompt via `lib/gemini/imagePrompts.ts buildPrompt()`:
+  - **Empty** (no checkboxes) → freeform "make this beautiful" — the validated v0
+    prompt: vary colors, preserve everything else. This is Zuzi's smoke-validated default.
+  - **One or more** → vary the listed aspects, preserve the rest. The builder removes
+    each varied aspect from the preserve list (e.g. `lighting` removes both "lighting"
+    and "value structure" because lighting drives values).
+  - **All four** → vary everything except identity-defining brushwork, drawing style,
+    marks, subject, and level of finish.
+
+The preset-set is rendered into the prompt in **fixed canonical order**
+(color → composition → lighting → background) regardless of UI click order, so a given
+set always produces the same prompt and the prompt cache stays stable.
+
+### Tile count
+
+Each Submit produces N tiles. Default N = `TILE_COUNT_DEFAULT` (3). Per-iteration cap
+N ≤ `TILE_COUNT_MAX` (9). Both constants live in `lib/gemini/imagePrompts.ts`. The DB
+column `iterations.tile_count` records the chosen N; the worker reads it and fires that
+many parallel calls.
+
+What the prompt enforces (in the empty-presets default — preserve everything except color):
 - Subject, composition, brushwork, drawing style, marks, level of finish, value structure.
 - Aspect ratio matches the input exactly (also passed via `config.imageConfig.aspectRatio`
   per Section 3).
@@ -73,10 +102,12 @@ A typical day:
 
   1. Upload (or pick an existing source from the strip). Upload creates a `sources` row
      and selects it as current.
-  2. **Generate** → 9 parallel calls fire against the current source, 9 tiles stream in.
-  3. Zuzi favorites 0–3 keepers (long-press a tile, or heart in the lightbox).
-  4. Tap **Refresh / Generate again** → another 9 parallel calls fire against the SAME
-     source. New `iterations` row, same `source_id`. Different outputs.
+  2. **Generate** → N parallel calls fire against the current source (N defaults to 3,
+     `TILE_COUNT_DEFAULT`), N tiles stream in.
+  3. Zuzi favorites 0–N keepers (tap the corner star on any tile, or heart in the
+     lightbox).
+  4. Tap **Generate again** (Reimagine) → another N parallel calls fire against the
+     SAME source. New `iterations` row, same `source_id`. Different outputs.
   5. Repeat 4–5 cycles per source, accumulating favorites.
   6. Switch to a different source in the strip. Repeat. Each source carries its own
      iteration history; favorites cross all of them.
@@ -95,8 +126,10 @@ The History Drawer has a **Favorites filter** at the top, plus a **This Source
 filter** that scopes to runs against the current source. Together those two filters
 replace the in-session Trail ribbon — there is no separate Trail UI.
 
-**Refresh is a primary action**, equal weight with the initial Generate button after
-the first generation against a source has landed.
+**Generate-again (Reimagine) is the same button as the initial Generate**: after the
+first iteration lands, tapping Generate fires another N-tile run against the same
+current source. The action label is just "Generate" (no separate "Refresh" verb in the
+UI per the Krea-pattern reference in `docs/UX_INSPIRATION.md`).
 
 ### CompareLightbox is load-bearing
 
@@ -122,7 +155,7 @@ Web Share availability — graceful degradation, no extra UI required).
 
 ### No human gate in production
 
-In production there is no gate. Zuzi taps generate; 9 image calls fire; tiles come back.
+In production there is no gate. Zuzi taps generate; N image calls fire; tiles come back.
 The smoke script in this repo runs the same way — there are no `--plan-only` /
 `--from-saved` modes because there are no intermediate artifacts to review.
 
@@ -134,38 +167,44 @@ re-run.** Don't re-roll the model hoping for a luckier draw.
 
 ### Model tier × resolution: the cost knob
 
-Per-iteration toggles in the Studio UI: `Flash | Pro` and `1K | 4K`. Together they form
-a 2×2 cost matrix (verified against ai.google.dev/gemini-api/docs/pricing on 2026-04-22):
+Per-iteration toggles in the Studio UI: `Flash | Pro` and `1K | 4K`. Together with the
+tile count (`TILE_COUNT_DEFAULT` = 3) they form a per-image × count cost surface
+(verified against ai.google.dev/gemini-api/docs/pricing on 2026-04-22):
 
-| | 1K | 4K |
-|---|---|---|
-| **Flash** (`gemini-3.1-flash-image-preview`) | $0.067/img · $0.603/grid | $0.101/img · $0.909/grid |
-| **Pro** (`gemini-3-pro-image-preview`) | $0.134/img · $1.21/grid | $0.24/img · $2.16/grid |
+| | 1K (per image) | 4K (per image) | Default 3-tile Submit |
+|---|---|---|---|
+| **Flash** (`gemini-3.1-flash-image-preview`) | $0.067 | $0.101 | $0.20 (1K) / $0.30 (4K) |
+| **Pro** (`gemini-3-pro-image-preview`) | $0.134 | $0.24 | $0.40 (1K) / $0.72 (4K) |
 
-**Pro 1K is the default.** Flash is for cheap exploration on early refreshes; Pro is
-for refined output on keeper passes. 4K is for the final winners worth printing.
+**Pro 1K is the default.** Flash is for cheap exploration on early iterations; Pro is
+for refined output on keeper passes. 4K is for the final winners worth printing. The
+default count of 3 (down from the old 9) makes a typical Submit roughly a third the
+cost of the prior tooling.
 
 Both `model_tier` and `resolution` are stored per-iteration in the `iterations` table.
 The `IMAGE_MODEL` env var is a fallback only — the request body's `modelTier` wins. This
 matters because the user toggles tier per-iteration; the env var just defines what
 happens if a request ever omits the field.
 
-Cost computation lives in `lib/cost.ts` as a function of `(model_tier, resolution)` —
-the only place pricing constants live in the repo. When Google updates pricing, update
-`lib/cost.ts` AND the table above AND its verification date stamp.
+Cost computation lives in `lib/cost.ts` as a function of `(model_tier, resolution,
+count)` via `costFor(tier, resolution, count)` (projected pre-Submit) and
+`costForCompletedIteration(tier, resolution, successfulTileCount)` (worker write to
+`usage_log`). It's the only place pricing constants live in the repo. When Google
+updates pricing, update `lib/cost.ts` AND the table above AND its verification date stamp.
 
 ### Cost shape under the session loop
 
-Flash is roughly half the price of Pro at the same resolution (not 3.4× cheaper as
-initially estimated — pricing was verified 2026-04-22 and corrected). A deep-iteration
-day on Pro 1K = 5 refreshes × $1.21 = ~$6 per source painting. With Flash for 3 early
-refreshes (~$1.81) and Pro 1K for 2 keeper passes (~$2.42), total ≈ $4.23 per source.
-The $80 cap supports ~13 all-Pro days, ~19 mixed days. Leave at $80; bump if needed.
+Flash is roughly half the price of Pro at the same resolution (verified 2026-04-22). A
+deep-iteration day on Pro 1K with the default 3-tile Submit = 5 generations × $0.40 =
+~$2 per source. With Flash for 3 early generations (~$0.60) and Pro 1K for 2 keeper
+passes (~$0.80), total ≈ $1.40 per source. The $80 cap supports many sources per day —
+plenty of headroom for the typical use pattern. Leave at $80; bump if needed.
 
 Canonical implementations:
-- `lib/gemini/imagePrompt.ts` — single shared prompt template.
+- `lib/gemini/imagePrompts.ts` — preset-aware prompt builder + `TILE_COUNT_DEFAULT` /
+  `TILE_COUNT_MAX` constants.
 - `lib/cost.ts` — (model_tier, resolution) → cost lookup; the only place pricing lives.
-Both used by `scripts/smoke.ts` and (in Prompt 3) by `lib/gemini/runIteration.ts`.
+Both used by `scripts/smoke.ts` and `lib/gemini/runIteration.ts`.
 
 ## 5. Prompt 3 build order is the contract
 

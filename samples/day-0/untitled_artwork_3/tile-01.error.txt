@@ -1,4 +1,0 @@
-[network retryable] fetch failed codes=[EPIPE, -32, write]
-  cause chain:
-    fetch failed
-    write EPIPE

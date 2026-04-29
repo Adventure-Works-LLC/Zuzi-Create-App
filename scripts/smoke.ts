@@ -1,10 +1,13 @@
 /**
  * Smoke run — full generation pipeline regression test.
  *
- * Per AGENTS.md §5 Tier C item 14: smoke now exercises the same code path the
+ * Per AGENTS.md §5 Tier C item 14: smoke exercises the same code path the
  * production worker uses. It:
  *   1. Pre-resizes the input via sharp (mirrors POST /api/sources).
- *   2. INSERTs a `sources` row + `iterations` row + 9 pending `tiles` rows.
+ *   2. INSERTs a `sources` row + `iterations` row + N pending `tiles` rows
+ *      (N = `--count`, default TILE_COUNT_DEFAULT). The iteration row also
+ *      carries the `--presets` array (JSON), which determines the prompt via
+ *      `lib/gemini/imagePrompts.ts buildPrompt()`.
  *   3. Calls `runIteration(iterationId)` directly — same worker the route handler
  *      fires fire-and-forget. Exercises Gemini calls, callWithRetry, R2 puts,
  *      recovery.jsonl appends, bus events, tile updates, usage_log writes.
@@ -14,12 +17,17 @@
  *   5. Prints wall time and recorded cost from usage_log.
  *
  * Flags:
- *   --model flash|pro     model tier (default: pro)
- *   --resolution 1k|4k    output resolution (default: 1k)
+ *   --model flash|pro       model tier (default: pro)
+ *   --resolution 1k|4k      output resolution (default: 1k)
+ *   --count <n>             tile count, 1..TILE_COUNT_MAX (default: TILE_COUNT_DEFAULT)
+ *   --presets a,b,c         comma-separated subset of color,composition,
+ *                           lighting,background. Empty = freeform "make this
+ *                           beautiful" (default).
  *
  * Run:
  *   node --env-file=.env --import tsx scripts/smoke.ts [path] [flags]
- *   npm run smoke -- [path] [--model flash|pro] [--resolution 1k|4k]
+ *   npm run smoke -- [path] [--model flash|pro] [--resolution 1k|4k] \\
+ *                    [--count 3] [--presets color,composition]
  */
 
 import { existsSync } from "node:fs";
@@ -37,15 +45,19 @@ import {
   monthlyUsageUsd,
   tilesFor,
 } from "../lib/db/queries";
-import { iterations, usage_log } from "../lib/db/schema";
+import { iterations, PRESETS, type Preset, usage_log } from "../lib/db/schema";
 import { eq } from "drizzle-orm";
 import {
   nearestSupportedAspectRatio,
   type SupportedAspectRatio,
 } from "../lib/gemini/aspectRatio";
 import { runIteration } from "../lib/gemini/runIteration";
+import {
+  TILE_COUNT_DEFAULT,
+  TILE_COUNT_MAX,
+} from "../lib/gemini/imagePrompts";
 import { getObject, putObject } from "../lib/storage/r2";
-import { pricePerImage, type ModelTier, type Resolution } from "../lib/cost";
+import { costFor, pricePerImage, type ModelTier, type Resolution } from "../lib/cost";
 
 const INPUTS_DIR = resolve("samples/inputs");
 const DAY0_DIR = resolve("samples/day-0");
@@ -56,13 +68,18 @@ interface ParsedArgs {
   inputArg: string | undefined;
   modelTier: ModelTier;
   resolution: Resolution;
+  count: number;
+  presets: Preset[];
 }
 
 function parseArgs(argv: string[]): ParsedArgs {
   const args = argv.slice(2);
   let modelTier: ModelTier = "pro";
   let resolution: Resolution = "1k";
+  let count: number = TILE_COUNT_DEFAULT;
+  let presets: Preset[] = [];
   const positional: string[] = [];
+  const allowedPresets = new Set<string>(PRESETS);
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     const grab = (name: string): string => {
@@ -88,12 +105,45 @@ function parseArgs(argv: string[]): ParsedArgs {
       resolution = v;
       continue;
     }
+    v = grab("--count");
+    if (v) {
+      const n = Number(v);
+      if (!Number.isInteger(n) || n < 1 || n > TILE_COUNT_MAX) {
+        throw new Error(`--count expects integer 1..${TILE_COUNT_MAX}, got: ${v}`);
+      }
+      count = n;
+      continue;
+    }
+    v = grab("--presets");
+    if (v) {
+      // Empty string explicitly means freeform.
+      if (v === "" || v === "none") {
+        presets = [];
+      } else {
+        const parts = v
+          .split(",")
+          .map((s) => s.trim())
+          .filter((s) => s.length > 0);
+        const seen = new Set<Preset>();
+        for (const p of parts) {
+          if (!allowedPresets.has(p)) {
+            throw new Error(
+              `--presets contains unknown value '${p}'. Allowed: ${PRESETS.join(",")}`,
+            );
+          }
+          seen.add(p as Preset);
+        }
+        // Stable canonical order, deduped — matches buildPrompt().
+        presets = PRESETS.filter((p) => seen.has(p));
+      }
+      continue;
+    }
     if (a.startsWith("-")) {
       throw new Error(`Unknown flag: ${a}`);
     }
     positional.push(a);
   }
-  return { inputArg: positional[0], modelTier, resolution };
+  return { inputArg: positional[0], modelTier, resolution, count, presets };
 }
 
 function isImageName(n: string): boolean {
@@ -132,18 +182,24 @@ function slug(name: string): string {
 }
 
 async function main() {
-  const { inputArg, modelTier, resolution } = parseArgs(process.argv);
+  const { inputArg, modelTier, resolution, count, presets } = parseArgs(
+    process.argv,
+  );
   const inputPath = await pickInput(inputArg);
   const sketchSlug = slug(basename(inputPath, extname(inputPath))) || "untitled";
   const outDir = join(DAY0_DIR, sketchSlug);
   await mkdir(outDir, { recursive: true });
 
+  const presetsLabel = presets.length === 0 ? "(freeform)" : presets.join(",");
+
   console.log("\n=== smoke run ===");
   console.log(`input:      ${inputPath}`);
   console.log(`output:     ${outDir}`);
   console.log(`model:      ${modelTier} ${resolution}`);
+  console.log(`count:      ${count}`);
+  console.log(`presets:    ${presetsLabel}`);
   console.log(
-    `est. cost:  $${(pricePerImage(modelTier, resolution) * 9).toFixed(2)} (9 images)`,
+    `est. cost:  $${costFor(modelTier, resolution, count).toFixed(3)} ($${pricePerImage(modelTier, resolution).toFixed(3)} × ${count})`,
   );
   console.log();
 
@@ -188,7 +244,7 @@ async function main() {
   });
   console.log(`  source row inserted (id=${sourceId})\n`);
 
-  // 3. Insert iteration + 9 pending tiles
+  // 3. Insert iteration + N pending tiles (N = count)
   const iterationId = ulid();
   const requestId = ulid(); // smoke generates its own
   const now = Date.now();
@@ -199,11 +255,13 @@ async function main() {
       source_id: sourceId,
       model_tier: modelTier,
       resolution,
+      tile_count: count,
+      presets: JSON.stringify(presets),
       status: "pending",
       created_at: now,
       completed_at: null,
     },
-    Array.from({ length: 9 }, (_, idx) => ({
+    Array.from({ length: count }, (_, idx) => ({
       id: ulid(),
       iteration_id: iterationId,
       idx,
@@ -218,7 +276,7 @@ async function main() {
     })),
   );
   console.log(
-    `iteration ${iterationId} created with 9 pending tiles\nfiring runIteration...\n`,
+    `iteration ${iterationId} created with ${count} pending tile${count === 1 ? "" : "s"}\nfiring runIteration...\n`,
   );
 
   // 4. Call the worker directly (same code path as POST /api/iterate)

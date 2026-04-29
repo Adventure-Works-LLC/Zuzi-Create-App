@@ -8,6 +8,13 @@
       "when": 1777432183035,
       "tag": "0000_windy_lightspeed",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1777465957654,
+      "tag": "0001_dusty_kronos",
+      "breakpoints": true
     }
   ]
 }

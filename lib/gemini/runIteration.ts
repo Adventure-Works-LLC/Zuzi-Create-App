@@ -2,9 +2,10 @@
  * The generation worker.
  *
  * Called fire-and-forget from `POST /api/iterate` (per AGENTS.md §5 Tier C item 9).
- * Reads the iteration row, fetches the source bytes from R2, fires 9 parallel image
- * calls (same prompt, temperature 1.0 default), writes outputs + thumbs to R2, appends
- * to recovery.jsonl, updates the tile row, emits to the bus.
+ * Reads the iteration row, fetches the source bytes from R2, fires `tile_count`
+ * parallel image calls (same prompt — built from `iter.presets` — temperature 1.0
+ * default), writes outputs + thumbs to R2, appends to recovery.jsonl, updates the tile
+ * row, emits to the bus.
  *
  * Recovery semantics: `appendRecovery` runs AFTER the R2 puts succeed and BEFORE the
  * tile row is updated. A crash in that window is recoverable from `recovery.jsonl` at
@@ -19,12 +20,13 @@ import { Buffer } from "node:buffer";
 import sharp from "sharp";
 
 import { genai, IMAGE_MODEL_FLASH, IMAGE_MODEL_PRO } from "./client";
-import { buildImagePrompt } from "./imagePrompt";
+import { buildPrompt } from "./imagePrompts";
 import { callWithRetry } from "./callWithRetry";
 import { extractImageBytes } from "./extract";
 import { classifyError } from "./errors";
 import * as bus from "../bus";
 import { costForCompletedIteration } from "../cost";
+import { PRESETS, type Preset } from "../db/schema";
 import {
   getIteration,
   getSource,
@@ -39,6 +41,30 @@ import { getObject, putObject } from "../storage/r2";
 const OUTPUT_JPEG_QUALITY = 90;
 const THUMB_LONG_EDGE_PX = 512;
 const THUMB_WEBP_QUALITY = 80;
+
+/**
+ * Parse the `iterations.presets` JSON column into a typed `Preset[]`.
+ *
+ * Defense-in-depth: the API route validates inputs, but we re-validate here so a
+ * malformed row (manual DB edit, bad migration, recovered backup) can't crash the
+ * worker. Anything unparseable or unknown is dropped silently — equivalent to
+ * "freeform" — which falls back to the make-this-beautiful prompt rather than
+ * failing the whole iteration. Logged so the issue surfaces in the worker tail.
+ */
+function parsePresets(raw: string, iterationId: string): Preset[] {
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    const allowed = new Set<string>(PRESETS);
+    return parsed.filter((p): p is Preset => typeof p === "string" && allowed.has(p));
+  } catch (e) {
+    console.warn(
+      `[runIteration ${iterationId}] presets JSON parse failed; falling back to freeform`,
+      e instanceof Error ? e.message : e,
+    );
+    return [];
+  }
+}
 
 interface TileRunResult {
   idx: number;
@@ -202,7 +228,8 @@ export async function runIteration(iterationId: string): Promise<void> {
   const modelId =
     iter.model_tier === "flash" ? IMAGE_MODEL_FLASH : IMAGE_MODEL_PRO;
   const aspectRatio = source.aspect_ratio;
-  const promptText = buildImagePrompt(aspectRatio);
+  const presets = parsePresets(iter.presets, iterationId);
+  const promptText = buildPrompt({ presets, aspectRatio });
 
   // Recovery rehydration — only matters for boot-time replays where the iteration row
   // already exists with pending tiles. Map by `(iter_id, idx)` is keyed for O(1) lookup.

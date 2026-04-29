@@ -64,35 +64,61 @@ What the prompt enforces (preserve everything except color):
 
 ### The session loop (primary product mechanic)
 
-A single session against one source painting:
+The product holds **3–10 sources in flight at once**. Sources are the primary unit;
+iterations belong to a source (FK `iterations.source_id`). The Studio shows a horizontal
+**source strip** of active (non-archived) thumbnails; tap a source to make it current;
+Generate / Refresh fire against the current source.
 
-  1. Upload (or use existing) source painting.
-  2. **Generate** → 9 parallel calls fire, 9 tiles stream in.
-  3. Zuzi favorites 0–3 keepers (long-press a tile, or heart icon corner-tap, or favorite
-     button in the lightbox).
+A typical day:
+
+  1. Upload (or pick an existing source from the strip). Upload creates a `sources` row
+     and selects it as current.
+  2. **Generate** → 9 parallel calls fire against the current source, 9 tiles stream in.
+  3. Zuzi favorites 0–3 keepers (long-press a tile, or heart in the lightbox).
   4. Tap **Refresh / Generate again** → another 9 parallel calls fire against the SAME
-     source, same prompt. New `iterations` row, new 9 tiles, model produces different
-     results.
-  5. Repeat 4–5 cycles, accumulating favorites.
-  6. End with a curated shortlist of ~5–15 favorited tiles she can compare side-by-side
-     in the lightbox (2-up or 4-up).
+     source. New `iterations` row, same `source_id`. Different outputs.
+  5. Repeat 4–5 cycles per source, accumulating favorites.
+  6. Switch to a different source in the strip. Repeat. Each source carries its own
+     iteration history; favorites cross all of them.
+  7. End-of-day: curated shortlist of favorites she can compare side-by-side in the
+     lightbox (swipe between, 2-up, or 4-up).
 
-**Favorites are primary, not a "Saved tab" afterthought.** The favorite affordance lives
-both on the grid (persistent visual mark — accent ring or filled heart on the tile) and
-in the lightbox (large heart toggle in the toolbar). The History Drawer has a
-**Favorites filter** at the top, plus a **This Source filter** that scopes to all runs
-against the current input painting. Together those two filters are the "Trail" — there
-is no separate Trail ribbon UI.
+**Sources can be archived** (soft delete via `sources.archived_at`). Archived sources
+disappear from the active strip but their favorited tiles still appear in the global
+Favorites view. This is how the strip stays uncluttered while preserving the long
+history. There is no hard delete of sources in v1.
 
-**Refresh is a primary action**, equal weight with the original Generate button after the
-first generation has landed. Same source, same prompt, new `iterations` row sharing the
-same `input_image_key`. This shape lets the History Drawer show "5 runs against this
-source, 47 total tiles, 8 favorited."
+**Favorites are load-bearing, not a "Saved tab" afterthought.** The favorite
+affordance lives on the grid (long-press or corner heart), in the lightbox (large
+heart toggle), and the global Favorites view crosses all sources (active + archived).
+The History Drawer has a **Favorites filter** at the top, plus a **This Source
+filter** that scopes to runs against the current source. Together those two filters
+replace the in-session Trail ribbon — there is no separate Trail UI.
 
-**Lightbox 2-up / 4-up compare** is in v1 scope. Artists pick by comparing, not by
-looking at one tile in isolation. v1 implementation: when filtered to favorites in the
-History Drawer, tapping a favorite opens the lightbox in compare mode — swipe between
-favorites only, with the source image pinned at the top of the screen.
+**Refresh is a primary action**, equal weight with the initial Generate button after
+the first generation against a source has landed.
+
+### CompareLightbox is load-bearing
+
+This is the surface where Zuzi actually picks. Per her own framing, it's "the reason I
+favorite in the first place." v1 must ship at minimum:
+  1. **Swipe between favorites** in lightbox (filtered to favorites-only mode).
+  2. **2-up side-by-side** for direct A/B comparison.
+
+4-up grid view is nice-to-have; not a blocker for v1 ship but should land before any
+public mention of the tool.
+
+### Save to camera roll via Web Share API
+
+Favorites need to leave the app. The Lightbox toolbar has a **Share** button that
+invokes `navigator.share({ files: [File] })`. On iOS this opens the native share sheet
+which natively includes "Save Image" alongside AirDrop, Messages, and her other
+configured targets. Cleaner than a download link with `Content-Disposition: attachment`
+because it inherits the OS's full target list.
+
+Fallback for browsers without Web Share API support: render the image, let her
+long-press → Save Image manually (iOS Safari supports this on any `<img>` regardless of
+Web Share availability — graceful degradation, no extra UI required).
 
 ### No human gate in production
 

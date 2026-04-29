@@ -90,7 +90,7 @@ async function runOneTile(
   try {
     const resp = await callWithRetry(
       () =>
-        genai.models.generateContent({
+        genai().models.generateContent({
           model: modelId,
           contents: [
             {

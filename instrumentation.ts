@@ -34,10 +34,14 @@ export async function register(): Promise<void> {
   // 1) Migrations FIRST. The boot sweep below assumes the schema is current.
   if (process.env.SKIP_MIGRATIONS !== "1") {
     try {
-      const { resolve } = await import("node:path");
       const { migrate } = await import("drizzle-orm/better-sqlite3/migrator");
       const { db } = await import("./lib/db/client");
-      const migrationsFolder = resolve("./drizzle");
+      // Compute the migrations folder without `node:path`. Turbopack's static
+      // analyzer flags any `node:`-prefixed import as Edge-incompatible even
+      // when it's behind a runtime gate, producing a build warning. Plain
+      // string concat works the same; cwd is /app inside the Docker runner
+      // and the standalone server runs from there.
+      const migrationsFolder = `${process.cwd()}/drizzle`;
       // db() returns a typed BetterSQLite3Database<schema>; the migrator
       // accepts any drizzle-orm-better-sqlite3 instance. The schema generic
       // doesn't affect runtime behavior; cast keeps types calm.

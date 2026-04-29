@@ -1,0 +1,68 @@
+# Build context filter for the multi-stage Dockerfile.
+#
+# Anything matched here is NOT copied into the builder stage. Goal: keep
+# build context small (faster `docker build`, less I/O over Railway's tar
+# stream) and prevent local-only state from contaminating the image.
+#
+# This complements (not replaces) `outputFileTracingExcludes` in
+# next.config.ts — that controls what `next build` traces; this controls
+# what arrives at the build stage in the first place.
+
+# Local install tree — Dockerfile runs `npm ci` fresh inside the builder.
+node_modules
+
+# Stale local Next builds — Dockerfile runs `next build` fresh.
+.next
+
+# Local SQLite DB, WAL files, recovery.jsonl. Production uses Railway
+# Volume mount; nothing under data/ should ever ship.
+data
+
+# Zuzi's source paintings (her IP, see top-level .gitignore line 49).
+# Already gitignored, but redundant defense.
+samples/inputs
+
+# Day-0 regression baselines — not needed at runtime; smoke runs are
+# dev-only.
+samples/day-0
+samples/day-0-*
+
+# Agent worktrees and any /tmp scratch.
+.claude
+tmp
+
+# Backups
+backups
+
+# Env files. Secrets live in Railway env vars; .env.example documents the
+# shape and is fine to ship if anyone wants it (but kept out for parity
+# with .gitignore).
+.env
+.env.*
+
+# Build / dev logs.
+*.log
+npm-debug.log*
+.pnpm-debug.log*
+
+# Git history — RAILWAY_GIT_COMMIT_SHA is passed as a build ARG, so the
+# stamper doesn't need .git inside the container. Removing .git cuts a
+# meaningful chunk of context size.
+.git
+.github
+
+# Editor / OS noise.
+.vscode
+.idea
+.DS_Store
+*.tsbuildinfo
+next-env.d.ts
+
+# Documentation isn't required at runtime.
+README.md
+docs
+
+# The Dockerfile and .dockerignore themselves don't need to be inside
+# the build context.
+Dockerfile
+.dockerignore

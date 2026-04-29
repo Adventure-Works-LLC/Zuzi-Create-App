@@ -6,12 +6,14 @@
     "node": "22.x"
   },
   "scripts": {
+    "predev": "npm run stamp:sw",
     "dev": "next dev --turbo",
-    "build": "npm run check:prompts && next build",
+    "build": "npm run check:prompts && npm run stamp:sw && next build",
     "start": "npm run db:migrate && next start -p 8080",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "check:prompts": "node --import tsx scripts/check-prompts.ts",
+    "stamp:sw": "node --import tsx scripts/stamp-sw.ts",
     "smoke": "node --env-file=.env --import tsx scripts/smoke.ts",
     "hash-password": "node --import tsx scripts/hash-password.ts",
     "db:generate": "drizzle-kit generate",

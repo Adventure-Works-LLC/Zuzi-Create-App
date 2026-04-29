@@ -54,6 +54,25 @@ export type ModelTier = "flash" | "pro";
 export type Resolution = "1k" | "4k";
 export type IterationStatus = "pending" | "running" | "done" | "failed";
 
+/** Free-floating tile + its iteration metadata, used when the lightbox is
+ *  opened from outside the current source's iteration stream (FavoritesPanel
+ *  cross-source view). Carries everything the Lightbox component reads. */
+export interface LightboxSnapshot {
+  tileId: string;
+  iterationId: string;
+  idx: number;
+  outputKey: string | null;
+  thumbKey: string | null;
+  isFavorite: boolean;
+  favoritedAt: number | null;
+  /** From `sources.aspect_ratio` of whichever source produced the tile —
+   *  used by the Lightbox to render at correct aspect, and by Use-as-source
+   *  if the user wants to fork from this favorite. */
+  sourceAspectRatio: string;
+  modelTier: ModelTier;
+  resolution: Resolution;
+}
+
 export interface Iteration {
   id: string;
   sourceId: string;
@@ -111,8 +130,24 @@ interface CanvasState {
   setCount: (count: number) => void;
 
   // ---- lightbox ----
+  // Two open-modes:
+  //   1. by-id (tileId): tile is somewhere in the current source's
+  //      iterations[]. Lightbox walks the array to find it. Live-updates
+  //      when the iteration's state changes (favorite toggled, SSE event).
+  //   2. snapshot: tile lives outside the current source's iterations[]
+  //      — typically a favorite from an archived source whose iterations
+  //      were never loaded. Lightbox reads the snapshot directly. Used
+  //      from FavoritesPanel; the panel may be from any source (active or
+  //      archived) that the user has ever favorited from.
+  // Setting either clears the other; the close button clears both.
   lightboxTileId: string | null;
+  lightboxSnapshot: LightboxSnapshot | null;
   setLightboxTile: (tileId: string | null) => void;
+  setLightboxSnapshot: (snapshot: LightboxSnapshot | null) => void;
+  /** Optimistically flip favorite state on the current snapshot (when set).
+   * Hooks/useFavorites calls this so the heart in a cross-source lightbox
+   * tracks state without us needing to round-trip through iterations[]. */
+  setLightboxSnapshotFavorite: (isFavorite: boolean, favoritedAt: number | null) => void;
 
   // ---- favorites panel ----
   favoritesOpen: boolean;
@@ -192,6 +227,14 @@ export const useCanvas = create<CanvasState>((set) => ({
           t.id === tileId ? { ...t, isFavorite, favoritedAt } : t,
         ),
       })),
+      // Mirror the toggle into the lightbox snapshot if it's the same tile.
+      // For cross-source favorites (snapshot mode), iterations[] doesn't
+      // contain this tile, so the array map above is a no-op and the heart
+      // in the lightbox stays stale without this branch.
+      lightboxSnapshot:
+        s.lightboxSnapshot && s.lightboxSnapshot.tileId === tileId
+          ? { ...s.lightboxSnapshot, isFavorite, favoritedAt }
+          : s.lightboxSnapshot,
     })),
 
   // ---- input-bar settings ----
@@ -211,7 +254,20 @@ export const useCanvas = create<CanvasState>((set) => ({
 
   // ---- lightbox ----
   lightboxTileId: null,
-  setLightboxTile: (tileId) => set({ lightboxTileId: tileId }),
+  lightboxSnapshot: null,
+  // Setting either mode clears the other so we never have an ambiguous state.
+  // Closing (`setLightboxTile(null)` from the close button) clears both, so
+  // a snapshot opened from FavoritesPanel closes cleanly.
+  setLightboxTile: (tileId) =>
+    set({ lightboxTileId: tileId, lightboxSnapshot: null }),
+  setLightboxSnapshot: (snapshot) =>
+    set({ lightboxSnapshot: snapshot, lightboxTileId: null }),
+  setLightboxSnapshotFavorite: (isFavorite, favoritedAt) =>
+    set((s) =>
+      s.lightboxSnapshot
+        ? { lightboxSnapshot: { ...s.lightboxSnapshot, isFavorite, favoritedAt } }
+        : {},
+    ),
 
   // ---- favorites panel ----
   favoritesOpen: false,

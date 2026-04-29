@@ -65,6 +65,7 @@ function FavoriteThumb({ favorite }: { favorite: FavoriteRow }) {
 export function FavoritesPanel() {
   const open = useCanvas((s) => s.favoritesOpen);
   const setOpen = useCanvas((s) => s.setFavoritesOpen);
+  const setLightboxSnapshot = useCanvas((s) => s.setLightboxSnapshot);
 
   const [loading, setLoading] = useState(false);
   const [favorites, setFavorites] = useState<FavoriteRow[]>([]);
@@ -162,16 +163,34 @@ export function FavoritesPanel() {
                   key={fav.tileId}
                   type="button"
                   onClick={() => {
-                    // Closes the panel; the tile stream / lightbox don't
-                    // currently subscribe to cross-source favorites for opening
-                    // tiles — clicking just dismisses for now. A v2 polish
-                    // pass can wire a "preview this favorite" path, but per
-                    // the plan the cross-source open lives in
-                    // CompareLightbox.
-                    setOpen(false);
+                    // Open the cross-source lightbox in snapshot mode.
+                    // The favorite may belong to an archived source whose
+                    // iterations[] was never loaded into the canvas store, so
+                    // we hand the Lightbox the full tile shape directly
+                    // instead of asking it to walk iterations[] (which would
+                    // miss). The panel stays mounted behind (z-40 vs Lightbox
+                    // z-50) so closing the lightbox returns the user to the
+                    // grid they were browsing.
+                    setLightboxSnapshot({
+                      tileId: fav.tileId,
+                      iterationId: fav.iterationId,
+                      // idx isn't surfaced in the Lightbox UI for cross-source
+                      // opens (the filename built for share / use-as-source
+                      // uses iterationId + idx; 0 is fine — there's no
+                      // collision risk since iterationId is unique per run).
+                      idx: 0,
+                      outputKey: fav.outputKey,
+                      thumbKey: fav.thumbKey,
+                      // Anything in this list is favorited by definition.
+                      isFavorite: true,
+                      favoritedAt: fav.favoritedAt,
+                      sourceAspectRatio: fav.sourceAspectRatio,
+                      modelTier: fav.modelTier,
+                      resolution: fav.resolution,
+                    });
                   }}
                   className="block focus:outline-none focus:ring-2 focus:ring-accent rounded-md no-callout"
-                  aria-label="Favorite tile"
+                  aria-label="Open favorite"
                 >
                   <FavoriteThumb favorite={fav} />
                 </button>

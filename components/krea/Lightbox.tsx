@@ -29,39 +29,90 @@ import { useFavorites } from "@/hooks/useFavorites";
 import { useShare } from "@/hooks/useShare";
 import { useSources } from "@/hooks/useSources";
 
+/** Flat view used by the rendering layer regardless of how the lightbox was
+ *  opened. `byId` mode (Tile.tsx → walk iterations[]) and `snapshot` mode
+ *  (FavoritesPanel.tsx → cross-source) both resolve to this shape. */
+interface LightboxView {
+  tileId: string;
+  iterationId: string;
+  idx: number;
+  outputKey: string | null;
+  isFavorite: boolean;
+}
+
 export function Lightbox() {
   const lightboxTileId = useCanvas((s) => s.lightboxTileId);
+  const lightboxSnapshot = useCanvas((s) => s.lightboxSnapshot);
   const setLightboxTile = useCanvas((s) => s.setLightboxTile);
+  const setLightboxSnapshot = useCanvas((s) => s.setLightboxSnapshot);
   const iterations = useCanvas((s) => s.iterations);
 
-  // Find the tile across iterations (the lightbox can be opened from any
-  // iteration in the current source's stream).
-  const tile = (() => {
-    for (const it of iterations) {
-      const t = it.tiles.find((x) => x.id === lightboxTileId);
-      if (t) return { iter: it, tile: t };
+  const isOpen = lightboxTileId !== null || lightboxSnapshot !== null;
+
+  // Resolve the open target into a flat view.
+  //
+  // Prefer the snapshot when set: FavoritesPanel uses it for cross-source
+  // tiles (the favorited tile may be from an archived source whose
+  // iterations[] was never loaded into the store; walking iterations[] would
+  // return null and the lightbox would render empty).
+  //
+  // Fall back to the iterations[] walk for the by-id path used by Tile.tsx
+  // taps within the current source's stream. That path supports live
+  // updates — when a tile state changes (favorite toggled, SSE event), the
+  // selector re-runs and the lightbox re-renders against fresh state.
+  const view: LightboxView | null = (() => {
+    if (lightboxSnapshot) {
+      return {
+        tileId: lightboxSnapshot.tileId,
+        iterationId: lightboxSnapshot.iterationId,
+        idx: lightboxSnapshot.idx,
+        outputKey: lightboxSnapshot.outputKey,
+        isFavorite: lightboxSnapshot.isFavorite,
+      };
+    }
+    if (lightboxTileId !== null) {
+      for (const it of iterations) {
+        const t = it.tiles.find((x) => x.id === lightboxTileId);
+        if (t) {
+          return {
+            tileId: t.id,
+            iterationId: it.id,
+            idx: t.idx,
+            outputKey: t.outputKey,
+            isFavorite: t.isFavorite,
+          };
+        }
+      }
     }
     return null;
   })();
 
-  const fullKey = tile?.tile.outputKey ?? null;
+  const fullKey = view?.outputKey ?? null;
   const { url } = useImageUrl(fullKey);
   const { toggle } = useFavorites();
   const { canShare, shareImage } = useShare();
   const { uploadFile } = useSources();
   const [busyAction, setBusyAction] = useState<"share" | "use" | null>(null);
 
+  /** Close clears both state slots. Either mode can have been the opener. */
+  const closeLightbox = () => {
+    setLightboxTile(null);
+    setLightboxSnapshot(null);
+  };
+
   // Esc-to-close.
   useEffect(() => {
-    if (!lightboxTileId) return;
+    if (!isOpen) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setLightboxTile(null);
+      if (e.key === "Escape") closeLightbox();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [lightboxTileId, setLightboxTile]);
+    // closeLightbox is stable per-render; Esc handler doesn't depend on view content.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
 
-  if (!lightboxTileId || !tile) return null;
+  if (!view) return null;
 
   const onShare = async () => {
     if (!url) return;
@@ -69,7 +120,7 @@ export function Lightbox() {
     try {
       await shareImage({
         url,
-        filename: `zuzi-${tile.iter.id}-${tile.tile.idx + 1}.jpg`,
+        filename: `zuzi-${view.iterationId}-${view.idx + 1}.jpg`,
         title: "Zuzi Studio",
       });
     } finally {
@@ -86,11 +137,11 @@ export function Lightbox() {
       const blob = await resp.blob();
       const file = new File(
         [blob],
-        `zuzi-${tile.iter.id}-${tile.tile.idx + 1}.jpg`,
+        `zuzi-${view.iterationId}-${view.idx + 1}.jpg`,
         { type: blob.type || "image/jpeg" },
       );
       await uploadFile(file);
-      setLightboxTile(null);
+      closeLightbox();
     } catch (e) {
       console.warn("[lightbox] use-as-source failed", e);
     } finally {
@@ -99,8 +150,8 @@ export function Lightbox() {
   };
 
   const onFavorite = () => {
-    if (tile.tile.id.startsWith("opt-")) return;
-    void toggle(tile.tile.id, !tile.tile.isFavorite);
+    if (view.tileId.startsWith("opt-")) return;
+    void toggle(view.tileId, !view.isFavorite);
   };
 
   return (
@@ -110,7 +161,7 @@ export function Lightbox() {
       className="fixed inset-0 z-50 flex flex-col bg-black/95"
       onClick={(e) => {
         // Click outside the inner image / toolbar closes.
-        if (e.target === e.currentTarget) setLightboxTile(null);
+        if (e.target === e.currentTarget) closeLightbox();
       }}
     >
       {/* Image area.
@@ -125,7 +176,7 @@ export function Lightbox() {
       <div
         className="flex min-h-0 flex-1 items-center justify-center p-6"
         onClick={(e) => {
-          if (e.target === e.currentTarget) setLightboxTile(null);
+          if (e.target === e.currentTarget) closeLightbox();
         }}
       >
         {url ? (
@@ -178,28 +229,28 @@ export function Lightbox() {
         <button
           type="button"
           onClick={onFavorite}
-          disabled={tile.tile.id.startsWith("opt-")}
+          disabled={view.tileId.startsWith("opt-")}
           className={[
             "inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm transition-colors no-callout",
-            tile.tile.isFavorite
+            view.isFavorite
               ? "border-[#C9A878]/50 bg-[#C9A878]/15 text-[#E0BE8C]"
               : "border-white/20 bg-white/5 text-white hover:bg-white/10",
             "disabled:opacity-50",
           ].join(" ")}
-          aria-pressed={tile.tile.isFavorite}
+          aria-pressed={view.isFavorite}
         >
           <Star
             className={[
               "h-4 w-4",
-              tile.tile.isFavorite ? "fill-current" : "fill-none",
+              view.isFavorite ? "fill-current" : "fill-none",
             ].join(" ")}
             strokeWidth={1.75}
           />
-          {tile.tile.isFavorite ? "Favorited" : "Favorite"}
+          {view.isFavorite ? "Favorited" : "Favorite"}
         </button>
         <button
           type="button"
-          onClick={() => setLightboxTile(null)}
+          onClick={closeLightbox}
           className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/5 px-4 py-2 text-sm text-white hover:bg-white/10 transition-colors no-callout"
         >
           <X className="h-4 w-4" strokeWidth={1.5} />

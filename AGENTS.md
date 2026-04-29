@@ -369,4 +369,279 @@ every `$` in `.env`:
 Railway sealed env vars do NOT need escaping (Railway doesn't run dotenv-expand).
 `scripts/hash-password.ts` emits both forms — bare hash to stdout (Railway), escaped form
 to stderr (local `.env`). When generating a new hash, paste from the right stream.
+
+## 8. Build & deploy infrastructure
+
+The deploy path is non-obvious enough that getting it wrong has already broken
+production once and almost broken it three more times. Pin the rules here.
+
+### Railway uses our Dockerfile, not Railpack
+
+Repo-root `Dockerfile` overrides Railway's Railpack auto-detection. **Don't
+delete the Dockerfile.** Railpack's auto-deploy for a Next.js project ships
+the entire post-build `/app` (sources + node_modules with devDependencies +
+both `.next/` and `.next/standalone/`) as a ~276MB image. The whole point of
+`output: 'standalone'` is to deploy ONLY the lean subset onto a fresh runtime
+base; that requires an explicit two-stage Docker build.
+
+Other implicit Railway behaviors that bit us:
+  - **Railpack silently injects Railway env vars into the build container.**
+    Our explicit Dockerfile does NOT (and shouldn't — build args end up cached
+    in image layers and visible to anyone who can pull the image; runtime
+    secrets belong in the runner stage's environment, not the build's).
+    Module-load-time env reads were latent under Railpack and broke under
+    the Dockerfile — see §9 below.
+  - **Railway's Start Command in the dashboard overrides Dockerfile `CMD`.**
+    Both must agree. Today both run `node server.js` (CMD relative to
+    WORKDIR `/app`; package.json `"start"` relative to runner cwd which is
+    also `/app`). If you change one, change the other.
+  - **Railway's Volume at `/data` is mounted root:root.** The runner stage
+    runs as root for that reason — see §8.4 below.
+
+### Multi-stage standalone pattern (what the Dockerfile does)
+
+Builder stage on `node:22-alpine`:
+  - `apk add python3 make g++ libc6-compat` — native module compile prereqs
+    (better-sqlite3 build, sharp prebuild fallback).
+  - `npm ci` — full deps incl. devDeps. Needed for the build chain (tsx for
+    check:prompts and stamp:sw, drizzle-kit if anyone runs it inside, etc.).
+  - `ARG RAILWAY_GIT_COMMIT_SHA` → `ENV` so `scripts/stamp-sw.ts` substitutes
+    it into the SW.
+  - `RUN npm run build` runs the full chain documented in §10.
+
+Runner stage on a fresh `node:22-alpine`:
+  - `apk add libc6-compat` — runtime shim for prebuilt Linux binaries.
+  - `COPY --from=builder /app/.next/standalone ./` unpacks the standalone
+    contents directly into `/app/`. Important: the contents land at `/app/`,
+    NOT at `/app/.next/standalone/`. Server.js is at `/app/server.js`.
+  - `CMD ["node", "server.js"]`.
+
+Final image ~80–110MB (alpine base + libc6-compat + ~47MB standalone tree).
+
+### `outputFileTracingIncludes` + the writeStandaloneDirectory env-copy gotcha
+
+`next.config.ts`:
+  - `outputFileTracingIncludes: { "/": ["./drizzle/**/*"] }` forces SQL
+    migration files into the standalone bundle. They're read at runtime by
+    the migrator but aren't in the JS module graph, so the tracer wouldn't
+    see them otherwise.
+  - `outputFileTracingExcludes` lists `data/`, `samples/`, `.claude/`, `tmp/`
+    defensively. Pattern matching is fiddly across Next versions; combine
+    with an explicit scrub in `scripts/setup-standalone.mjs`.
+
+The big surprise: **Next 16's `writeStandaloneDirectory` hardcodes a copy of
+`.env` and `.env.production` into `.next/standalone/`** regardless of what
+config you set. Production is unaffected (the Dockerfile builder context
+excludes `.env*` via `.dockerignore`, so there's no `.env` to copy). But
+**local `npm run build` produces `.next/standalone/.env` containing live
+secrets.** The scrub in `setup-standalone.mjs` handles this — keep it
+working if you ever rewrite that script.
+
+### Run as root in the runner stage
+
+The runner stage has NO `USER` directive. The container runs as root.
+
+Reasons:
+  - Railway's Volume mount at `/data` is `root:root`. SQLite needs write
+    access to BOTH the .db file AND its parent directory (for WAL/SHM
+    sidecar files). A non-root user gets "attempt to write a readonly
+    database" on the first write — manifested originally as a `[boot] sweep
+    failed` log line because migrations were a no-op (schema already current
+    from prior root-uid deploys) so the readonly error fired in the first
+    real write.
+  - Can't `chmod` `/data` from a startup hook because only root can chmod a
+    root-owned dir, and once we're running as root the original "drop
+    privileges" reason is gone.
+  - Can't move SQLite off `/data` because `/data` is the only persistent
+    path on Railway.
+
+Threat model: single-tenant Railway service, password-gated, one process per
+container. The trust boundary is the container, not the in-container user.
+
+### Build chain + local verification
+
+`npm run build` is `check:prompts && stamp:sw && next build && setup-
+standalone.mjs`. Each step gates the next:
+  - `check:prompts` (§10) fails → prompt regression detected; stop.
+  - `stamp:sw` writes `public/sw.js` with the deploy SHA (§9).
+  - `next build` produces `.next/standalone/`.
+  - `setup-standalone.mjs` copies `.next/static/` and `public/` into the
+    standalone tree (Next deliberately doesn't auto-copy these), and scrubs
+    `data/`, `samples/`, `tmp/`, and any `.env*` that snuck in.
+
+To simulate the Docker builder's environment locally (no env vars at all,
+clean shell):
+
+```
+env -i HOME=$HOME PATH=$PATH NEXT_TELEMETRY_DISABLED=1 npx next build
+```
+
+If this fails, the Docker build will fail. If it passes, the Docker build
+will pass for the same reasons. Use this to test any change touching
+module-load-time code.
+
+To simulate the runner stage's filesystem layout locally (after a build):
+
+```
+cd .next/standalone && DATABASE_URL=file:/tmp/test.db SESSION_SECRET=... npm start
+```
+
+Or from repo root: `npm run start:standalone` does the equivalent.
+
+## 9. Module-load-time hygiene (preventing build-time crashes)
+
+Next's page-data collection imports every Route Handler module during build.
+**Anything at top level (module scope, not inside a function) that requires
+runtime env vars or external resources will crash the build.** This is what
+broke commit `1769582`'s deploy: `lib/gemini/client.ts` had a top-level
+`if (!process.env.GEMINI_API_KEY) throw …` and a top-level `new GoogleGenAI(…)`.
+Under Railpack auto-detection the env was silently injected into the build
+container, masking the bug; under the explicit Dockerfile it surfaced.
+
+### The pattern
+
+Use a lazy singleton with a getter function:
+
+```ts
+let _client: SomeSDK | null = null;
+export function getClient(): SomeSDK {
+  if (_client) return _client;
+  const key = process.env.SOME_KEY;
+  if (!key) throw new Error("SOME_KEY missing. ...");
+  _client = new SomeSDK({ key });
+  return _client;
+}
+```
+
+Module-load is a no-op. Errors fire only at the first call site, which is
+always inside a request handler, the worker, or a script — all of which
+run after env is loaded.
+
+### Existing examples (audit them when adding similar code)
+
+  - `lib/storage/r2.ts` — `let _client = null; function client() { ... }`
+  - `lib/db/client.ts` — `init()` deferred from `db()` / `sqlite()` getters
+  - `lib/gemini/client.ts` — `genai()` getter (the most recent convert)
+  - `lib/auth/session.ts` — env read inside `sessionOptions()` called from
+    `getSession()`
+  - `lib/auth/password.ts` — env read inside `verifyPassword()`
+  - `lib/recovery.ts` — env read inside `recoveryPath()`
+
+### Anti-patterns (causes a build crash)
+
+  - `if (!process.env.X) throw new Error(...)` at top level
+  - `export const client = new SomeSDK({ apiKey: process.env.X })` at top
+    level
+  - `const COMPUTED = doSomethingWithEnv()` at top level if `do…` reads
+    env without a default
+
+Default fallbacks (`process.env.X ?? "fallback"`) are fine at top level —
+they don't throw. Validation that requires the value to be set must move
+inside the getter.
+
+When you add a new client / external SDK / env-derived constant, audit its
+import chain against this rule. The build-time check `npm run build` from
+a no-env shell (§8.5) will catch violations.
+
+## 10. Build-time prompt regression guard
+
+`scripts/check-prompts.ts` runs as the first step of `npm run build`. It:
+  1. Renders all 16 preset combinations × 4 representative aspect ratios
+     and asserts each produces a non-empty string with the literal aspect
+     ratio interpolated into the canonical sentence.
+  2. Runs 9 canary substring checks against the locked prompt bodies —
+     opening sentences and load-bearing anchors:
+       - v0 freeform: `"Reimagine it with new colors"`
+       - Ambiance v8: opens `"Continue this painting in the same style…"`
+         and contains `"HER style"`
+       - Background v3: opens `"This painting needs a different background
+         environment."` and contains `"AI-illustration finish"`
+       - Color frozen body: `"Reimagine the colors and palette"`
+  3. Verifies dominator routing — `['color','ambiance']` → Ambiance,
+     `['lighting','background']` → Background, all-four → Ambiance.
+
+Why this exists: commit `088b3f9` locked Ambiance v8, **the Railway build
+silently failed**, the next successful deploy carried v8 along but for
+several hours production served the prior v1-style Ambiance. A green build
+log alone is no longer a sufficient signal that the locked prompts are
+actually shipping. The guard fails the build (exit 1, skipping `next build`)
+if anything regresses, so a deploy that gets past it has prompts intact.
+
+**If you change a locked prompt body, update the matching canary string in
+`scripts/check-prompts.ts` in lockstep.** That double-edit is the lock —
+making the canary update explicit prevents silent paraphrase. See
+`docs/PROMPT_LESSONS.md` for the iteration history of each locked body.
+
+## 11. Service worker — iteration-phase caching strategy
+
+`scripts/sw-template.js` → stamped at build time by `scripts/stamp-sw.ts`
+into `public/sw.js`. Strategy:
+
+  - **HTML navigations** → not intercepted (browser network-first, no cache
+    fallback). `/login`, `/`, every page always hits fresh. Stale code on
+    iPad PWA was the original pain.
+  - **`/api/*`** → not intercepted. Always network.
+  - **`/_next/static/*`** → cache-first. Next content-hashes filenames so
+    URL identity == content identity; cache hits are always for the right
+    bundle.
+  - **`/public/*` static assets** (icons, splash, manifest) → stale-while-
+    revalidate. Instant load + background update.
+  - **On `activate`** → `clients.claim()` (open PWA tabs adopt the new SW
+    immediately) and DELETE every cache that doesn't carry the current
+    `VERSION_TAG`. This is what makes iPad PWA tabs pick up new deploys
+    without manual home-screen icon clear.
+  - **`VERSION_TAG`** = `zuzi-v1-<RAILWAY_GIT_COMMIT_SHA[:12]>`. Per-deploy
+    cache namespace, no collisions across deploys.
+
+`PwaRegister.tsx` registers the SW only in `NODE_ENV=production`. Dev mode
+serves `/_next/*` URLs without content hashes (they change on every HMR
+rebuild), so cache-first behavior would silently break HMR.
+
+**Watch-out**: the SW cache invalidation depends on Railway passing
+`RAILWAY_GIT_COMMIT_SHA` as a `--build-arg` to `docker build`. If it
+doesn't, `stamp-sw.ts` falls back to `git rev-parse HEAD` (which fails
+because `.git` is excluded from the Docker build context) and ultimately
+to the literal string `"dev"`. Every deploy then stamps the same cache key
+and the SW stops invalidating. Verify after a deploy by inspecting the
+deployed `/sw.js` and confirming `BUILD_SHA` matches the deploy SHA.
+
+When the project exits iteration phase and ships to a real user base, this
+strategy can be relaxed (HTML SWR with short TTL, etc.) — but until then,
+correctness > performance and stale code is unacceptable.
+
+## 12. Tile-width invariant — viewport-driven, not count-driven
+
+`components/krea/IterationRow.tsx`. Tile width is determined by VIEWPORT,
+NEVER by tile count. Generating 1 tile renders one tile at canonical width
+with empty space to its right; generating 3 fills the row at the same width;
+generating more wraps at the same width. **Do not** use `grid-cols-1` /
+`grid-cols-2` / `grid-cols-3` based on count — that stretches a 1-tile run
+into a banner.
+
+Single CSS clamp covers all iPad targets:
+
+```ts
+width: "clamp(218px, calc((100vw - 88px) / 3), 358px)"
+```
+
+Math: `88 = 64` (px-8 padding × 2) `+ 24` (two 12px gaps between three
+tiles). The 218px floor keeps 3-up working on iPad mini portrait (744 wide
+viewport, ~680 inner; 3*218+24 = 678 fits with 2px to spare). The 358px
+ceiling caps at the max width that fits 3-up inside the TileStream's
+`max-w-[1100px]` container (3*358+24 = 1098 ≤ 1100). 360 overflows by 4px
+and wraps the third tile to row 2 — verified empirically. Do not bump.
+
+Inline `style` attribute, not a Tailwind arbitrary-value class — nested
+calc() inside clamp() inside `w-[...]` trips the JIT in Tailwind 4.
+
+## 13. When changing this file
+
+  - If you're adding a new architectural contract: add a numbered section
+    at the bottom. Keep each section focused on one durable rule.
+  - If you're updating an existing section: keep the cross-references intact
+    (search for `§N` and `docs/...md` and verify the linked content still
+    matches).
+  - The file lives behind `CLAUDE.md` (which is `@AGENTS.md`). Updating
+    AGENTS.md updates what every Claude session in this repo sees as
+    project instructions. Treat changes here as load-bearing.
 <!-- END:zuzi-studio-guardrails -->

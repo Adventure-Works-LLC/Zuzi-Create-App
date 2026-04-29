@@ -25,18 +25,46 @@ import {
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
+/**
+ * Read an R2 env var and validate its shape.
+ *
+ * Railway dashboard pastes commonly include trailing newlines or surrounding
+ * whitespace, which silently produce malformed TLS SNI hostnames (e.g.
+ * `<account>\n.r2.cloudflarestorage.com`) that Cloudflare rejects with TLS alert 40
+ * (handshake_failure). This is the SAME class of bug as the bcrypt-hash dotenv-expand
+ * mangling we already documented in AGENTS.md §7 — paste hygiene matters.
+ *
+ * `requireEnv` trims whitespace, warns when it had to, and validates basic shape
+ * for known-format vars (R2_ACCOUNT_ID = 32 hex chars).
+ */
 function requireEnv(name: string): string {
-  const v = process.env[name];
-  if (!v) throw new Error(`${name} is required (see AGENTS.md §7)`);
-  return v;
+  const raw = process.env[name];
+  if (!raw) throw new Error(`${name} is required (see AGENTS.md §7)`);
+  const trimmed = raw.trim();
+  if (trimmed !== raw) {
+    console.warn(
+      `[r2] ${name} had surrounding whitespace/newlines; trimmed (raw len=${raw.length}, trimmed len=${trimmed.length})`,
+    );
+  }
+  if (trimmed.length === 0) {
+    throw new Error(`${name} is empty after trim`);
+  }
+  // Specific shape checks for the env vars where format is well-defined.
+  if (name === "R2_ACCOUNT_ID" && !/^[0-9a-f]{32}$/i.test(trimmed)) {
+    throw new Error(
+      `R2_ACCOUNT_ID must be 32 hex chars, got ${trimmed.length} chars; check Railway dashboard for stray characters`,
+    );
+  }
+  return trimmed;
 }
 
 let _client: S3Client | null = null;
 function client(): S3Client {
   if (_client) return _client;
+  const accountId = requireEnv("R2_ACCOUNT_ID");
   _client = new S3Client({
     region: "auto", // R2 ignores region but requires the field
-    endpoint: `https://${requireEnv("R2_ACCOUNT_ID")}.r2.cloudflarestorage.com`,
+    endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
     credentials: {
       accessKeyId: requireEnv("R2_ACCESS_KEY"),
       secretAccessKey: requireEnv("R2_SECRET_KEY"),

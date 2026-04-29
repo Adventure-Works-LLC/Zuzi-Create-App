@@ -8,8 +8,8 @@
   "scripts": {
     "predev": "npm run stamp:sw",
     "dev": "next dev --turbo",
-    "build": "npm run check:prompts && npm run stamp:sw && next build",
-    "start": "npm run db:migrate && next start -p 8080",
+    "build": "npm run check:prompts && npm run stamp:sw && next build && node scripts/setup-standalone.mjs",
+    "start": "node .next/standalone/server.js",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "check:prompts": "node --import tsx scripts/check-prompts.ts",

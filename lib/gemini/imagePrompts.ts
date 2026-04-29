@@ -10,28 +10,25 @@
  * Per-preset architecture (see also `docs/PROMPT_LESSONS.md` for cross-cutting
  * lessons):
  *
- *   **Dominators** — preset has a dedicated multi-paragraph body validated in
- *   Krea. When the preset is checked, its body short-circuits the builder and
- *   any other checked presets are subsumed. This is intentional: dominator
- *   prompts include strong preserve-this-aspect language that contradicts
- *   "vary X" composers (e.g. Background v3 says "palette family stays
- *   identical", which would clash with Color's "vary the palette"). If the
- *   user wants compound edits — e.g. fresh background AND new colors — they
- *   run two passes: Background first, then Color on a favorited result.
+ *   **Dominators** — preset has a dedicated multi-paragraph body. When the
+ *   preset is checked, its body short-circuits the builder and any other
+ *   checked presets are subsumed. This is intentional: dominator prompts
+ *   include strong preserve-this-aspect language that contradicts a "vary X"
+ *   composer (e.g. Color v1 says "lighting direction stays identical", which
+ *   would clash with Lighting). If the user wants compound edits — e.g.
+ *   cel-animation colors AND new lighting — they run two passes: Color
+ *   first, then Lighting on a favorited result.
+ *     - Color v1 (locked) — see `COLOR_PROMPT_BODY`.
  *     - Ambiance v8 (locked) — see `AMBIANCE_PROMPT_BODY`.
  *     - Background v3 (locked) — see `BACKGROUND_PROMPT_BODY`.
  *
- *   **Composers** — preset participates in the templated "Reimagine X,
- *   preserve Y" path. Multiple composers can stack (Color + Lighting renders
- *   "Reimagine the colors and palette and the lighting and mood, ..."). The
- *   solo Color rendering is also frozen as `COLOR_PROMPT_BODY` for byte-
- *   identical lock-in (a future change to PRESERVE_LIST or
- *   PRESET_REMOVES_FROM_PRESERVE could otherwise shift Color's solo output
- *   silently).
- *     - Color (solo: locked body; combined: templated).
- *     - Lighting (templated, both solo and combined). Not yet locked — when
- *       Jeff iterates Lighting in Krea, it'll get the same dedicated-body
- *       treatment.
+ *   **Composers** — would participate in the templated "Reimagine X,
+ *   preserve Y" path. Today only Lighting falls here, and only when checked
+ *   alone. When Jeff iterates Lighting in Krea it'll get the same locked-
+ *   body + dominator treatment, at which point the templated path will
+ *   have no callers and the builder collapses to a 4-way switch.
+ *     - Lighting (templated, solo only — combinations with any of the
+ *       three dominators get subsumed).
  *
  *   **Empty presets** — the validated freeform v0 "make this beautiful"
  *   prompt. Vary colors, preserve everything else. Bit-identical to what
@@ -41,13 +38,14 @@
  *   1. presets is empty → freeform.
  *   2. presets includes 'ambiance' → AMBIANCE_PROMPT_BODY.
  *   3. presets includes 'background' → BACKGROUND_PROMPT_BODY.
- *   4. presets is exactly ['color'] → COLOR_PROMPT_BODY.
- *   5. otherwise → templated path (Lighting solo, Color+Lighting).
+ *   4. presets includes 'color' → COLOR_PROMPT_BODY.
+ *   5. otherwise → templated path (only `['lighting']` reaches here).
  *
- * Preset order in templated rendering is FIXED (color → ambiance → lighting
- * → background) regardless of the order the array is delivered in. This
- * makes the prompt deterministic for a given preset set and keeps the
- * prompt cache stable across UI permutations.
+ * If multiple dominators are checked, the first hit in the ladder wins.
+ * Order is deliberate: Ambiance is the broadest (voice continuation),
+ * Background is setting-replacement, Color is palette-replacement.
+ * Lighting is currently the only composer — it composes with itself, which
+ * is to say it just renders solo via the templated path.
  *
  * `aspectRatio` is always stated explicitly inside the prompt AND passed via
  * `config.imageConfig.aspectRatio` on the API call (belt-and-suspenders).
@@ -75,23 +73,54 @@ const PRESET_ORDER: ReadonlyArray<Preset> = PRESETS;
 // ---------------------------------------------------------------------------
 
 /**
- * Color prompt body — **frozen**. This is byte-identical to what the
- * templated path produces for `presets: ['color']` as of the freeze date,
- * captured here so a future change to `PRESERVE_LIST` /
- * `PRESET_REMOVES_FROM_PRESERVE` can't silently shift Color's solo output.
- * If the templated text needs to change, update this constant in lockstep
- * (or run `--presets color` smoke to verify the rendered output still
- * matches what's been validated in Krea).
+ * Color prompt body — **v1 (LOCKED)**. First opinionated Color version,
+ * supplied by Jeff verbatim. Earlier "frozen byte-identical to the
+ * templated output" snapshot is gone; this version targets a specific
+ * aesthetic (1980s/90s hand-painted cel-animation palette sensibility)
+ * rather than the generic "vary colors, preserve everything else"
+ * framing the freeze inherited from the original templater.
  *
- * Color is a composer (not a dominator) — the templated path still handles
- * Color combined with Lighting. This constant is consulted only when
- * `presets` is exactly `['color']`.
+ * Honors the cross-prompt rules pinned in `docs/PROMPT_LESSONS.md`:
+ *   - Anti-language: "Do NOT use AI-illustration finish", "Do NOT make
+ *     the colors look digital or printed".
+ *   - Narrow operation: pick ONE era / sensibility (cel animation 80s/90s)
+ *     instead of offering Pro a buffet of color directions.
+ *   - Judgment imitation: "feels drawn from that era" / "should feel
+ *     hand-painted, like gouache backgrounds" — sensibility imitation
+ *     beats outcome prescription.
+ *   - Redundant style anchoring: "in HER existing brushwork and style.
+ *     Her marks, her gestural quality, her flatness or dimensionality,
+ *     her level of finish all stay identical." Multiple ways of saying
+ *     the same preserve directive — load-bearing per the lessons doc.
  *
- * Single-line body; the aspect-ratio sentence is appended with a single
- * space at render time, matching the templater's behavior.
+ * **Architectural change vs the prior frozen body**: the new prompt's
+ * preserve list explicitly includes "lighting direction, and mood" —
+ * which contradicts a Lighting checkbox checked alongside Color. So
+ * Color promotes from composer (templated when combined) to **dominator**
+ * (early-return regardless of other checked presets). Same routing
+ * pattern as Ambiance v8 and Background v3. If Zuzi wants compound edits
+ * (cel-animation colors AND new lighting), she runs two passes: Color
+ * first, then Lighting on a favorited result.
+ *
+ * **Iteration lineage:**
+ *   - v0 (frozen): byte-identical snapshot of the original templater's
+ *     output for `['color']`. Generic "make the colors beautiful" with no
+ *     aesthetic direction. Worked, but Pro picked whatever palette it
+ *     felt like — nondeterministic across runs.
+ *   - **v1 (locked)**: opinionated era-specific palette sensibility.
+ *     Awaits Krea-on-Zuzi-WIPs validation; current canonical text is
+ *     Jeff's spec verbatim.
+ *
+ * Multi-paragraph body; aspect-ratio sentence appended as its own
+ * trailing paragraph at render time per AGENTS.md §3.
  */
-const COLOR_PROMPT_BODY =
-  "This painting is shown as the input image. Reimagine the colors and palette, picking whatever choices you think will make this painting as beautiful as possible. Preserve the brushwork, mark-making, and drawing style, the composition and framing, the subject and what is depicted, the level of finish, the value structure, the lighting and mood, and the background and setting exactly.";
+const COLOR_PROMPT_BODY = `This painting is shown as the input image. Recolor it using the palette sensibility of 1980s and 1990s Saturday morning cartoons and animated features — hand-painted cel animation from that era. Think Disney's late-80s/90s renaissance (Little Mermaid, Beauty and the Beast, Aladdin, Lion King), Don Bluth films (Land Before Time, All Dogs Go to Heaven), Saturday morning cartoons (DuckTales, Gargoyles, Batman: The Animated Series), and Studio Ghibli's 80s/90s output. Saturated but harmonious, painted backgrounds with rich color depth, bold complementary accents, slightly heightened "cartoon" color logic where the palette serves mood and storytelling.
+
+Apply this color sensibility to the existing painting. Replace the current palette with one that feels drawn from that era — but paint it in HER existing brushwork and style. Her marks, her gestural quality, her flatness or dimensionality, her level of finish all stay identical. Only the color values change.
+
+Preserve EXACTLY: the brushwork, mark-making, drawing style, composition, framing, subject, level of finish, value structure, lighting direction, and mood. Only the colors shift to the 80s/90s cel-animation palette sensibility.
+
+Do NOT use AI-illustration finish or smooth her marks. Do NOT change the subject's appearance, proportions, or rendering style toward cartoon characters — only the color choices come from that era. Do NOT make the colors look digital or printed; the palette should feel hand-painted, like gouache backgrounds from that era of animation.`;
 
 // ---------------------------------------------------------------------------
 // AMBIANCE — v8 locked.
@@ -200,7 +229,7 @@ The output should look like the input painting, repainted by the same artist wit
  *  rendered through the templated path — their early-returns in
  *  `buildPrompt` catch them first. */
 const PRESET_LABEL: Record<Preset, string> = {
-  color: "the colors and palette",
+  color: "the colors and palette (handled separately)",
   ambiance: "the atmospheric depth and ambient presence (handled separately)",
   lighting: "the lighting and mood",
   background: "the background environment and setting (handled separately)",
@@ -224,7 +253,7 @@ const PRESERVE_LIST: ReadonlyArray<{ id: string; phrase: string }> = [
  * because changing lighting necessarily changes values). Ambiance and
  * Background entries are unused — both bypass the templated path. */
 const PRESET_REMOVES_FROM_PRESERVE: Record<Preset, ReadonlyArray<string>> = {
-  color: ["color"],
+  color: [], // unreachable — color has its own prompt body (v1 dominator)
   ambiance: [], // unreachable — ambiance has its own prompt body
   lighting: ["lighting", "value"],
   background: [], // unreachable — background has its own prompt body
@@ -258,15 +287,19 @@ export function buildPrompt({ presets, aspectRatio }: BuildPromptArgs): string {
     return `${BACKGROUND_PROMPT_BODY}\n\nMatch the input aspect ratio exactly (${aspectRatio}).`;
   }
 
-  // 4. Color solo → frozen body. Color combined with Lighting falls through
-  //    to the templated path below.
-  if (presets.length === 1 && presets[0] === "color") {
-    return `${COLOR_PROMPT_BODY} Match the input aspect ratio exactly (${aspectRatio}).`;
+  // 4. Color dominates — v1 prompt's preserve list explicitly includes
+  //    "lighting direction, and mood", which would contradict a Lighting
+  //    checkbox checked alongside Color. Same dominator pattern as Ambiance
+  //    and Background. If Zuzi wants Color + Lighting compound edits, she
+  //    runs two passes (Color first, then Lighting on a favorite).
+  if (presets.includes("color")) {
+    return `${COLOR_PROMPT_BODY}\n\nMatch the input aspect ratio exactly (${aspectRatio}).`;
   }
 
-  // 5. Templated path — composers (Color and/or Lighting) without ambiance
-  //    or background. Renders "Reimagine X, preserve Y" with Y filtered by
-  //    each checked preset's removals from the preserve list.
+  // 5. Templated path — only reached for `['lighting']` solo today. Lighting
+  //    hasn't been Krea-iterated yet; when it is, port to a dedicated body
+  //    + early-return, same as the other three. The templated builder will
+  //    then have no callers and can be deleted.
   //
   //    Project to a deduped, stably-ordered array of valid presets. The
   //    filter ensures that a malformed input (already validated upstream,

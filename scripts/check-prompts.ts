@@ -112,11 +112,14 @@ if (!background.includes("AI-illustration finish")) {
 }
 
 const colorSolo = buildPrompt({ presets: ["color"], aspectRatio: "4:5" });
-if (!colorSolo.includes("Reimagine the colors and palette")) {
-  fail("[color]", "Color frozen body regressed (canary 'Reimagine the colors and palette' missing)");
+if (!colorSolo.startsWith("This painting is shown as the input image. Recolor it using the palette sensibility of 1980s and 1990s")) {
+  fail("[color]", "Color v1 prompt regressed (cel-animation opener canary missing)");
+}
+if (!colorSolo.includes("Do NOT use AI-illustration finish")) {
+  fail("[color]", "Color v1 lost anti-'AI-illustration finish' language");
 }
 
-// --- 4: dominator routing must still fire when combined with composers ---
+// --- 4: dominator routing must fire when combined with other presets ---
 const ambColor = buildPrompt({ presets: ["color", "ambiance"], aspectRatio: "4:5" });
 if (!ambColor.startsWith("Continue this painting")) {
   fail("[color,ambiance]", "Ambiance dominator early-return broken (combined with color)");
@@ -127,12 +130,22 @@ if (!bgLighting.startsWith("This painting needs a different background")) {
   fail("[lighting,background]", "Background dominator early-return broken (combined with lighting)");
 }
 
+// Color v1 (now a dominator) must win over Lighting. This is the case the
+// templated path used to handle; under the v1 lock, Color's preserve list
+// includes "lighting direction, and mood" so combining the two would
+// produce contradictory directives. Color wins; user runs two passes for
+// compound edits.
+const colorLighting = buildPrompt({ presets: ["color", "lighting"], aspectRatio: "4:5" });
+if (!colorLighting.startsWith("This painting is shown as the input image. Recolor it")) {
+  fail("[color,lighting]", "Color dominator early-return broken (combined with lighting); previously templated, now must dominate");
+}
+
 const allFour = buildPrompt({
   presets: ["color", "ambiance", "lighting", "background"],
   aspectRatio: "4:5",
 });
 if (!allFour.startsWith("Continue this painting")) {
-  fail("[all four]", "Ambiance dominator must win over Background when both are checked (resolution order regressed)");
+  fail("[all four]", "Ambiance dominator must win over Background and Color when all are checked (resolution order regressed)");
 }
 
 // --- report ---

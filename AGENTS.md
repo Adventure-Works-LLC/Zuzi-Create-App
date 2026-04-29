@@ -70,7 +70,7 @@ plan's reference docs first.
 
 | Checkbox | What changes | What's preserved |
 |---|---|---|
-| **Color** | Hue and palette | Drawing, marks, value structure, subject, composition, lighting, background |
+| **Color** | Recolors with a 1980s/90s hand-painted cel-animation palette sensibility (Disney renaissance, Don Bluth, Saturday morning cartoons, Ghibli 80s/90s). Saturated but harmonious, gouache-feel, NOT digital/printed/AI-illustration finish | Brushwork, marks, drawing style, composition, framing, subject, level of finish, value structure, lighting direction, mood — only color values shift |
 | **Ambiance** | Continues the painting in her voice — extends her own brushwork, marks, level of finish into the canvas; adds elements (a small object, a mark in negative space, atmospheric depth) painted in HER style | Existing developed passages (don't repaint), composition, palette family, subject identity, brushwork voice |
 | **Lighting** | Mood, shadows, light direction | Color palette, composition, brushwork, subject, background, level of finish |
 | **Background** | Replaces the background with a different setting, painted in her hand (her style, her marks, her finish — NOT a generic AI-rendered background) | Foreground (figure, subject), composition, framing, palette family, lighting direction, brushwork on the subject, level of finish |
@@ -84,32 +84,40 @@ plan's reference docs first.
 
 The four presets split into two architectural categories in `imagePrompts.ts`:
 
-  - **Dominators**: have a dedicated multi-paragraph prompt body validated in Krea.
-    When a dominator is checked, its body short-circuits the builder and any other
-    checked presets are subsumed. This is intentional — dominator prompts include
-    strong preserve-this-aspect language ("palette family stays identical", "composition
-    stays identical") that contradicts a "vary X" composer. If Zuzi wants compound
+  - **Dominators**: have a dedicated multi-paragraph prompt body. When a dominator is
+    checked, its body short-circuits the builder and any other checked presets are
+    subsumed. This is intentional — dominator prompts include strong preserve-this-
+    aspect language ("palette family stays identical", "lighting direction stays
+    identical", etc.) that contradicts a "vary X" composer. If Zuzi wants compound
     edits, she runs two passes (e.g. Background to swap setting → favorite a result
-    → Color on the favorite to vary palette).
-      - **Ambiance v8** — `AMBIANCE_PROMPT_BODY` (locked).
-      - **Background v3** — `BACKGROUND_PROMPT_BODY` (locked).
-  - **Composers**: participate in the templated "Reimagine X, preserve Y" path. Multiple
-    composers can stack — Color + Lighting renders "Reimagine the colors and palette and
-    the lighting and mood, ...". Color's solo rendering is also frozen as
-    `COLOR_PROMPT_BODY` for byte-identical lock-in.
-      - **Color** (solo: locked body; combined: templated).
-      - **Lighting** (templated, both solo and combined). Not yet locked — when Lighting
-        is iterated in Krea, it'll get the same dedicated-body treatment.
+    → Color on the favorite to recolor).
+      - **Ambiance v8** — `AMBIANCE_PROMPT_BODY` (locked, Krea-validated).
+      - **Background v3** — `BACKGROUND_PROMPT_BODY` (locked, Krea-validated).
+      - **Color v1** — `COLOR_PROMPT_BODY` (locked, awaiting Krea-on-Zuzi-WIPs
+        validation; supplied verbatim by Jeff). Targets a 1980s/90s cel-animation
+        palette sensibility — opinionated era-specific recolor, not the generic
+        "vary colors" framing the prior "frozen byte-identical templated output"
+        version inherited.
+  - **Composers**: would participate in the templated "Reimagine X, preserve Y"
+    path. Today only Lighting falls here, and only when checked alone — every
+    combination involving Lighting + a dominator routes to the dominator. When
+    Lighting is iterated in Krea, it'll get the same locked-body + dominator
+    treatment, at which point the templated path will have no callers and the
+    builder collapses to a 4-way switch.
+      - **Lighting** (templated, solo only).
 
 Resolution order in `buildPrompt`:
   1. `presets: []` (empty) → freeform v0 "make this beautiful".
   2. `presets` includes `ambiance` → `AMBIANCE_PROMPT_BODY`.
   3. `presets` includes `background` → `BACKGROUND_PROMPT_BODY`.
-  4. `presets` is exactly `['color']` → `COLOR_PROMPT_BODY` (frozen).
-  5. otherwise → templated path (Lighting solo, Color+Lighting).
+  4. `presets` includes `color` → `COLOR_PROMPT_BODY`.
+  5. otherwise → templated path (only `['lighting']` reaches here).
 
-If both Ambiance and Background are somehow checked simultaneously, Ambiance wins
-(ordering is deliberate — Ambiance is the broader voice-continuation default).
+If multiple dominators are checked, the first hit in the ladder wins. Order is
+deliberate: Ambiance is the broadest (voice continuation), Background is setting-
+replacement, Color is palette-replacement. So Ambiance > Background > Color in
+priority, which means e.g. `[color, ambiance]` runs the Ambiance prompt; the user
+who wants both runs two passes.
 
 In the templated path, the preset-set is rendered in **fixed canonical order**
 (color → ambiance → lighting → background) regardless of UI click order, so a given

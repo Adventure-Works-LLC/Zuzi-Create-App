@@ -44,7 +44,7 @@ CREATE TABLE iterations (
                                                    -- configurable via TILE_COUNT_DEFAULT in
                                                    -- lib/cost.ts)
   presets         TEXT NOT NULL DEFAULT '[]',      -- JSON array of selected preset strings:
-                                                   -- 'color' | 'composition' | 'lighting' |
+                                                   -- 'color' | 'ambiance' | 'lighting' |
                                                    -- 'background'. Empty = freeform (model
                                                    -- chooses everything). Determines prompt
                                                    -- via lib/gemini/imagePrompts.ts buildPrompt().

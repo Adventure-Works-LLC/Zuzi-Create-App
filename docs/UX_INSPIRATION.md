@@ -2,7 +2,7 @@
 
 We are building a single-screen creative tool for one working artist. The interaction
 is: input bar fixed to the bottom (camera / library / drag-drop / paste / file picker),
-four preset checkboxes immediately below it (Color / Composition / Lighting /
+four preset checkboxes immediately below it (Color / Ambiance / Lighting /
 Background, multi-select 0–4), Flash|Pro and 1K|4K toggles, Submit. Above the input,
 a vertically scrolling stream of generated tiles, newest at top, earlier tiles
 pushed down as new ones land. Each Submit produces N tiles (default 3) that slide in
@@ -98,11 +98,14 @@ else competing for attention.
 
 Category mix: Pixlr / VEED / Canva use preset chips (pill rows) for color / lighting
 / composition / style. Midjourney V8 exposes parameter flags as UI controls. DeepAI
-uses sliders. The four-checkbox approach (Color / Composition / Lighting /
+uses sliders. The four-checkbox approach (Color / Ambiance / Lighting /
 Background, multi-select 0–4) is simpler than any of these — correct for a
 single-purpose tool. Use square checkboxes with labels, not pills — pills look like
 filter tags, and these aren't filters, they're directives. Checked state should be
 unambiguous (filled square + check + label weight shift), not a subtle tint.
+
+(Composition was tried as the second checkbox, didn't match the user's actual
+workflow, and was replaced with Ambiance. See AGENTS.md §4 for the rationale.)
 
 ## Other reference apps
 
@@ -127,7 +130,7 @@ unambiguous (filled square + check + label weight shift), not a subtle tint.
 - **No human gate.** Per AGENTS.md §4: borderline outputs are a prompt bug, not a
   re-roll opportunity. The UI never asks "approve this batch?" — it just shows tiles.
 - **Four preset checkboxes**, not a chip rack and not a settings drawer. Color /
-  Composition / Lighting / Background, multi-select 0–4. Visible by default. Square
+  Ambiance / Lighting / Background, multi-select 0–4. Visible by default. Square
   checkboxes, not pills.
 - **Default 3 tiles per Submit** (configurable). Lower than Midjourney's 4 because
   Zuzi runs many parallel sources and the Flash/Pro × 1K/4K knobs already give her

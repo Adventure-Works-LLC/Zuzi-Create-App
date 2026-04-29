@@ -9,7 +9,7 @@
  *   - resolution: '1k' | '4k' (default '1k')
  *   - count: integer in [1, TILE_COUNT_MAX]; default TILE_COUNT_DEFAULT.
  *     Number of tiles to generate. Persisted on `iterations.tile_count`.
- *   - presets: array of preset strings, subset of PRESETS (color, composition,
+ *   - presets: array of preset strings, subset of PRESETS (color, ambiance,
  *     lighting, background). Default []. Persisted as JSON on
  *     `iterations.presets`. Determines the prompt via
  *     `lib/gemini/imagePrompts.ts buildPrompt()`.

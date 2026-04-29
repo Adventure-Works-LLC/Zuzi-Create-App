@@ -20,14 +20,14 @@
  *   --model flash|pro       model tier (default: pro)
  *   --resolution 1k|4k      output resolution (default: 1k)
  *   --count <n>             tile count, 1..TILE_COUNT_MAX (default: TILE_COUNT_DEFAULT)
- *   --presets a,b,c         comma-separated subset of color,composition,
+ *   --presets a,b,c         comma-separated subset of color,ambiance,
  *                           lighting,background. Empty = freeform "make this
  *                           beautiful" (default).
  *
  * Run:
  *   node --env-file=.env --import tsx scripts/smoke.ts [path] [flags]
  *   npm run smoke -- [path] [--model flash|pro] [--resolution 1k|4k] \\
- *                    [--count 3] [--presets color,composition]
+ *                    [--count 3] [--presets color,ambiance]
  */
 
 import { existsSync } from "node:fs";

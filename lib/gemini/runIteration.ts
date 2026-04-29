@@ -54,6 +54,7 @@ async function runOneTile(
   inputBase64: string,
   modelId: string,
   aspectRatio: string,
+  imageSize: string,
   promptText: string,
   recoveryHit: { r2_key: string; thumb_key?: string } | undefined,
 ): Promise<TileRunResult> {
@@ -101,7 +102,11 @@ async function runOneTile(
               ],
             },
           ],
-          config: { imageConfig: { aspectRatio } },
+          // `imageSize` was missing previously: requesting `resolution: "4k"`
+          // billed at $0.24/img but Gemini defaulted to 1K output. SDK accepts
+          // "1K" | "2K" | "4K" (uppercase) per @google/genai's ImageConfig
+          // type; we send "1K" or "4K" depending on the per-iteration toggle.
+          config: { imageConfig: { aspectRatio, imageSize } },
         }),
       { label: `iter ${iterationId}#${idx}` },
     );
@@ -208,6 +213,8 @@ export async function runIteration(iterationId: string): Promise<void> {
   const modelId =
     iter.model_tier === "flash" ? IMAGE_MODEL_FLASH : IMAGE_MODEL_PRO;
   const aspectRatio = source.aspect_ratio;
+  // SDK expects "1K" | "2K" | "4K" (uppercase). DB column is "1k" | "4k".
+  const imageSize = iter.resolution.toUpperCase();
   const presets = parseStoredPresets(iter.presets, iterationId);
   const promptText = buildPrompt({ presets, aspectRatio });
 
@@ -247,6 +254,7 @@ export async function runIteration(iterationId: string): Promise<void> {
         inputBase64,
         modelId,
         aspectRatio,
+        imageSize,
         promptText,
         recoveryHits.get(t.idx),
       ).catch((e): TileRunResult => {
@@ -262,7 +270,15 @@ export async function runIteration(iterationId: string): Promise<void> {
   );
 
   const successfulCount = results.filter((r) => r.ok).length;
-  updateIterationStatus(iterationId, "done", Date.now());
+  // Iteration status reflects truth: at least one successful tile = done;
+  // zero successful (every tile blocked or failed) = the iteration as a
+  // whole failed. Previously this was unconditionally "done" which made
+  // fully-failed iterations look successful in the UI — confusing both for
+  // Zuzi (no error indication) and for the worker's idempotent-replay
+  // path (which checks `iter.status === "failed"` to bail early; that
+  // check could never fire for worker-failed iterations).
+  const finalStatus = successfulCount > 0 ? "done" : "failed";
+  updateIterationStatus(iterationId, finalStatus, Date.now());
   if (successfulCount > 0) {
     insertUsageLog(
       iterationId,

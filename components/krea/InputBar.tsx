@@ -8,7 +8,7 @@
  *      Take photo / Choose / drag+drop+paste — and nothing else. Above it
  *      the page renders a one-line italic cue.
  *   2. Populated (a current source is set): the full configurator —
- *      4 preset checkboxes (Color/Composition/Lighting/Background)
+ *      4 preset checkboxes (Color/Ambiance/Lighting/Background)
  *      + Flash|Pro pill + 1K|4K pill + count stepper + Generate button
  *      with live cost annotation. The current source's thumbnail sits to the
  *      left as a small preview.

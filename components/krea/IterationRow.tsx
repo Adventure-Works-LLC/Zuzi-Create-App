@@ -105,7 +105,16 @@ export function IterationRow({ iteration }: IterationRowProps) {
           {formatTime(iteration.createdAt)}
         </span>
         {iteration.status === "failed" && (
-          <span className="text-destructive text-xs">couldn&rsquo;t submit</span>
+          // Two paths land here:
+          //   - optimistic id (`opt-...`) → POST /api/iterate failed before the
+          //     worker ever ran. "couldn't submit" matches the UX.
+          //   - real iteration id with all tiles blocked/failed → the worker
+          //     ran but produced 0 successful tiles. Each tile renders its own
+          //     blocked/failed indicator inside, so the caption just needs to
+          //     say "the whole iteration failed, retry."
+          <span className="text-destructive text-xs">
+            {iteration.id.startsWith("opt-") ? "couldn’t submit" : "no tiles generated — try again"}
+          </span>
         )}
       </div>
       <div className="flex flex-wrap gap-3">

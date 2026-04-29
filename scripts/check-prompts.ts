@@ -17,10 +17,12 @@
  *        - Ambiance v8: opening "Continue this painting in the same style…"
  *          + the load-bearing "HER style" anchor
  *        - Background v3: opening + the anti-AI-illustration language
- *        - Color (frozen): "Reimagine the colors and palette"
- *   4. Dominator routing — Ambiance and Background early-returns still fire
- *      when combined with other presets (the failure mode where someone
- *      reorders the resolution ladder and breaks Ambiance solo silently).
+ *        - Color v1: cel-animation opener "Recolor it using the palette
+ *          sensibility of 1980s and 1990s…" + anti-AI-illustration anchor
+ *   4. Dominator routing — Ambiance, Background, and Color (now also a
+ *      dominator under v1) early-returns still fire when combined with other
+ *      presets. The failure mode is someone reorders the resolution ladder
+ *      and breaks dominance silently.
  *
  * Background: the Ambiance v8 deploy at 088b3f9 failed on Railway for
  * environmental reasons (cache / native rebuild / Railpack quirk — the

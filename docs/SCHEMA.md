@@ -25,8 +25,8 @@ CREATE TABLE sources (
                                                      -- their favorited tiles still appear in the
                                                      -- global Favorites view.
 );
-CREATE INDEX idx_sources_active  ON sources(created_at DESC) WHERE archived_at IS NULL;
-CREATE INDEX idx_sources_created ON sources(created_at DESC);
+CREATE INDEX idx_sources_active  ON sources(created_at) WHERE archived_at IS NULL;
+CREATE INDEX idx_sources_created ON sources(created_at);
 
 -- iterations: one "9-tile generation request" against a source
 CREATE TABLE iterations (
@@ -44,8 +44,8 @@ CREATE TABLE iterations (
   created_at      INTEGER NOT NULL,                -- unix ms
   completed_at    INTEGER
 );
-CREATE INDEX idx_iter_created ON iterations(created_at DESC);
-CREATE INDEX idx_iter_source  ON iterations(source_id, created_at DESC);
+CREATE INDEX idx_iter_created ON iterations(created_at);
+CREATE INDEX idx_iter_source  ON iterations(source_id, created_at);
 
 -- tiles: one of the 9 outputs per iteration
 CREATE TABLE tiles (
@@ -64,7 +64,11 @@ CREATE TABLE tiles (
   UNIQUE(iteration_id, idx)
 );
 CREATE INDEX idx_tiles_iter ON tiles(iteration_id);
-CREATE INDEX idx_tiles_fav  ON tiles(is_favorite, favorited_at DESC) WHERE is_favorite = 1;
+CREATE INDEX idx_tiles_fav  ON tiles(is_favorite, favorited_at) WHERE is_favorite = 1;
+-- All indexes use ASC ordering (Drizzle's `.on(col)` default). Queries that ORDER BY
+-- DESC (Favorites view, source strip, history) use SQLite's index reverse-scan —
+-- same result, negligible perf cost at this scale (~10–100 sources, ~1000s of tiles
+-- lifetime). If we migrate to Postgres or hit planner regressions, revisit DESC.
 
 -- usage_log: monthly cap enforcement
 CREATE TABLE usage_log (
@@ -73,7 +77,7 @@ CREATE TABLE usage_log (
   cost_usd     REAL NOT NULL,
   created_at   INTEGER NOT NULL
 );
-CREATE INDEX idx_usage_created ON usage_log(created_at DESC);
+CREATE INDEX idx_usage_created ON usage_log(created_at);
 ```
 
 ## Pragmas (set at boot in `lib/db/client.ts`)
@@ -125,7 +129,7 @@ SELECT s.id, s.input_image_key, s.w, s.h, s.aspect_ratio, s.created_at,
   LEFT JOIN tiles      t ON t.iteration_id = i.id
  WHERE s.archived_at IS NULL
  GROUP BY s.id
- ORDER BY s.created_at DESC
+ ORDER BY s.created_at
  LIMIT 20;
 
 -- Favorites across ALL sources (active + archived) for the global Favorites view:

@@ -177,7 +177,7 @@ re-design of primitive interfaces.
     1. Drizzle schema (matches docs/SCHEMA.md) + lib/db/client.ts + initial migration
     2. lib/storage/r2.ts (S3-compat client, putObject / getObjectBytes / publicUrlFor)
     3. lib/bus.ts (Map<string, EventEmitter> with emit / subscribe / unsubscribe)
-    4. lib/gemini/callWithRetry.ts (3 attempts, exponential 2s/5s/12s + jitter, retryOn=[429,500,503])
+    4. lib/gemini/callWithRetry.ts (1 initial + 3 retries = 4 total attempts; backoff 2s/5s/12s ± jitter on retries; retryOn=[429,500,503] plus transient network/timeout/quota classifications)
     5. lib/auth/rateLimit.ts (in-memory IP Map; 5 / 5min / IP)
 
   Tier B — depends on schema:

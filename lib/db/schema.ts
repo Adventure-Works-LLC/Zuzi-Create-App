@@ -18,12 +18,34 @@ import {
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 
+export const sources = sqliteTable(
+  "sources",
+  {
+    id: text("id").primaryKey(),
+    input_image_key: text("input_image_key").notNull(),
+    original_filename: text("original_filename"),
+    w: integer("w").notNull(),
+    h: integer("h").notNull(),
+    aspect_ratio: text("aspect_ratio").notNull(),
+    created_at: integer("created_at").notNull(),
+    archived_at: integer("archived_at"),
+  },
+  (t) => [
+    index("idx_sources_active")
+      .on(t.created_at)
+      .where(sql`archived_at IS NULL`),
+    index("idx_sources_created").on(t.created_at),
+  ],
+);
+
 export const iterations = sqliteTable(
   "iterations",
   {
     id: text("id").primaryKey(),
     request_id: text("request_id").notNull().unique(),
-    input_image_key: text("input_image_key").notNull(),
+    source_id: text("source_id")
+      .notNull()
+      .references(() => sources.id, { onDelete: "cascade" }),
     model_tier: text("model_tier", { enum: ["flash", "pro"] })
       .notNull()
       .default("pro"),
@@ -40,7 +62,7 @@ export const iterations = sqliteTable(
   },
   (t) => [
     index("idx_iter_created").on(t.created_at),
-    index("idx_iter_input_image").on(t.input_image_key, t.created_at),
+    index("idx_iter_source").on(t.source_id, t.created_at),
   ],
 );
 
@@ -85,6 +107,8 @@ export const usage_log = sqliteTable(
   (t) => [index("idx_usage_created").on(t.created_at)],
 );
 
+export type Source = typeof sources.$inferSelect;
+export type NewSource = typeof sources.$inferInsert;
 export type Iteration = typeof iterations.$inferSelect;
 export type NewIteration = typeof iterations.$inferInsert;
 export type Tile = typeof tiles.$inferSelect;

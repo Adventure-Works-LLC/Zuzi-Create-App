@@ -41,7 +41,7 @@ async function uploadFile(file: File): Promise<UploadResponse> {
 
 function formatTime(ms: number): string {
   return new Date(ms).toLocaleTimeString([], {
-    hour: "2-digit",
+    hour: "numeric",
     minute: "2-digit",
   });
 }
@@ -55,34 +55,55 @@ function SourcePreview({
 }) {
   const { url, loading, error } = useImageUrl(source.inputKey);
   return (
-    <div className="flex flex-col gap-3 w-full max-w-[400px]">
-      <div className="aspect-square rounded-lg bg-card ring-1 ring-hairline overflow-hidden flex items-center justify-center">
-        {url ? (
-          <img
-            src={url}
-            alt="Source painting"
-            className="w-full h-full object-cover"
-          />
-        ) : loading ? (
-          <span className="text-text-mute text-sm">Loading…</span>
-        ) : error ? (
-          <span className="text-destructive text-sm text-center px-4">
-            {error}
-          </span>
-        ) : null}
+    <div className="flex flex-col gap-5 w-full max-w-[420px]">
+      {/* Hairline-framed image. The frame + soft inset + drop shadow give a
+          gallery-mat feel rather than "img in a card." */}
+      <div className="relative">
+        <div
+          className="
+            aspect-square rounded-lg overflow-hidden
+            bg-card hairline-frame
+            flex items-center justify-center
+          "
+        >
+          {url ? (
+            <img
+              src={url}
+              alt="Source painting"
+              className="w-full h-full object-cover"
+            />
+          ) : loading ? (
+            <span className="caption-display text-sm text-text-mute">
+              loading…
+            </span>
+          ) : error ? (
+            <span className="text-destructive text-sm text-center px-4">
+              {error}
+            </span>
+          ) : null}
+        </div>
       </div>
-      <div className="flex items-center justify-between gap-3 text-sm">
-        <span className="text-text-mute leading-tight">
-          Source — {formatTime(source.uploadedAt)}
-          <br />
-          <span className="text-xs">
-            {source.w}×{source.h} · {source.aspectRatio}
-          </span>
-        </span>
+
+      {/* Caption — Fraunces italic small-caps style for the meta line. */}
+      <div className="flex items-baseline justify-between gap-3">
+        <div className="leading-snug">
+          <p className="caption-display text-base text-foreground/90">
+            Source <span className="text-text-mute">— {formatTime(source.uploadedAt)}</span>
+          </p>
+          <p className="text-xs text-text-mute mt-0.5 tracking-wide">
+            {source.w}×{source.h}
+            <span className="mx-2 text-text-mute/50">·</span>
+            {source.aspectRatio}
+          </p>
+        </div>
         <button
           type="button"
           onClick={onReplace}
-          className="text-text-mute hover:text-foreground text-xs underline shrink-0"
+          className="
+            text-xs uppercase tracking-[0.18em] text-text-mute
+            hover:text-foreground transition-colors
+            no-callout
+          "
         >
           Replace
         </button>
@@ -164,78 +185,103 @@ export function ImageUploader() {
   }
 
   return (
-    <div
-      onDragOver={onDragOver}
-      onDragLeave={onDragLeave}
-      onDrop={onDrop}
-      className={`aspect-square w-full max-w-[400px] rounded-lg border border-dashed
-        ${dragOver ? "border-accent bg-card/80" : "border-hairline bg-card"}
-        flex flex-col items-center justify-center gap-4 p-6 transition-colors`}
-    >
-      {uploading ? (
-        <p className="text-text-mute">Uploading…</p>
-      ) : error ? (
-        <>
-          <p className="text-destructive text-sm text-center max-w-[280px]">
-            {error}
-          </p>
-          <button
-            type="button"
-            onClick={() => setError(null)}
-            className="text-text-mute text-xs underline"
-          >
-            Try again
-          </button>
-        </>
-      ) : (
-        <>
-          <p className="font-display text-3xl text-foreground/70">Begin</p>
-          <p className="text-sm text-text-mute text-center">
-            Drop a sketch or photo,
+    <div className="w-full max-w-[420px] flex flex-col gap-5">
+      {/* Empty-state hero panel. Generous padding, soft warm bloom behind
+          the wordmark. NOT a SaaS uploader card. */}
+      <div
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
+        onDrop={onDrop}
+        className={`
+          relative overflow-hidden
+          aspect-square rounded-lg
+          flex flex-col items-center justify-center gap-7 p-8
+          bg-card hairline-frame
+          transition-all duration-200
+          ${dragOver ? "ring-2 ring-accent/60" : ""}
+        `}
+      >
+        <div className="absolute inset-0 bloom-warm" aria-hidden />
+
+        <div className="relative flex flex-col items-center gap-2 text-center">
+          <h2 className="font-display text-5xl text-foreground">Begin</h2>
+          <p className="caption-display text-sm text-text-mute max-w-[260px] leading-relaxed">
+            Drop a sketch, paste from clipboard,
             <br />
-            paste, or pick one
+            or pick something from your library.
           </p>
-          <div className="flex gap-2">
+        </div>
+
+        {uploading ? (
+          <p className="caption-display text-sm text-text-mute relative">
+            uploading…
+          </p>
+        ) : error ? (
+          <div className="relative flex flex-col items-center gap-3 max-w-[280px]">
+            <p className="text-destructive text-sm text-center leading-snug">
+              {error}
+            </p>
+            <button
+              type="button"
+              onClick={() => setError(null)}
+              className="text-text-mute text-xs uppercase tracking-[0.18em] hover:text-foreground transition-colors no-callout"
+            >
+              Try again
+            </button>
+          </div>
+        ) : (
+          <div className="relative flex gap-2">
             <button
               type="button"
               onClick={() => cameraInputRef.current?.click()}
-              className="rounded border border-hairline px-3 py-1.5 text-sm hover:bg-secondary no-callout"
+              className="
+                rounded-md border border-hairline
+                px-4 py-2 text-sm text-foreground/90
+                hover:bg-secondary hover:text-foreground
+                transition-colors no-callout
+              "
             >
               Take photo
             </button>
             <button
               type="button"
               onClick={() => libraryInputRef.current?.click()}
-              className="rounded border border-hairline px-3 py-1.5 text-sm hover:bg-secondary no-callout"
+              className="
+                rounded-md border border-hairline
+                px-4 py-2 text-sm text-foreground/90
+                hover:bg-secondary hover:text-foreground
+                transition-colors no-callout
+              "
             >
               Choose
             </button>
           </div>
-        </>
-      )}
-      <input
-        ref={cameraInputRef}
-        type="file"
-        accept="image/*"
-        capture="environment"
-        hidden
-        onChange={(e) => {
-          const file = e.target.files?.[0];
-          if (file) void handleFile(file);
-          e.target.value = "";
-        }}
-      />
-      <input
-        ref={libraryInputRef}
-        type="file"
-        accept="image/*"
-        hidden
-        onChange={(e) => {
-          const file = e.target.files?.[0];
-          if (file) void handleFile(file);
-          e.target.value = "";
-        }}
-      />
+        )}
+
+        <input
+          ref={cameraInputRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          hidden
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) void handleFile(file);
+            e.target.value = "";
+          }}
+        />
+        <input
+          ref={libraryInputRef}
+          type="file"
+          accept="image/*"
+          hidden
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) void handleFile(file);
+            e.target.value = "";
+          }}
+        />
+      </div>
     </div>
   );
 }

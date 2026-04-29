@@ -152,16 +152,51 @@
   user-select: none;
 }
 
-.font-display { font-family: var(--font-display), Georgia, serif; }
+/* Display type — Fraunces with tight tracking and italic-friendly setting.
+   The opsz axis is loaded via next/font in app/layout.tsx so larger sizes
+   pick up the proper optical size automatically. */
+.font-display {
+  font-family: var(--font-display), Georgia, "Times New Roman", serif;
+  letter-spacing: -0.02em;
+  font-feature-settings: "ss01", "ss02";
+}
 
+/* A muted serif italic style used for captions ("Source — 2:14pm",
+   "Begin", etc). Rendered at small sizes — kept legible. */
+.caption-display {
+  font-family: var(--font-display), Georgia, serif;
+  font-style: italic;
+  letter-spacing: 0.01em;
+}
+
+/* Tile placeholder pulse — gentle opacity breath. NOT a SaaS shimmer.
+   Used while a generation is in flight before the real image lands. */
 @keyframes pulse-soft {
-  0%, 100% { opacity: 0.6; }
+  0%, 100% { opacity: 0.55; }
   50% { opacity: 1; }
 }
-.animate-pulse-soft { animation: pulse-soft 1.6s ease-in-out infinite; }
+.animate-pulse-soft { animation: pulse-soft 1.8s ease-in-out infinite; }
 
+/* Tile arrival — blur clearing to 0 over 400ms with subtle scale lift.
+   Per AGENTS.md "Streaming UX". */
 @keyframes tile-reveal {
   0% { opacity: 0; filter: blur(4px); transform: scale(0.98); }
   100% { opacity: 1; filter: blur(0); transform: scale(1); }
 }
 .animate-tile-reveal { animation: tile-reveal 0.4s ease-out forwards; }
+
+/* Hairline frame for the source-image preview — inset 1px ring with a
+   barely-there glow, evoking gallery framing. */
+.hairline-frame {
+  box-shadow:
+    0 0 0 1px var(--hairline),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.025),
+    0 22px 60px -28px rgba(0, 0, 0, 0.55);
+}
+
+/* Soft radial bloom behind hero copy, used in the empty-state placeholder. */
+.bloom-warm {
+  background:
+    radial-gradient(ellipse at 50% 38%, rgba(201, 168, 120, 0.10) 0%, transparent 55%),
+    radial-gradient(ellipse at 50% 90%, rgba(184, 92, 74, 0.06) 0%, transparent 60%);
+}

@@ -45,8 +45,8 @@ next-env.d.ts
 /backups
 /tmp
 
-# Local sketches Zuzi imports during dev (her source IP — keep out of repo)
-/samples/dev-input/
+# Zuzi's source sketches — her IP, never commit
+/samples/inputs/
 
 # IDE
 .vscode/

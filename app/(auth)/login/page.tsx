@@ -1,10 +1,68 @@
+"use client";
+
+import { useState, type FormEvent } from "react";
+import { useRouter } from "next/navigation";
+
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 
+function safeNextPath(): string {
+  if (typeof window === "undefined") return "/";
+  const next = new URLSearchParams(window.location.search).get("next");
+  // Only allow same-origin paths starting with "/" and without a scheme/protocol.
+  if (next && next.startsWith("/") && !next.startsWith("//")) return next;
+  return "/";
+}
+
 export default function LoginPage() {
+  const router = useRouter();
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+
+  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (pending) return;
+    setError(null);
+    setPending(true);
+
+    const form = e.currentTarget;
+    const passwordEl = form.elements.namedItem("password") as HTMLInputElement | null;
+    const password = passwordEl?.value ?? "";
+
+    try {
+      const resp = await fetch("/api/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ password }),
+      });
+
+      if (resp.status === 204) {
+        router.push(safeNextPath());
+        router.refresh();
+        return;
+      }
+      if (resp.status === 401) {
+        setError("Wrong password.");
+      } else if (resp.status === 429) {
+        const data = (await resp.json().catch(() => ({}))) as { retryAfterSec?: number };
+        const sec = data.retryAfterSec ?? 300;
+        const min = Math.max(1, Math.ceil(sec / 60));
+        setError(`Too many attempts. Try again in ${min} minute${min === 1 ? "" : "s"}.`);
+      } else if (resp.status === 500) {
+        const data = (await resp.json().catch(() => ({}))) as { detail?: string };
+        setError(`Server error${data.detail ? `: ${data.detail}` : "."}`);
+      } else {
+        setError(`Unexpected response (${resp.status}).`);
+      }
+    } catch {
+      setError("Network error — try again.");
+    } finally {
+      setPending(false);
+    }
+  }
+
   return (
     <div className="relative flex min-h-svh items-center justify-center overflow-hidden">
-      {/* Soft warm radial gradient for atmosphere */}
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0"
@@ -20,8 +78,8 @@ export default function LoginPage() {
         </h1>
 
         <form
-          method="post"
-          action="/api/login"
+          onSubmit={handleSubmit}
+          noValidate
           className="mt-10 rounded-2xl bg-card p-8 shadow-sm border border-hairline space-y-4"
         >
           <div>
@@ -38,10 +96,18 @@ export default function LoginPage() {
               autoComplete="current-password"
               required
               autoFocus
+              disabled={pending}
             />
           </div>
-          <Button type="submit" className="w-full h-11 text-base">
-            Enter
+
+          {error && (
+            <p role="alert" className="text-sm text-destructive">
+              {error}
+            </p>
+          )}
+
+          <Button type="submit" className="w-full h-11 text-base" disabled={pending}>
+            {pending ? "Entering…" : "Enter"}
           </Button>
         </form>
       </div>

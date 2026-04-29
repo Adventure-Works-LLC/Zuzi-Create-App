@@ -70,36 +70,58 @@ plan's reference docs first.
 
 | Checkbox | What changes | What's preserved |
 |---|---|---|
-| **Color** | Hue and palette | Drawing, marks, value structure, subject, composition, ambient feel |
-| **Ambiance** | Atmospheric depth, ambient presence, fills sparse/empty areas with feeling | Existing marks and brushwork (don't repaint), color palette, composition, subject identity, level of finish on already-developed passages |
-| **Lighting** | Mood, shadows, light direction | Color palette, composition, brushwork, subject, background |
-| **Background** | Environment behind the subject | Subject/figure, brushwork, lighting on subject, color palette |
+| **Color** | Hue and palette | Drawing, marks, value structure, subject, composition, lighting, background |
+| **Ambiance** | Continues the painting in her voice — extends her own brushwork, marks, level of finish into the canvas; adds elements (a small object, a mark in negative space, atmospheric depth) painted in HER style | Existing developed passages (don't repaint), composition, palette family, subject identity, brushwork voice |
+| **Lighting** | Mood, shadows, light direction | Color palette, composition, brushwork, subject, background, level of finish |
+| **Background** | Replaces the background with a different setting, painted in her hand (her style, her marks, her finish — NOT a generic AI-rendered background) | Foreground (figure, subject), composition, framing, palette family, lighting direction, brushwork on the subject, level of finish |
 
 > **Composition is gone.** Composition (reframing/repositioning the subject) was tried,
-> didn't match the user's actual workflow, and was removed. Ambiance (adding atmospheric
-> depth to sparse areas) is the operation she actually wants. **Don't add Composition
+> didn't match the user's actual workflow, and was removed. Ambiance (continuing the
+> painting in her voice) is the operation she actually wants. **Don't add Composition
 > back without explicit user request.**
 
-The checkboxes determine the prompt via `lib/gemini/imagePrompts.ts buildPrompt()`:
-  - **Empty** (no checkboxes) → freeform "make this beautiful" — the validated v0
-    prompt: vary colors, preserve everything else. This is Zuzi's smoke-validated default.
-  - **Ambiance is checked (alone or with others)** → the dedicated atmospheric-pass
-    prompt fires (the verbatim `AMBIANCE_PROMPT_BODY` in `imagePrompts.ts`). Ambiance is
-    a focused additive operation, not a "vary X" knob — it identifies sparse/empty
-    passages and adds tonal/environmental presence without retouching developed areas.
-    Because the Ambiance prompt explicitly says "match the existing palette and
-    lighting," combining it with Color/Lighting would produce contradictory directives;
-    Ambiance dominates when checked. The user can uncheck it to fall back to the per-
-    preset vary-X path.
-  - **One or more (no Ambiance)** → vary the listed aspects, preserve the rest. The
-    builder removes each varied aspect from the preserve list (e.g. `lighting` removes
-    both "lighting" and "value structure" because lighting drives values).
-  - **All four (sans Ambiance)** is structurally not possible since Ambiance is one of
-    the four; the "all four" case routes to the Ambiance path.
+#### Dominators vs composers
 
-The preset-set is rendered into the prompt in **fixed canonical order**
+The four presets split into two architectural categories in `imagePrompts.ts`:
+
+  - **Dominators**: have a dedicated multi-paragraph prompt body validated in Krea.
+    When a dominator is checked, its body short-circuits the builder and any other
+    checked presets are subsumed. This is intentional — dominator prompts include
+    strong preserve-this-aspect language ("palette family stays identical", "composition
+    stays identical") that contradicts a "vary X" composer. If Zuzi wants compound
+    edits, she runs two passes (e.g. Background to swap setting → favorite a result
+    → Color on the favorite to vary palette).
+      - **Ambiance v8** — `AMBIANCE_PROMPT_BODY` (locked).
+      - **Background v3** — `BACKGROUND_PROMPT_BODY` (locked).
+  - **Composers**: participate in the templated "Reimagine X, preserve Y" path. Multiple
+    composers can stack — Color + Lighting renders "Reimagine the colors and palette and
+    the lighting and mood, ...". Color's solo rendering is also frozen as
+    `COLOR_PROMPT_BODY` for byte-identical lock-in.
+      - **Color** (solo: locked body; combined: templated).
+      - **Lighting** (templated, both solo and combined). Not yet locked — when Lighting
+        is iterated in Krea, it'll get the same dedicated-body treatment.
+
+Resolution order in `buildPrompt`:
+  1. `presets: []` (empty) → freeform v0 "make this beautiful".
+  2. `presets` includes `ambiance` → `AMBIANCE_PROMPT_BODY`.
+  3. `presets` includes `background` → `BACKGROUND_PROMPT_BODY`.
+  4. `presets` is exactly `['color']` → `COLOR_PROMPT_BODY` (frozen).
+  5. otherwise → templated path (Lighting solo, Color+Lighting).
+
+If both Ambiance and Background are somehow checked simultaneously, Ambiance wins
+(ordering is deliberate — Ambiance is the broader voice-continuation default).
+
+In the templated path, the preset-set is rendered in **fixed canonical order**
 (color → ambiance → lighting → background) regardless of UI click order, so a given
 set always produces the same prompt and the prompt cache stays stable.
+
+#### Cross-prompt lessons
+
+When tuning prompts, see `docs/PROMPT_LESSONS.md` for the rules that came out of the
+Ambiance and Background iteration rounds. The short version: Pro defaults to a
+generic AI-rendered look for any "make it beautiful" framing; anti-language and
+narrow operations and redundant style-anchoring are what get it to imitate Zuzi's
+hand instead.
 
 ### Tile count
 

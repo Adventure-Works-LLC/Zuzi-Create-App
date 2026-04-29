@@ -23,14 +23,20 @@ so the canonical default-prompt baseline stays at the unsuffixed path.
 |---|---|---|---|---|
 | `untitled_artwork_3/` | Untitled_Artwork 3 | Pro · 1K · 3 | **Freeform** (empty presets) — the validated v0 "make this beautiful" prompt: vary colors, preserve everything else | Canonical default-prompt baseline. Matches the smoke-validated default that Zuzi originally approved. |
 | `untitled_artwork_3-ambiance/` | Untitled_Artwork 3 | Pro · 1K · 3 | **Ambiance v8 (locked)** — see `lib/gemini/imagePrompts.ts AMBIANCE_PROMPT_BODY`. Style-continuation framing: "continue the painting in her voice; add elements in her style." | Validated by Jeff in Krea against multiple Zuzi WIPs before being ported. Outputs visibly add painterly content (small vase in negative space, more developed bouquet) in the source's flat-painterly style, while preserving palette and composition. |
+| `untitled_artwork_3-background/` | Untitled_Artwork 3 | Pro · 1K · 3 | **Background v3 (locked)** — see `lib/gemini/imagePrompts.ts BACKGROUND_PROMPT_BODY`. Different-setting-in-her-hand framing with anti-language against AI-illustration finish. | Validated by Jeff in Krea. Outputs replace the source's pink-streak/blue-dot background with a different interior setting (window + chair, curtains + plant, etc.), painted in the source's loose painterly hand — NOT a generic AI-rendered background. Foreground (figure, dress, bouquet) preserved; palette family preserved; lighting direction preserved. |
 
 ## Prompt version history
 
-The Ambiance prompt went through 8 iterations before locking. Lineage and
-the "load-bearing redundancy" lesson are documented in the comment block
-above `AMBIANCE_PROMPT_BODY` in `lib/gemini/imagePrompts.ts`. **Do not
-deduplicate the v8 prompt — the redundant style-anchoring language is
-load-bearing.**
+The Ambiance prompt went through 8 iterations before locking; the Background
+prompt went through 5 (3 viable + 2 rejected). Per-prompt lineage and the
+load-bearing-redundancy + anti-language + judgment-imitation lessons are
+documented in the comment blocks above each `*_PROMPT_BODY` constant in
+`lib/gemini/imagePrompts.ts`. The cross-cutting rules that came out of those
+rounds live in **`docs/PROMPT_LESSONS.md`** — read that before iterating
+any preset prompt.
+
+**Do not deduplicate locked prompts.** The redundant style-anchoring language
+is load-bearing.
 
 ## When to regenerate
 

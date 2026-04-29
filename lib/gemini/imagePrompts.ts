@@ -12,12 +12,12 @@
  *     prompt — vary colors, preserve everything else. This is the v0 prompt
  *     Zuzi approved during smoke runs; keeping it bit-identical avoids
  *     regressing the validated default.
- *   - `presets` includes `ambiance` → the dedicated atmospheric-pass prompt
- *     (see AMBIANCE_PROMPT_BODY). Ambiance is a focused additive operation
- *     ("add depth and feeling to empty areas"), not a "vary X" operation, so
- *     it doesn't compose with the standard vary-X / preserve-Y template.
- *     When ambiance is checked, its prompt takes priority and any other
- *     checked presets are subsumed — this is intentional, simpler than
+ *   - `presets` includes `ambiance` → the dedicated v8 style-continuation
+ *     prompt (see AMBIANCE_PROMPT_BODY). Ambiance is "complete the painting
+ *     in her voice" — a focused style-continuation operation, not a "vary X"
+ *     operation, so it doesn't compose with the standard vary-X / preserve-Y
+ *     template. When ambiance is checked, its prompt takes priority and any
+ *     other checked presets are subsumed — this is intentional, simpler than
  *     trying to merge contradictory directives ("match palette" + "vary
  *     palette"). Documented in AGENTS.md §4.
  *   - `presets: [<one or more, no ambiance>]` → builder constructs a "vary X,
@@ -52,14 +52,51 @@ export const TILE_COUNT_MAX = 9;
 /** Stable order in which presets appear in the rendered prompt. */
 const PRESET_ORDER: ReadonlyArray<Preset> = PRESETS;
 
-/** Ambiance prompt body. Iterated from the user's spec after the first smoke
- *  showed Pro treating the original "Look at this painting and identify..."
- *  framing as a reimagining cue and drifting the palette + adding decorative
- *  patterns. This version leads with a hard editing directive, enumerates
- *  what must remain identical, and forbids decorative additions explicitly.
- *  The aspect-ratio sentence is appended at render time per AGENTS.md §3. */
-const AMBIANCE_PROMPT_BODY =
-  "Edit this painting by adding atmospheric depth and ambient presence ONLY to the empty, flat, or sparsely painted passages. This is a subtle additive overlay, NOT a reimagining. The figure, pose, clothing, facial features, hair, brushwork, marks, color palette, lighting, and composition must remain IDENTICAL to the input — anyone comparing the input and output side-by-side should see the developed passages as visually unchanged. In the bare areas (typically backgrounds, negative space, undeveloped canvas), add soft tonal modulation and gentle environmental suggestion: the kind of breathy painterly wash that suggests air and depth without depicting any specific object. Use ONLY hues already present in the input painting; do NOT introduce new colors. Do NOT add new subjects, new objects, new figures, decorative patterns, dots, or repeating motifs. Do NOT smooth, finish, or repaint passages the artist has already developed. The output should look like the input painting after the artist made one quiet atmospheric pass with a soft brush over the bare areas — same hand, same voice, same palette, more breath where the canvas was empty.";
+/**
+ * Ambiance prompt body — **v8 (LOCKED)**. Validated by Jeff in Krea against
+ * multiple Zuzi WIPs; produces consistently good outputs and outperforms the
+ * cleaner v7 variants in real-world use.
+ *
+ * DO NOT improve, shorten, or deduplicate the redundant style-anchoring
+ * language. The redundancy is **load-bearing** — it's what makes Pro stay in
+ * Zuzi's voice instead of drifting to a generic "atmospheric overlay" mode.
+ * The two lines that say "in HER style, with HER kind of marks" and the
+ * concrete "if she's working flat / if she's using thick gestural strokes"
+ * examples look redundant on paper; they're the difference between Pro
+ * imitating her hand vs. inventing a new one.
+ *
+ * **Iteration lineage** (kept so future tuning has the prior context, and to
+ * document the failure modes):
+ *   - v1: drifted, repainted everything.
+ *   - v2: too subtle — atmospheric whisper barely visible against developed
+ *     passages.
+ *   - v3: bold but crowded — added too much.
+ *   - v4: quantity-capped ("add no more than two elements"); still busy.
+ *   - v5: position-locked ("only in the upper-left quadrant"); lost magic.
+ *   - v6: aesthetic-outcome framing ("make it feel finished"); Pro rendered
+ *     toward a 3D-illustration finish quality, away from her painterly hand.
+ *   - v7: style-continuation framing; removed finish-quality vocabulary.
+ *     Cleaner prose, but Pro still occasionally drifted to its default look.
+ *   - **v8 (locked)**: style-continuation + concrete style examples
+ *     ("flat and painterly" vs. "thick gestural strokes") + redundant
+ *     style anchors ("HER style, with HER kind of marks") + "she would
+ *     have completed it" judgment-imitation framing. Validated in Krea by
+ *     Jeff across multiple Zuzi WIPs.
+ *
+ * **Lesson for future preset tuning:** longer prompts with redundant style-
+ * anchoring may outperform cleaner shorter ones, especially when the goal
+ * is voice-preservation. Don't deduplicate aggressively. Real-output
+ * evidence > prose elegance.
+ *
+ * The aspect-ratio sentence is appended at render time per AGENTS.md §3.
+ */
+const AMBIANCE_PROMPT_BODY = `Continue this painting in the same style the artist is already using. Look at her brushwork, her marks, her flatness or dimensionality, her color application, her level of finish — and add more of the same. Extend her painting in her own voice. But do so in a way that completes the painting in the most satisfying way visually.
+
+Do NOT make the image busy or change the composition. Your final image should look like the input image with additional work put into completing the image in a way that she would likely have completed it. It should feel not overly empty or not overfilled with new things.
+
+You can add elements — a small object, a mark in negative space, something in the background, atmospheric depth — but everything you add must be painted in HER style, with HER kind of marks. If she's working flat and painterly, your additions are flat and painterly. If she's using thick gestural strokes, your additions are thick gestural strokes. Match her hand exactly.
+
+The output should look like a finished version of the input painting.`;
 
 /** What each preset commands the model to vary, when checked. Ambiance has a
  *  placeholder here for type-completeness but is never rendered through the
@@ -107,13 +144,17 @@ export function buildPrompt({ presets, aspectRatio }: BuildPromptArgs): string {
     return `This painting is shown as the input image. Reimagine it with new colors of your own choosing — pick whatever colors you think will make this painting as beautiful as possible. Preserve the brushwork, drawing style, marks, composition, subject, level of finish, and value structure exactly. Only the colors change. Match the input aspect ratio exactly (${aspectRatio}).`;
   }
 
-  // Ambiance dominates — when checked, the dedicated atmospheric-pass prompt
-  // is used. Other checked presets are intentionally subsumed because mixing
-  // ambiance's "match the existing palette" directive with e.g. color's "vary
-  // the palette" produces contradictory instructions. Simpler is right here:
-  // ambiance is a focused additive operation, not a "vary X" knob.
+  // Ambiance dominates — when checked, the dedicated v8 style-continuation
+  // prompt is used. Other checked presets are intentionally subsumed because
+  // mixing ambiance's "continue in her style" directive with e.g. color's
+  // "vary the palette" produces contradictory instructions. Ambiance is a
+  // focused style-continuation operation, not a "vary X" knob.
+  //
+  // The body is multiline (paragraph-separated) by design — v8 was validated
+  // in Krea with this exact paragraph structure, so we preserve it. The
+  // aspect-ratio sentence joins as its own trailing paragraph.
   if (presets.includes("ambiance")) {
-    return `${AMBIANCE_PROMPT_BODY} Match the input aspect ratio exactly (${aspectRatio}).`;
+    return `${AMBIANCE_PROMPT_BODY}\n\nMatch the input aspect ratio exactly (${aspectRatio}).`;
   }
 
   // Project to a deduped, stably-ordered array of valid presets. Filter

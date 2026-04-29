@@ -39,11 +39,12 @@ const PRESET_LABEL: Record<Preset, string> = {
 };
 
 /** Optional one-line subline rendered under the checkbox label. Only Ambiance
- *  has one in v1 — the operation is non-obvious from the name alone, and
- *  Composition (which had been intuitive) was removed in favor of it. The
- *  others read literally. */
+ *  has one — the operation is non-obvious from the name alone, and Composition
+ *  (which had been intuitive) was removed in favor of it. The others read
+ *  literally. Phrasing tracks the v8 prompt's "continue in her voice" framing;
+ *  see lib/gemini/imagePrompts.ts AMBIANCE_PROMPT_BODY. */
 const PRESET_SUBLINE: Partial<Record<Preset, string>> = {
-  ambiance: "add depth and feeling to empty areas",
+  ambiance: "complete it in her voice",
 };
 
 function PillToggle<T extends string>({

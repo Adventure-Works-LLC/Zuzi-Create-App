@@ -1,20 +1,20 @@
 /**
- * Cloudflare R2 client (S3-compatible).
+ * Cloudflare R2 client (S3-compatible) — PRIVATE bucket.
+ *
+ * `zuzi-images` is a private bucket. There is NO public URL. All image access goes
+ * through `signedUrlFor(key, ttl)` which returns a presigned URL valid for `ttl`
+ * seconds (default 1 hour). See AGENTS.md §7 for the full privacy / threat model.
  *
  * Endpoint: https://<R2_ACCOUNT_ID>.r2.cloudflarestorage.com
- * Bucket:   $R2_BUCKET (e.g., zuzi-images)
- * Public:   https://$R2_PUBLIC_HOST (default pub-<hash>.r2.dev)
  *
  * Env vars (see AGENTS.md §7):
  *   R2_ACCOUNT_ID    Cloudflare account id
  *   R2_ACCESS_KEY    R2 access key id
  *   R2_SECRET_KEY    R2 secret access key
  *   R2_BUCKET        bucket name (zuzi-images)
- *   R2_PUBLIC_HOST   public hostname only, no protocol or trailing slash
- *                    (e.g. pub-00ea5347e7c44125bbf6d96839b774b7.r2.dev)
  *
- * Native module note: @aws-sdk/client-s3 uses Node-only deps. Any Route Handler /
- * Proxy / instrumentation file that imports this MUST declare
+ * Native module note: @aws-sdk/client-s3 + s3-request-presigner use Node-only deps.
+ * Any Route Handler / Proxy / instrumentation file that imports this MUST declare
  * `export const runtime = 'nodejs'` per AGENTS.md §2.
  */
 
@@ -23,6 +23,7 @@ import {
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 function requireEnv(name: string): string {
   const v = process.env[name];
@@ -57,6 +58,9 @@ export async function putObject(
       Key: key,
       Body: bytes,
       ContentType: contentType,
+      // Cache-Control is a CDN/browser cache hint, NOT bucket access control.
+      // Private bucket + immutable cache is fine — clients can re-fetch with a
+      // valid signed URL when needed.
       CacheControl: CACHE_CONTROL,
     }),
   );
@@ -74,7 +78,24 @@ export async function getObject(key: string): Promise<Buffer> {
   return Buffer.from(bytes);
 }
 
-export function publicUrlFor(key: string): string {
-  const host = requireEnv("R2_PUBLIC_HOST");
-  return `https://${host}/${key}`;
+/**
+ * Returns a presigned GET URL for the object at `key`, valid for `ttlSeconds`.
+ * Default 1 hour. Caller is responsible for checking auth before issuing — the URL
+ * itself is bearer-style and works without a session for its TTL.
+ *
+ * Path-traversal defense lives at the route layer (validate the key prefix before
+ * calling this), not here.
+ */
+export async function signedUrlFor(
+  key: string,
+  ttlSeconds = 3600,
+): Promise<string> {
+  return getSignedUrl(
+    client(),
+    new GetObjectCommand({
+      Bucket: requireEnv("R2_BUCKET"),
+      Key: key,
+    }),
+    { expiresIn: ttlSeconds },
+  );
 }

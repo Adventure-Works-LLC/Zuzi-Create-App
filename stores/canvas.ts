@@ -10,7 +10,6 @@ export interface Source {
   w: number;
   h: number;
   aspectRatio: string;
-  publicUrl: string;
   uploadedAt: number;
 }
 

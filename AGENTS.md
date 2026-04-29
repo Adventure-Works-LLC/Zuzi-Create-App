@@ -195,19 +195,51 @@ read-or-write path that uses it in the current code, leave it out.
 Pinned values for external services. Do NOT put any of these in committed env files —
 paste them into local `.env` (and into Railway sealed env vars when those exist).
 
-### Cloudflare R2
+### Cloudflare R2 — privacy model
 
-| Bucket | Visibility | Purpose | Public URL |
-|---|---|---|---|
-| `zuzi-images` | Public | Source uploads, generated outputs, thumbnails (`inputs/`, `outputs/`, `thumbs/`) | `https://pub-00ea5347e7c44125bbf6d96839b774b7.r2.dev` |
-| `zuzi-backups` | Private | Nightly SQLite + recovery.jsonl backups (Prompt 6) | (none — accessed via S3 API only) |
+**Both buckets are PRIVATE.** There is no public URL. All image access goes through
+`GET /api/image-url?key=<r2-key>` which returns a presigned URL valid for 1 hour
+(default; tunable per call via `signedUrlFor(key, ttlSeconds)` in `lib/storage/r2.ts`).
+
+| Bucket | Visibility | Purpose |
+|---|---|---|
+| `zuzi-images` | Private | Source uploads, generated outputs, thumbnails (`inputs/`, `outputs/`, `thumbs/`) |
+| `zuzi-backups` | Private | Nightly SQLite + recovery.jsonl backups (Prompt 6) |
 
 Env var values:
-- `R2_PUBLIC_HOST` = `pub-00ea5347e7c44125bbf6d96839b774b7.r2.dev` (hostname only; `lib/storage/r2.ts` adds `https://` and the key path)
 - `R2_BUCKET` = `zuzi-images`
 - `R2_ACCOUNT_ID`, `R2_ACCESS_KEY`, `R2_SECRET_KEY` — issued by Cloudflare; rotate when needed
 - `R2_BACKUP_BUCKET` = `zuzi-backups`
 - `R2_BACKUP_KEY`, `R2_BACKUP_SECRET` — separate credentials scoped to the backup bucket
+
+There is no `R2_PUBLIC_HOST` env var. (Earlier drafts had one for the `pub-<hash>.r2.dev`
+hostname; that was removed when the bucket flipped to private.)
+
+### Threat model — signed URLs
+
+`GET /api/image-url` issues 1-hour presigned URLs and is **auth-gated at issuance**:
+only authenticated sessions can request a URL. Once issued, the URL is bearer-style and
+works for its TTL **even without a session** — anyone who obtains the URL within the
+window can fetch the image.
+
+Mitigations in place:
+1. **1-hour TTL** bounds the leak window. Configurable per call site.
+2. **Auth-gated issuance** — no anonymous access to the URL endpoint.
+3. **No public bucket discovery** — keys are ulid-based and unguessable.
+4. **No URL persistence on the server** — keys are stored in the DB; URLs are computed
+   on demand.
+5. **No URL persistence on the client** — `hooks/useImageUrl.ts` keeps a module-scoped
+   in-memory `Map` (one cache per tab). Reload = fresh fetches. No localStorage,
+   sessionStorage, IndexedDB, or service-worker cache of signed URLs.
+6. **Path-traversal defense at the route** — `/api/image-url` only signs keys starting
+   with `inputs/`, `outputs/`, or `thumbs/`. `..` and `\` are rejected. Max key length
+   256 chars.
+
+For a single-user app where the adversary is "someone who casually obtains a leaked
+URL", this is the right tradeoff — convenience (no proxy bandwidth on Railway, browsers
+cache via the URL) without putting the bucket on the open internet. Re-evaluate if the
+user base ever grows beyond 1, or if leak risk profile changes (e.g., shared screen
+during a stream).
 
 ### Railway
 

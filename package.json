@@ -18,6 +18,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1038.0",
+    "@aws-sdk/s3-request-presigner": "^3.1038.0",
     "@base-ui/react": "^1.4.1",
     "@google/genai": "^1.50.1",
     "@tanstack/react-query": "^5.100.6",

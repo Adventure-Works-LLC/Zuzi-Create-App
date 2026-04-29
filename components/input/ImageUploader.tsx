@@ -9,6 +9,7 @@ import {
 } from "react";
 
 import { type Source, useCanvas } from "@/stores/canvas";
+import { useImageUrl } from "@/hooks/useImageUrl";
 
 const ACCEPTED_EXTS = /\.(jpe?g|png|webp|heic)$/i;
 const ACCEPTED_MIME = /^image\//;
@@ -18,7 +19,6 @@ interface UploadResponse {
   w: number;
   h: number;
   aspectRatio: string;
-  publicUrl: string;
 }
 
 async function uploadFile(file: File): Promise<UploadResponse> {
@@ -41,6 +41,51 @@ function formatTime(ms: number): string {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function SourcePreview({
+  source,
+  onReplace,
+}: {
+  source: Source;
+  onReplace: () => void;
+}) {
+  const { url, loading, error } = useImageUrl(source.inputKey);
+  return (
+    <div className="flex flex-col gap-3 w-full max-w-[400px]">
+      <div className="aspect-square rounded-lg bg-card ring-1 ring-hairline overflow-hidden flex items-center justify-center">
+        {url ? (
+          <img
+            src={url}
+            alt="Source painting"
+            className="w-full h-full object-cover"
+          />
+        ) : loading ? (
+          <span className="text-text-mute text-sm">Loading…</span>
+        ) : error ? (
+          <span className="text-destructive text-sm text-center px-4">
+            {error}
+          </span>
+        ) : null}
+      </div>
+      <div className="flex items-center justify-between gap-3 text-sm">
+        <span className="text-text-mute leading-tight">
+          Source — {formatTime(source.uploadedAt)}
+          <br />
+          <span className="text-xs">
+            {source.w}×{source.h} · {source.aspectRatio}
+          </span>
+        </span>
+        <button
+          type="button"
+          onClick={onReplace}
+          className="text-text-mute hover:text-foreground text-xs underline shrink-0"
+        >
+          Replace
+        </button>
+      </div>
+    </div>
+  );
 }
 
 export function ImageUploader() {
@@ -112,33 +157,7 @@ export function ImageUploader() {
   }
 
   if (source) {
-    return (
-      <div className="flex flex-col gap-3 w-full max-w-[400px]">
-        <div className="aspect-square rounded-lg bg-card ring-1 ring-hairline overflow-hidden">
-          <img
-            src={source.publicUrl}
-            alt="Source painting"
-            className="w-full h-full object-cover"
-          />
-        </div>
-        <div className="flex items-center justify-between gap-3 text-sm">
-          <span className="text-text-mute leading-tight">
-            Source — {formatTime(source.uploadedAt)}
-            <br />
-            <span className="text-xs">
-              {source.w}×{source.h} · {source.aspectRatio}
-            </span>
-          </span>
-          <button
-            type="button"
-            onClick={clearSource}
-            className="text-text-mute hover:text-foreground text-xs underline shrink-0"
-          >
-            Replace
-          </button>
-        </div>
-      </div>
-    );
+    return <SourcePreview source={source} onReplace={clearSource} />;
   }
 
   return (

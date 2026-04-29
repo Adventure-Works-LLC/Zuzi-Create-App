@@ -21,7 +21,7 @@ import { ulid } from "ulid";
 import sharp from "sharp";
 
 import { getSession } from "@/lib/auth/session";
-import { putObject, publicUrlFor } from "@/lib/storage/r2";
+import { putObject } from "@/lib/storage/r2";
 import { nearestSupportedAspectRatio } from "@/lib/gemini/aspectRatio";
 
 export const runtime = "nodejs";
@@ -116,13 +116,13 @@ export async function POST(req: Request): Promise<Response> {
 
   const aspectRatio = nearestSupportedAspectRatio(width, height);
 
+  // Bucket is private — no URL in the response. Caller fetches via /api/image-url.
   return NextResponse.json(
     {
       inputKey,
       w: width,
       h: height,
       aspectRatio,
-      publicUrl: publicUrlFor(inputKey),
     },
     { status: 200 },
   );

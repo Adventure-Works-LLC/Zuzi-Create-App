@@ -211,6 +211,18 @@ export async function runIteration(iterationId: string): Promise<void> {
   const presets = parseStoredPresets(iter.presets, iterationId);
   const promptText = buildPrompt({ presets, aspectRatio });
 
+  // TEMP DEBUG (remove after Ambiance v8 deploy verification): on any iteration
+  // that includes 'ambiance', log the Railway commit SHA + the rendered prompt
+  // head so we can confirm production is sending v8 ("Continue this painting...")
+  // and not a stale v1 ("Look at this painting and identify..."). Tagged with
+  // [AMBIANCE_DEBUG] for grep in Railway runtime logs.
+  if (presets.includes("ambiance")) {
+    const sha = (process.env.RAILWAY_GIT_COMMIT_SHA ?? "unknown").slice(0, 12);
+    console.log(
+      `[AMBIANCE_DEBUG ${iterationId}] sha=${sha} presets=${JSON.stringify(presets)} prompt[0..200]=${JSON.stringify(promptText.slice(0, 200))}`,
+    );
+  }
+
   // Recovery rehydration — only matters for boot-time replays where the iteration row
   // already exists with pending tiles. Map by `(iter_id, idx)` is keyed for O(1) lookup.
   const { byIterIdx } = await scanRecovery();

@@ -197,8 +197,32 @@ export function InputBar() {
 
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const libraryInputRef = useRef<HTMLInputElement>(null);
+  const footerRef = useRef<HTMLElement>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [generateError, setGenerateError] = useState<string | null>(null);
+
+  // Publish the bar's actual rendered height (including padding + safe-area-
+  // inset on PWA) as a CSS custom property so the tile stream / empty-canvas
+  // can pad correctly. Without this, the hard-coded pb-[280px] occludes the
+  // last tile when the bar wraps (preset row + bottom row + errors row all
+  // stacking). offsetHeight gives border-box pixels, which is what the
+  // consumer wants — the entire occluded region.
+  useEffect(() => {
+    const el = footerRef.current;
+    if (!el) return;
+    const root = document.documentElement;
+    const publish = () => {
+      root.style.setProperty("--inputbar-h", `${el.offsetHeight}px`);
+    };
+    publish();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => publish());
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+      root.style.removeProperty("--inputbar-h");
+    };
+  }, []);
 
   // Document-level paste — works regardless of focus, lands on the page.
   useEffect(() => {
@@ -271,6 +295,7 @@ export function InputBar() {
 
   return (
     <footer
+      ref={footerRef}
       className={[
         "sticky bottom-0 z-30",
         "bg-background/90 backdrop-blur-md",

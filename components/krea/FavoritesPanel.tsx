@@ -25,6 +25,7 @@ interface FavoriteRow {
   tileId: string;
   sourceId: string;
   sourceArchived: boolean;
+  sourceAspectRatio: string;
   iterationId: string;
   outputKey: string | null;
   thumbKey: string | null;
@@ -35,8 +36,13 @@ interface FavoriteRow {
 
 function FavoriteThumb({ favorite }: { favorite: FavoriteRow }) {
   const { url } = useImageUrl(favorite.thumbKey);
+  // AGENTS.md §3: output aspect == input aspect. Mirror it on the container so
+  // tall paintings aren't center-cropped to square in the favorites grid.
   return (
-    <div className="relative aspect-square w-full overflow-hidden rounded-md ring-1 ring-hairline/60">
+    <div
+      style={{ aspectRatio: favorite.sourceAspectRatio.replace(":", "/") }}
+      className="relative w-full overflow-hidden rounded-md ring-1 ring-hairline/60"
+    >
       {url ? (
         <img
           src={url}

@@ -26,12 +26,16 @@ import { useCanvas, type Tile as TileT } from "@/stores/canvas";
 
 interface TileProps {
   tile: TileT;
+  /** Source aspect ratio in "W:H" form (e.g. "4:5", "16:9"). Output aspect ==
+   * input aspect (AGENTS.md §3) so the tile container must mirror it; otherwise
+   * `object-cover` center-crops the painting and obscures keep/discard cues. */
+  aspectRatio: string;
   /** Optimistic ids (placed before /api/iterate replies) shouldn't allow
    * favoriting yet — there's no DB row to write against. */
   optimistic?: boolean;
 }
 
-export function Tile({ tile, optimistic = false }: TileProps) {
+export function Tile({ tile, aspectRatio, optimistic = false }: TileProps) {
   const setLightboxTile = useCanvas((s) => s.setLightboxTile);
   const { toggle } = useFavorites();
   const { url, loading } = useImageUrl(tile.thumbKey);
@@ -61,8 +65,9 @@ export function Tile({ tile, optimistic = false }: TileProps) {
       type="button"
       onClick={onTap}
       disabled={tile.status !== "done"}
+      style={{ aspectRatio: aspectRatio.replace(":", "/") }}
       className={[
-        "group relative aspect-square w-full overflow-hidden rounded-lg",
+        "group relative w-full overflow-hidden rounded-lg",
         "bg-card",
         tile.status === "done"
           ? "ring-1 ring-hairline/70 hover:ring-hairline cursor-zoom-in"

@@ -242,6 +242,7 @@ export interface FavoriteRow {
   tile_id: string;
   source_id: string;
   source_archived: boolean;
+  source_aspect_ratio: string;
   iteration_id: string;
   output_image_key: string | null;
   thumb_image_key: string | null;
@@ -270,6 +271,7 @@ export function listFavorites(opts: {
       tile_id: tiles.id,
       source_id: sources.id,
       source_archived: sql<boolean>`${sources.archived_at} IS NOT NULL`,
+      source_aspect_ratio: sources.aspect_ratio,
       iteration_id: iterations.id,
       output_image_key: tiles.output_image_key,
       thumb_image_key: tiles.thumb_image_key,

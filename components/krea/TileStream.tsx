@@ -46,11 +46,15 @@ export function TileStream() {
         "flex-1 overflow-y-auto",
         "px-4 sm:px-6 md:px-8",
         // Top padding clears the source strip; bottom padding clears the
-        // input bar (pinned). The numbers are coarse — fine-tuned in the
-        // page composition.
-        "pt-6 pb-[280px]",
+        // sticky InputBar. --inputbar-h is published by InputBar via a
+        // ResizeObserver so this tracks wraps, error rows, and PWA safe-area-
+        // inset additions. Fallback 280px keeps SSR / first-paint correct.
+        "pt-6",
         "scroll-smooth",
       ].join(" ")}
+      style={{
+        paddingBottom: "calc(var(--inputbar-h, 280px) + 1.5rem)",
+      }}
     >
       <div className="mx-auto flex w-full max-w-[1100px] flex-col gap-10">
         {iterations.map((it) => (

@@ -1,9 +1,10 @@
 "use client";
 
 /**
- * IterationRow — the N tiles produced by one Submit, in a single horizontal
- * row of square tiles. Each row is one iteration; rows stack vertically with
- * newest at top inside the TileStream.
+ * IterationRow — the N tiles produced by one Submit, in a horizontal row of
+ * tiles whose container aspect ratio matches the SOURCE (AGENTS.md §3, output
+ * aspect == input aspect). Each row is one iteration; rows stack vertically
+ * with newest at top inside the TileStream.
  *
  * Layout uses CSS grid with column count chosen by tile-count (1..9):
  *   - count 1 → 1 column (full width, big tile)
@@ -18,7 +19,7 @@
 import { useMemo } from "react";
 
 import { Tile } from "./Tile";
-import type { Iteration } from "@/stores/canvas";
+import { useCanvas, type Iteration } from "@/stores/canvas";
 
 const PRESET_LABEL: Record<string, string> = {
   color: "color",
@@ -50,6 +51,14 @@ export function IterationRow({ iteration }: IterationRowProps) {
   const optimistic = iteration.id.startsWith("opt-");
   const cols = gridColsClass(iteration.tileCount);
 
+  // AGENTS.md §3: output aspect == input aspect. Tile containers must mirror
+  // the source's aspectRatio so thumbs aren't center-cropped to square.
+  // Defensive fallback to 1:1 if the source isn't in the store yet.
+  const source = useCanvas((s) =>
+    s.sources.find((src) => src.sourceId === iteration.sourceId),
+  );
+  const aspectRatio = source?.aspectRatio ?? "1:1";
+
   const presetLabel = useMemo(() => {
     if (iteration.presets.length === 0) return "make beautiful";
     return iteration.presets.map((p) => PRESET_LABEL[p]).join(" · ");
@@ -71,7 +80,12 @@ export function IterationRow({ iteration }: IterationRowProps) {
       </div>
       <div className={`grid ${cols} gap-3`}>
         {iteration.tiles.map((tile) => (
-          <Tile key={tile.id} tile={tile} optimistic={optimistic} />
+          <Tile
+            key={tile.id}
+            tile={tile}
+            aspectRatio={aspectRatio}
+            optimistic={optimistic}
+          />
         ))}
       </div>
     </section>

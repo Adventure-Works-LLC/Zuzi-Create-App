@@ -55,7 +55,12 @@ export default function Studio() {
       {iterations.length > 0 ? (
         <TileStream />
       ) : (
-        <div className="flex flex-1 flex-col items-center justify-center px-6 pb-[260px]">
+        <div
+          className="flex flex-1 flex-col items-center justify-center px-6"
+          style={{
+            paddingBottom: "calc(var(--inputbar-h, 260px) + 1.5rem)",
+          }}
+        >
           {showCue && (
             <p className="caption-display max-w-[28ch] text-center text-base italic text-text-mute">
               {isEmpty

@@ -24,7 +24,12 @@ import { useSources } from "@/hooks/useSources";
 import { useImageUrl } from "@/hooks/useImageUrl";
 import { useCanvas, type Source } from "@/stores/canvas";
 
-const LONG_PRESS_MS = 600;
+// 450ms < iOS native long-press (~500ms), so the gesture confirms before
+// Safari's own callout/magnifier kicks in.
+const LONG_PRESS_MS = 450;
+// If the pointer drifts more than this (px) between down and the timer firing
+// the user is scrolling the strip, not pressing — cancel the long-press.
+const LONG_PRESS_MOVE_TOLERANCE = 10;
 
 function SourceThumb({
   source,
@@ -40,10 +45,19 @@ function SourceThumb({
   const { url } = useImageUrl(source.inputKey);
   const timerRef = useRef<number | null>(null);
   const archivedRef = useRef(false);
+  const startPosRef = useRef<{ x: number; y: number } | null>(null);
 
-  const startPress = () => {
+  const cancelTimer = () => {
+    if (timerRef.current) {
+      window.clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+  };
+
+  const startPress = (e: React.PointerEvent) => {
     archivedRef.current = false;
-    if (timerRef.current) window.clearTimeout(timerRef.current);
+    startPosRef.current = { x: e.clientX, y: e.clientY };
+    cancelTimer();
     timerRef.current = window.setTimeout(() => {
       archivedRef.current = true;
       const ok = window.confirm(
@@ -53,11 +67,19 @@ function SourceThumb({
       else archivedRef.current = false;
     }, LONG_PRESS_MS);
   };
-  const endPress = () => {
-    if (timerRef.current) {
-      window.clearTimeout(timerRef.current);
-      timerRef.current = null;
+  const onMove = (e: React.PointerEvent) => {
+    const start = startPosRef.current;
+    if (!start || !timerRef.current) return;
+    const dx = e.clientX - start.x;
+    const dy = e.clientY - start.y;
+    if (dx * dx + dy * dy > LONG_PRESS_MOVE_TOLERANCE * LONG_PRESS_MOVE_TOLERANCE) {
+      // Movement => the user is scrolling, not long-pressing.
+      cancelTimer();
     }
+  };
+  const endPress = () => {
+    cancelTimer();
+    startPosRef.current = null;
   };
   const onClick = () => {
     if (archivedRef.current) return; // long-press fired; don't also select
@@ -69,9 +91,15 @@ function SourceThumb({
       type="button"
       onClick={onClick}
       onPointerDown={startPress}
+      onPointerMove={onMove}
       onPointerUp={endPress}
       onPointerLeave={endPress}
+      onPointerCancel={endPress}
       onContextMenu={(e) => e.preventDefault()}
+      // touch-action: pan-x lets the browser claim the gesture for horizontal
+      // scroll early and emit pointercancel, releasing the long-press timer
+      // before it can fire spuriously.
+      style={{ touchAction: "pan-x" }}
       className={[
         "relative h-14 w-14 shrink-0 overflow-hidden rounded-md",
         "ring-2 transition-all",

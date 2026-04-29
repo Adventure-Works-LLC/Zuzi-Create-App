@@ -5,8 +5,9 @@
  *   limit  default 50, max 100
  *   before cursor on favorited_at (millis); paginate by passing the last item's value
  *
- * Returns: { favorites: [{tileId, sourceId, sourceArchived, iterationId, outputKey,
- *           thumbKey, favoritedAt, createdAt, modelTier, resolution}] }
+ * Returns: { favorites: [{tileId, sourceId, sourceArchived, sourceAspectRatio,
+ *           iterationId, outputKey, thumbKey, favoritedAt, createdAt, modelTier,
+ *           resolution}] }
  *
  * Joins tiles → iterations → sources so the response carries everything the History
  * Drawer / CompareLightbox needs for one favorite without follow-up calls. Sorted
@@ -54,6 +55,7 @@ export async function GET(req: Request): Promise<Response> {
         tileId: r.tile_id,
         sourceId: r.source_id,
         sourceArchived: Boolean(r.source_archived),
+        sourceAspectRatio: r.source_aspect_ratio,
         iterationId: r.iteration_id,
         outputKey: r.output_image_key,
         thumbKey: r.thumb_image_key,

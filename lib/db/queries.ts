@@ -8,7 +8,7 @@
  *   - Functions return plain rows / row arrays; callers shape the response.
  */
 
-import { and, count, desc, eq, gte, isNull, lt, or, sql } from "drizzle-orm";
+import { and, count, desc, eq, gte, inArray, isNull, lt, or, sql } from "drizzle-orm";
 
 import { db } from "./client";
 import {
@@ -179,6 +179,21 @@ export function tilesFor(iterationId: string): Tile[] {
     .from(tiles)
     .where(eq(tiles.iteration_id, iterationId))
     .orderBy(tiles.idx)
+    .all();
+}
+
+/**
+ * Fetch tiles for a batch of iteration ids in one query — used by the iteration
+ * list endpoint so it can return iterations with embedded tiles without an N+1
+ * fetch. Empty input returns []. Returns rows in DB order; the caller groups
+ * by `iteration_id` and orders by `idx` per iteration.
+ */
+export function tilesForIterations(iterationIds: ReadonlyArray<string>): Tile[] {
+  if (iterationIds.length === 0) return [];
+  return db()
+    .select()
+    .from(tiles)
+    .where(inArray(tiles.iteration_id, iterationIds as string[]))
     .all();
 }
 

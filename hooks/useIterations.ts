@@ -211,6 +211,12 @@ export function useIterations(): UseIterationsResult {
       const data = (await resp.json().catch(() => ({}))) as {
         iterationId?: string;
         idempotentReplay?: boolean;
+        // On idempotent replay the server echoes the ORIGINAL row's values
+        // (which may differ from this retry's body if the user changed
+        // count/presets between attempts). Client must reconcile so the
+        // optimistic skeleton matches what the worker is actually firing.
+        count?: number;
+        presets?: Preset[];
         error?: string;
         detail?: string;
         currentUsd?: number;
@@ -235,25 +241,55 @@ export function useIterations(): UseIterationsResult {
       const iterationId = data.iterationId;
       if (!iterationId) throw new Error("no_iterationId_in_response");
 
-      // Swap optimistic id → canonical id. Keep the tile placeholders so the
-      // user keeps seeing them while the worker fires; SSE will then update
-      // each tile's status / output keys + canonical id as Gemini returns.
+      // Reconcile against echoed count/presets. On a fresh insert the server
+      // doesn't echo these (matches our request body). On an idempotent replay
+      // they reflect the ORIGINAL row's values; if the user's retry differed,
+      // we must rebuild the optimistic tiles to match the server's reality —
+      // otherwise the SSE stream emits the wrong number of tile events for our
+      // skeleton and the surplus placeholders hang in pending forever.
+      const canonicalCount =
+        typeof data.count === "number" && data.count > 0 ? data.count : count;
+      const canonicalPresets = Array.isArray(data.presets)
+        ? (data.presets as Preset[])
+        : presets;
+
+      // Swap optimistic id → canonical id, and resize the tile array if the
+      // echoed count differs. SSE will replace each tile's synthetic id with
+      // the real ulid as it arrives.
       useCanvas.getState().setIterations(
         useCanvas.getState().iterations.map((it) =>
           it.id === optimisticId
             ? {
                 ...it,
                 id: iterationId,
-                tiles: it.tiles.map((t) => ({
-                  ...t,
-                  iterationId,
-                  // Synthetic placeholder id — replaced by the canonical
-                  // tiles.id on each tile's SSE event (see useStreamingResults).
-                  // The favorite endpoint requires the real id; tiles only
-                  // become favoritable once they reach status === 'done', by
-                  // which point SSE has already swapped the id in.
-                  id: `${iterationId}-${t.idx}`,
-                })),
+                tileCount: canonicalCount,
+                presets: canonicalPresets,
+                tiles: Array.from({ length: canonicalCount }, (_, idx) => {
+                  const existing = it.tiles[idx];
+                  return existing
+                    ? {
+                        ...existing,
+                        iterationId,
+                        // Synthetic placeholder — replaced by canonical id on
+                        // each tile's SSE event. Tiles only become favoritable
+                        // at status === 'done', by which point SSE has swapped
+                        // the id in.
+                        id: `${iterationId}-${idx}`,
+                      }
+                    : {
+                        // Surplus tile when the server's count > our optimistic
+                        // count. Build a fresh placeholder.
+                        id: `${iterationId}-${idx}`,
+                        iterationId,
+                        idx,
+                        status: "pending" as const,
+                        outputKey: null,
+                        thumbKey: null,
+                        errorMessage: null,
+                        isFavorite: false,
+                        favoritedAt: null,
+                      };
+                }),
               }
             : it,
         ),

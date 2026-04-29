@@ -19,12 +19,9 @@
  *   - Idempotent replay (early short-circuit OR UNIQUE collision):
  *       { iterationId, idempotentReplay: true, count, presets }
  *     where `count` and `presets` reflect the ORIGINAL row's values, NOT the
- *     retry's body. Clients SHOULD reconcile any optimistic placeholder
- *     skeleton (e.g. tile-count grid) against these fields if present —
- *     a retry whose body differed will otherwise render the wrong skeleton
- *     for the embedded tiles.
- *     TODO(client): hooks/useIterations.ts should consume `count`/`presets`
- *     from the replay response and reconcile optimistic placeholders.
+ *     retry's body. The client reconciles its optimistic placeholder skeleton
+ *     against these fields in `hooks/useIterations.ts` so a retry whose body
+ *     differed renders the right number of tiles and the right preset chips.
  *
  * Idempotency: iterations.request_id is UNIQUE. Concurrent retries with the same
  * requestId hit the constraint and we return the existing iteration's id.

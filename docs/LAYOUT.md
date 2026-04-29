@@ -89,6 +89,40 @@ thumbnails of the multi-source set). The 3×3 grid section gets `<ResultGrid>`,
 `<Lightbox>`, `<CompareLightbox>`, `<HistoryDrawer>`. The CSS layout above
 already accommodates them — no further breakpoint changes needed.
 
+## Implementation notes
+
+- **`max-h-[58svh]` on the portrait source rail** — chosen so the rail fits a
+  square 420px source preview + ~80px of caption + breathing room above the fold
+  on iPad Pro 12.9" portrait (1366px tall, 58% ≈ 793px), while leaving the 3×3
+  grid below the fold by only ~250px. On smaller iPads the rail compresses
+  proportionally. `svh` (small viewport) is intentional — using `dvh` would
+  expand the rail when the URL bar collapses, which yanks the grid down
+  unexpectedly mid-scroll.
+- **`min-h-dvh` on the AppLayout wrapper, `min-h-dvh` on the `<main>`** —
+  consistent dynamic viewport. `globals.css` also uses `height: 100dvh` on
+  `html, body`. All four agree: dynamic. The Login route (no AppLayout wrap)
+  uses `min-h-dvh` directly on its outer div.
+- **No `min-w-` lock on the side-by-side rail** — Tailwind's `landscape:md:`
+  chain handles the narrow-landscape fallback (anything below 768px wide
+  gets the portrait stack instead). This is the right escape hatch for
+  iPad split-screen and any future small-window context.
+- **Touch targets**: secondary actions (Replace, Try again) are intentionally
+  small (~30px). Primary actions (Take photo, Choose, future Generate /
+  Refresh) target ≥44px per Apple HIG. v1 calls this acceptable; revisit if
+  Zuzi reports misses on the small ones.
+
+## Reserved slots for Prompt 4
+
+These will land in the same `(app)/page.tsx` shell without breakpoint changes:
+- **`<SourceStrip>`** — horizontal scrollable thumbnails of multi-source set.
+  Lives in the source rail above the current source preview (landscape) or
+  inside the portrait header row (portrait, scrolling horizontally).
+- **`<GenerateBar>`** — Generate / Refresh + Flash|Pro + 1K|4K + cost
+  annotation. Lives below the grid in landscape; sticky-bottom in portrait.
+- **`<HistoryDrawer>`** — slides in from the right edge in both orientations
+  (full-height in landscape, full-screen overlay in portrait).
+- **`<CompareLightbox>`** — full-bleed modal in both orientations.
+
 ## What we are NOT doing
 
 - Hiding the layout in portrait. Both orientations are first-class.

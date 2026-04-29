@@ -109,15 +109,18 @@ async function main() {
   await writeIcon("icon-maskable-512.png", appIconSvg(512, true));
 
   console.log("\nsplash images:");
-  // iPad Pro 12.9"
+  // iPad Pro 12.9"   (logical 1024×1366 → device 2048×2732)
   await writeIcon("apple-splash-2048-2732.png", splashSvg(2048, 2732));
   await writeIcon("apple-splash-2732-2048.png", splashSvg(2732, 2048));
-  // iPad Pro 11"
+  // iPad Pro 11" / iPad Air 11" M2/M3   (logical 834×1194 → device 1668×2388)
   await writeIcon("apple-splash-1668-2388.png", splashSvg(1668, 2388));
   await writeIcon("apple-splash-2388-1668.png", splashSvg(2388, 1668));
-  // iPad Air / standard iPad
-  await writeIcon("apple-splash-1668-2224.png", splashSvg(1668, 2224));
-  await writeIcon("apple-splash-2224-1668.png", splashSvg(2224, 1668));
+  // iPad Air 10.9" (4th/5th gen)   (logical 820×1180 → device 1640×2360)
+  await writeIcon("apple-splash-1640-2360.png", splashSvg(1640, 2360));
+  await writeIcon("apple-splash-2360-1640.png", splashSvg(2360, 1640));
+  // iPad mini 6 / 7   (logical 744×1133 → device 1488×2266)
+  await writeIcon("apple-splash-1488-2266.png", splashSvg(1488, 2266));
+  await writeIcon("apple-splash-2266-1488.png", splashSvg(2266, 1488));
 
   console.log("\nDone. Files in public/.");
 }

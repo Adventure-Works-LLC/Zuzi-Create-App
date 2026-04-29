@@ -84,7 +84,7 @@ export default function Studio() {
         </div>
 
         <p className="caption-display text-sm text-text-mute mt-2 text-center">
-          Generate &amp; refresh — landing in the next build.
+          Your interpretations will appear here.
         </p>
       </section>
     </main>

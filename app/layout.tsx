@@ -24,6 +24,7 @@ export const metadata: Metadata = {
     statusBarStyle: "black-translucent",
     title: "Zuzi",
     startupImage: [
+      // iPad Pro 12.9"
       {
         url: "/apple-splash-2048-2732.png",
         media:
@@ -34,6 +35,7 @@ export const metadata: Metadata = {
         media:
           "(device-width: 1024px) and (device-height: 1366px) and (orientation: landscape)",
       },
+      // iPad Pro 11" / iPad Air 11" M2/M3
       {
         url: "/apple-splash-1668-2388.png",
         media:
@@ -44,15 +46,27 @@ export const metadata: Metadata = {
         media:
           "(device-width: 834px) and (device-height: 1194px) and (orientation: landscape)",
       },
+      // iPad Air 10.9" (4th/5th gen)
       {
-        url: "/apple-splash-1668-2224.png",
+        url: "/apple-splash-1640-2360.png",
         media:
-          "(device-width: 834px) and (device-height: 1112px) and (orientation: portrait)",
+          "(device-width: 820px) and (device-height: 1180px) and (orientation: portrait)",
       },
       {
-        url: "/apple-splash-2224-1668.png",
+        url: "/apple-splash-2360-1640.png",
         media:
-          "(device-width: 834px) and (device-height: 1112px) and (orientation: landscape)",
+          "(device-width: 820px) and (device-height: 1180px) and (orientation: landscape)",
+      },
+      // iPad mini 6 / 7
+      {
+        url: "/apple-splash-1488-2266.png",
+        media:
+          "(device-width: 744px) and (device-height: 1133px) and (orientation: portrait)",
+      },
+      {
+        url: "/apple-splash-2266-1488.png",
+        media:
+          "(device-width: 744px) and (device-height: 1133px) and (orientation: landscape)",
       },
     ],
   },

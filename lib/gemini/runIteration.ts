@@ -73,6 +73,7 @@ interface TileRunResult {
 
 async function runOneTile(
   iterationId: string,
+  tileId: string,
   idx: number,
   inputBase64: string,
   modelId: string,
@@ -95,6 +96,7 @@ async function runOneTile(
       });
       bus.emit(iterationId, {
         type: "tile",
+        id: tileId,
         idx,
         status: "done",
         outputKey: outKey,
@@ -165,6 +167,7 @@ async function runOneTile(
     });
     bus.emit(iterationId, {
       type: "tile",
+      id: tileId,
       idx,
       status: "done",
       outputKey: outKey,
@@ -183,6 +186,7 @@ async function runOneTile(
     });
     bus.emit(iterationId, {
       type: "tile",
+      id: tileId,
       idx,
       status,
       error: errorMessage,
@@ -250,6 +254,7 @@ export async function runIteration(iterationId: string): Promise<void> {
     tileRows.map((t) =>
       runOneTile(
         iterationId,
+        t.id,
         t.idx,
         inputBase64,
         modelId,

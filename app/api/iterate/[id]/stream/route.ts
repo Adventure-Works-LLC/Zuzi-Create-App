@@ -72,6 +72,7 @@ export async function GET(
       };
 
       const trySendTile = (tile: {
+        id: string;
         idx: number;
         status: string;
         output_image_key?: string | null;
@@ -84,6 +85,7 @@ export async function GET(
         sent.add(key);
         enqueue(
           sseEncode("tile", {
+            id: tile.id,
             idx: tile.idx,
             status: tile.status,
             outputKey: tile.output_image_key ?? undefined,
@@ -108,6 +110,7 @@ export async function GET(
       const unsubscribe = bus.subscribe(iterationId, (ev) => {
         if (ev.type === "tile") {
           trySendTile({
+            id: ev.id,
             idx: ev.idx,
             status: ev.status,
             output_image_key: ev.outputKey ?? null,

@@ -16,6 +16,9 @@ export type IterEvent =
   | { type: "started" }
   | {
       type: "tile";
+      /** Canonical `tiles.id` (ulid) — needed by the client so the favorite
+       * endpoint receives a real id rather than a synthetic placeholder. */
+      id: string;
       idx: number;
       status: "done" | "blocked" | "failed";
       outputKey?: string;

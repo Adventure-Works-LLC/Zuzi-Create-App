@@ -11,12 +11,10 @@
  *
  * Lifecycle (per iteration):
  *   1. When a pending iteration appears in the store, open EventSource for it.
- *   2. On 'tile' events → updateTile.
- *   3. On 'done' event → setIterationStatus done, close ES, then refetch
- *      `/api/iterations` for the current source so the canonical tile IDs
- *      land (we need them for the favorite endpoint). The refetch is scoped
- *      to limit=10 to keep payload small; that's larger than any single
- *      run but small enough to be cheap.
+ *   2. On 'tile' events → updateTile (the event now carries the canonical
+ *      tile.id, so the synthetic placeholder is replaced as tiles complete —
+ *      no post-done refetch needed).
+ *   3. On 'done' event → setIterationStatus done, close ES.
  *   4. On error / disconnect → reconnect via the browser's built-in retry.
  *      EventSource handles `retry: 3000` from the server hint.
  *
@@ -33,11 +31,14 @@ import { useEffect, useRef } from "react";
 import {
   useCanvas,
   type Iteration,
-  type IterationStatus,
   type TileStatus,
 } from "@/stores/canvas";
 
 interface TileEvent {
+  /** Canonical tiles.id (ulid) — the SSE/bus payload now carries this so the
+   * client can replace the synthetic `${iterationId}-${idx}` placeholder with
+   * the real DB id. The favorite endpoint requires the real id. */
+  id: string;
   idx: number;
   status: TileStatus;
   outputKey?: string;
@@ -47,10 +48,8 @@ interface TileEvent {
 
 export function useStreamingResults(): void {
   const iterations = useCanvas((s) => s.iterations);
-  const currentSourceId = useCanvas((s) => s.currentSourceId);
   const updateTile = useCanvas((s) => s.updateTile);
   const setIterationStatus = useCanvas((s) => s.setIterationStatus);
-  const setIterations = useCanvas((s) => s.setIterations);
 
   // Track which iteration ids we've already attached an EventSource for.
   const attachedRef = useRef<Map<string, EventSource>>(new Map());
@@ -81,6 +80,7 @@ export function useStreamingResults(): void {
         try {
           const data = JSON.parse(ev.data) as TileEvent;
           updateTile(iterationId, data.idx, {
+            id: data.id,
             status: data.status,
             outputKey: data.outputKey ?? null,
             thumbKey: data.thumbKey ?? null,
@@ -92,73 +92,13 @@ export function useStreamingResults(): void {
       });
 
       es.addEventListener("done", () => {
-        // Iteration complete — promote status, close ES, and refetch from
-        // the canonical endpoint so we pick up the real tile.id values
-        // (needed for the favorite endpoint). Only refetch if this iteration
-        // belongs to the currently-displayed source.
-        const finalStatus: IterationStatus = "done";
-        setIterationStatus(iterationId, finalStatus);
+        // Iteration complete — promote status, close ES. No refetch: the
+        // canonical tile ids are already in the store via the `tile` events
+        // above. Cost is recorded server-side via usage_log in the worker
+        // (see lib/gemini/runIteration.ts).
+        setIterationStatus(iterationId, "done");
         es.close();
         attached.delete(iterationId);
-
-        const sourceForRefetch = currentSourceId;
-        if (sourceForRefetch) {
-          void (async () => {
-            try {
-              const resp = await fetch(
-                `/api/iterations?sourceId=${encodeURIComponent(sourceForRefetch)}&limit=50`,
-              );
-              if (!resp.ok) return;
-              const data = (await resp.json()) as {
-                iterations: Array<{
-                  id: string;
-                  sourceId: string;
-                  modelTier: "flash" | "pro";
-                  resolution: "1k" | "4k";
-                  tileCount: number;
-                  presets: ("color" | "composition" | "lighting" | "background")[];
-                  status: IterationStatus;
-                  createdAt: number;
-                  tiles: Array<{
-                    id: string;
-                    idx: number;
-                    status: TileStatus;
-                    outputKey: string | null;
-                    thumbKey: string | null;
-                    errorMessage: string | null;
-                    isFavorite: boolean;
-                    favoritedAt: number | null;
-                  }>;
-                }>;
-              };
-              setIterations(
-                data.iterations.map((it) => ({
-                  id: it.id,
-                  sourceId: it.sourceId,
-                  modelTier: it.modelTier,
-                  resolution: it.resolution,
-                  tileCount: it.tileCount,
-                  presets: it.presets,
-                  status: it.status,
-                  createdAt: it.createdAt,
-                  tiles: it.tiles.map((t) => ({
-                    id: t.id,
-                    iterationId: it.id,
-                    idx: t.idx,
-                    status: t.status,
-                    outputKey: t.outputKey,
-                    thumbKey: t.thumbKey,
-                    errorMessage: t.errorMessage,
-                    isFavorite: t.isFavorite,
-                    favoritedAt: t.favoritedAt,
-                  })),
-                })),
-              );
-            } catch {
-              /* swallow — UI still has SSE-derived state */
-            }
-          })();
-        }
       });
 
       es.addEventListener("error", () => {
@@ -177,7 +117,7 @@ export function useStreamingResults(): void {
         attached.delete(id);
       }
     }
-  }, [iterations, currentSourceId, updateTile, setIterationStatus, setIterations]);
+  }, [iterations, updateTile, setIterationStatus]);
 
   // Cleanup on unmount.
   useEffect(() => {

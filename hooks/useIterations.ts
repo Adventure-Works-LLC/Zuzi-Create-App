@@ -110,10 +110,19 @@ export function useIterations(): UseIterationsResult {
   const [error, setError] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+  // Separate controller for in-flight POST /api/iterate. Mid-flight source
+  // switches must abort it so its response can't land on a stale source's
+  // iterations[] (and orphan an iteration row in the swap loop). Generate is
+  // disabled while `generating === true`, so this ref only ever holds 1.
+  const generateAbortRef = useRef<AbortController | null>(null);
 
   // Refetch when currentSourceId changes.
   useEffect(() => {
     abortRef.current?.abort();
+    // Source switch invalidates any in-flight generate — see comment on
+    // generateAbortRef.
+    generateAbortRef.current?.abort();
+    generateAbortRef.current = null;
     if (!currentSourceId) {
       setIterations([]);
       setLoading(false);
@@ -178,6 +187,13 @@ export function useIterations(): UseIterationsResult {
     };
     prependIteration(optimistic);
 
+    // Abort any prior in-flight generate before issuing this one. Generate is
+    // disabled while `generating === true`, so this is defensive — the source-
+    // switch effect aborts here too.
+    generateAbortRef.current?.abort();
+    const ac = new AbortController();
+    generateAbortRef.current = ac;
+
     try {
       const resp = await fetch("/api/iterate", {
         method: "POST",
@@ -190,6 +206,7 @@ export function useIterations(): UseIterationsResult {
           count,
           presets,
         }),
+        signal: ac.signal,
       });
       const data = (await resp.json().catch(() => ({}))) as {
         iterationId?: string;
@@ -220,7 +237,7 @@ export function useIterations(): UseIterationsResult {
 
       // Swap optimistic id → canonical id. Keep the tile placeholders so the
       // user keeps seeing them while the worker fires; SSE will then update
-      // each tile's status / output keys as Gemini returns.
+      // each tile's status / output keys + canonical id as Gemini returns.
       useCanvas.getState().setIterations(
         useCanvas.getState().iterations.map((it) =>
           it.id === optimisticId
@@ -230,12 +247,11 @@ export function useIterations(): UseIterationsResult {
                 tiles: it.tiles.map((t) => ({
                   ...t,
                   iterationId,
-                  // We don't know the canonical tile.id from the route response
-                  // — SSE doesn't ship them either, just (idx, status, keys).
-                  // Use a deterministic placeholder so list reconciliation is
-                  // stable. The favorite endpoint needs the real id; before
-                  // the user can favorite, they need a successful tile, which
-                  // means we'll have refreshed from /api/iterations anyway.
+                  // Synthetic placeholder id — replaced by the canonical
+                  // tiles.id on each tile's SSE event (see useStreamingResults).
+                  // The favorite endpoint requires the real id; tiles only
+                  // become favoritable once they reach status === 'done', by
+                  // which point SSE has already swapped the id in.
                   id: `${iterationId}-${t.idx}`,
                 })),
               }
@@ -244,6 +260,10 @@ export function useIterations(): UseIterationsResult {
       );
       return { iterationId, idempotentReplay: data.idempotentReplay };
     } catch (e) {
+      // AbortError = source-switched (or unmount); the placeholder is already
+      // gone via the source-switch effect's setIterations([]) — don't surface
+      // to the user.
+      if ((e as Error).name === "AbortError") return null;
       const msg = e instanceof Error ? e.message : String(e);
       setError(msg);
       // Mark optimistic as failed so the user sees something — easier to
@@ -252,6 +272,7 @@ export function useIterations(): UseIterationsResult {
       setIterationStatus(optimisticId, "failed");
       return null;
     } finally {
+      if (generateAbortRef.current === ac) generateAbortRef.current = null;
       setGenerating(false);
     }
   }, [

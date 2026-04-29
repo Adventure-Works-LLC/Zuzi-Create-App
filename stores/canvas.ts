@@ -70,10 +70,19 @@ interface CanvasState {
   // ---- sources ----
   sources: Source[];
   currentSourceId: string | null;
+  /** Mirror of `useSources()` fetch lifecycle. Lifted into the store so every
+   * call site (page, InputBar, SourceStrip, Lightbox) reads a single source
+   * of truth — Generate must disable when ANY mounted hook is uploading. */
+  sourcesLoading: boolean;
+  sourcesError: string | null;
+  uploading: boolean;
   setSources: (sources: Source[]) => void;
   addSource: (source: Source) => void;
   setCurrentSource: (sourceId: string | null) => void;
   archiveSource: (sourceId: string) => void;
+  setSourcesLoading: (v: boolean) => void;
+  setSourcesError: (v: string | null) => void;
+  setUploading: (v: boolean) => void;
 
   // ---- iterations + tiles (current source's stream) ----
   iterations: Iteration[];
@@ -114,6 +123,12 @@ export const useCanvas = create<CanvasState>((set) => ({
   // ---- sources ----
   sources: [],
   currentSourceId: null,
+  sourcesLoading: true,
+  sourcesError: null,
+  uploading: false,
+  setSourcesLoading: (sourcesLoading) => set({ sourcesLoading }),
+  setSourcesError: (sourcesError) => set({ sourcesError }),
+  setUploading: (uploading) => set({ uploading }),
   setSources: (sources) =>
     set((s) => ({
       sources,

@@ -9,10 +9,17 @@
  * picks the most-recent active source as currentSourceId. If the user has no
  * sources yet, currentSourceId stays null and the empty state renders.
  *
+ * State location: `loading`, `error`, `uploading` live in the canvas store
+ * (not local useState) so multiple call sites — page, InputBar, SourceStrip,
+ * Lightbox — share a single source of truth. In particular, an upload kicked
+ * off from SourceStrip must disable the InputBar's Generate button. See
+ * AGENTS.md §1 (single-instance contract is a server concern; on the client
+ * the store is just a Zustand singleton).
+ *
  * Uses plain fetch + AbortController (no React Query — see plan §State).
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef } from "react";
 
 import { useCanvas, type Source } from "@/stores/canvas";
 
@@ -54,18 +61,22 @@ export function useSources(): UseSourcesResult {
   const setSources = useCanvas((s) => s.setSources);
   const addSourceToStore = useCanvas((s) => s.addSource);
   const archiveSourceInStore = useCanvas((s) => s.archiveSource);
+  const setSourcesLoading = useCanvas((s) => s.setSourcesLoading);
+  const setSourcesError = useCanvas((s) => s.setSourcesError);
+  const setUploading = useCanvas((s) => s.setUploading);
 
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [uploading, setUploading] = useState(false);
+  const loading = useCanvas((s) => s.sourcesLoading);
+  const error = useCanvas((s) => s.sourcesError);
+  const uploading = useCanvas((s) => s.uploading);
+
   const abortRef = useRef<AbortController | null>(null);
 
   const refresh = useCallback(async () => {
     abortRef.current?.abort();
     const ac = new AbortController();
     abortRef.current = ac;
-    setLoading(true);
-    setError(null);
+    setSourcesLoading(true);
+    setSourcesError(null);
     try {
       const resp = await fetch("/api/sources?archived=false&limit=10", {
         signal: ac.signal,
@@ -77,11 +88,11 @@ export function useSources(): UseSourcesResult {
       setSources(data.sources.map(rowToSource));
     } catch (e) {
       if ((e as Error).name === "AbortError") return;
-      setError(e instanceof Error ? e.message : String(e));
+      setSourcesError(e instanceof Error ? e.message : String(e));
     } finally {
-      setLoading(false);
+      setSourcesLoading(false);
     }
-  }, [setSources]);
+  }, [setSources, setSourcesLoading, setSourcesError]);
 
   useEffect(() => {
     void refresh();
@@ -91,7 +102,7 @@ export function useSources(): UseSourcesResult {
   const uploadFile = useCallback(
     async (file: File): Promise<Source> => {
       setUploading(true);
-      setError(null);
+      setSourcesError(null);
       try {
         const form = new FormData();
         form.append("file", file);
@@ -130,7 +141,7 @@ export function useSources(): UseSourcesResult {
         setUploading(false);
       }
     },
-    [addSourceToStore],
+    [addSourceToStore, setUploading, setSourcesError],
   );
 
   const archive = useCallback(

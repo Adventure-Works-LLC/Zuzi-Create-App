@@ -6,6 +6,9 @@
 import { create } from "zustand";
 
 export interface Source {
+  /** sources.id (ulid). POST /api/iterate needs this. */
+  sourceId: string;
+  /** R2 key (inputs/<sourceId>.jpg). Stored for /api/image-url lookups. */
   inputKey: string;
   w: number;
   h: number;

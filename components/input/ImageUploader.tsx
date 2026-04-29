@@ -15,6 +15,7 @@ const ACCEPTED_EXTS = /\.(jpe?g|png|webp|heic)$/i;
 const ACCEPTED_MIME = /^image\//;
 
 interface UploadResponse {
+  sourceId: string;
   inputKey: string;
   w: number;
   h: number;
@@ -24,7 +25,9 @@ interface UploadResponse {
 async function uploadFile(file: File): Promise<UploadResponse> {
   const form = new FormData();
   form.append("file", file);
-  const resp = await fetch("/api/upload", { method: "POST", body: form });
+  // POST /api/sources: multipart → sharp normalize → R2 → INSERT into sources.
+  // Returns {sourceId, inputKey, w, h, aspectRatio} per Prompt 3 schema.
+  const resp = await fetch("/api/sources", { method: "POST", body: form });
   if (!resp.ok) {
     const data = (await resp.json().catch(() => ({}))) as {
       error?: string;

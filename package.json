@@ -8,13 +8,13 @@
   "scripts": {
     "dev": "next dev --turbo",
     "build": "next build",
-    "start": "next start",
+    "start": "npm run db:migrate && next start -p 8080",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "smoke": "node --env-file=.env --import tsx scripts/smoke.ts",
     "hash-password": "node --import tsx scripts/hash-password.ts",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "node --env-file=.env --import tsx scripts/migrate.ts"
+    "db:migrate": "node --env-file-if-exists=.env --import tsx scripts/migrate.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1038.0",

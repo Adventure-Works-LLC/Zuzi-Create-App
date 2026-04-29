@@ -66,11 +66,27 @@ ENV PORT=8080
 # alpine ships musl. libc6-compat is the standard shim.
 RUN apk add --no-cache libc6-compat
 
-# Run as non-root. Lightly hardened — Railway-issued FS permissions on the
-# Volume mount must allow uid 1001 to read/write /data; that's set on the
-# Railway service, not in the image.
-RUN addgroup --system --gid 1001 nodejs \
- && adduser --system --uid 1001 --ingroup nodejs nextjs
+# Runs as root by design.
+#
+# Earlier revisions of this Dockerfile created a non-root `nextjs` user
+# (uid 1001) and ran the server as that user as a hardening best-practice.
+# That broke production: Railway's Volume at /data is mounted root:root,
+# and SQLite needs write access to BOTH the .db file AND its parent
+# directory (for the WAL/SHM files and any rotation). Running as uid 1001
+# could read the existing root-owned files (everyone-readable) but
+# couldn't write — manifested as `attempt to write a readonly database`
+# on the first write after the migration step (which itself was a no-op
+# because the schema was already current from a prior root-uid deploy).
+#
+# We could fix permissions by chmod'ing the Volume from a startup hook,
+# but only root can do that, and once we've already running as root the
+# original "best practice" reason to drop privileges is gone. Could also
+# move SQLite off /data, but /data is the only persistent path on
+# Railway, so that defeats the volume's purpose.
+#
+# Threat-model justification: this is a single-tenant Railway service
+# behind a password-protected route. Nothing else runs in the container.
+# Container isolation is the trust boundary, not the in-container user.
 
 # Copy ONLY the standalone runtime tree. Post-build, `.next/standalone/`
 # already contains:
@@ -82,9 +98,7 @@ RUN addgroup --system --gid 1001 nodejs \
 #                                does NOT include devDependencies (tsx,
 #                                drizzle-kit, eslint, @types/*, etc.)
 #   package.json              — minimal manifest for Node module resolution
-COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
-
-USER nextjs
+COPY --from=builder /app/.next/standalone ./
 
 EXPOSE 8080
 

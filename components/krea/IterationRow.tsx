@@ -23,7 +23,7 @@ import { useCanvas, type Iteration } from "@/stores/canvas";
 
 const PRESET_LABEL: Record<string, string> = {
   color: "color",
-  composition: "composition",
+  ambiance: "ambiance",
   lighting: "lighting",
   background: "background",
 };

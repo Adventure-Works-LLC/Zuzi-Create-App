@@ -22,6 +22,13 @@
       "when": 1777551600000,
       "tag": "0002_backfill_tile_count",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1777638000000,
+      "tag": "0003_rename_composition_to_ambiance",
+      "breakpoints": true
     }
   ]
 }

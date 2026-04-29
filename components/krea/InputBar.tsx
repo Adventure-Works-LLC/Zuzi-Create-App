@@ -33,9 +33,17 @@ import { costFor, pricePerImage } from "@/lib/cost";
 
 const PRESET_LABEL: Record<Preset, string> = {
   color: "Color",
-  composition: "Composition",
+  ambiance: "Ambiance",
   lighting: "Lighting",
   background: "Background",
+};
+
+/** Optional one-line subline rendered under the checkbox label. Only Ambiance
+ *  has one in v1 — the operation is non-obvious from the name alone, and
+ *  Composition (which had been intuitive) was removed in favor of it. The
+ *  others read literally. */
+const PRESET_SUBLINE: Partial<Record<Preset, string>> = {
+  ambiance: "add depth and feeling to empty areas",
 };
 
 function PillToggle<T extends string>({
@@ -86,6 +94,7 @@ function PresetCheckbox({
   checked: boolean;
   onToggle: () => void;
 }) {
+  const subline = PRESET_SUBLINE[preset];
   return (
     <button
       type="button"
@@ -94,7 +103,7 @@ function PresetCheckbox({
       onClick={onToggle}
       className={[
         "flex items-center gap-2 px-3 py-2 rounded-md",
-        "border text-sm",
+        "border text-sm text-left",
         "transition-colors no-callout",
         checked
           ? "border-accent bg-accent/10 text-foreground"
@@ -103,7 +112,7 @@ function PresetCheckbox({
     >
       <span
         className={[
-          "flex h-4 w-4 items-center justify-center rounded-sm border",
+          "flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border",
           checked
             ? "border-accent bg-accent text-accent-foreground"
             : "border-hairline/80",
@@ -124,7 +133,12 @@ function PresetCheckbox({
           </svg>
         )}
       </span>
-      {PRESET_LABEL[preset]}
+      <span className="flex flex-col leading-tight">
+        <span>{PRESET_LABEL[preset]}</span>
+        {subline && (
+          <span className="text-[11px] text-text-mute/80">{subline}</span>
+        )}
+      </span>
     </button>
   );
 }

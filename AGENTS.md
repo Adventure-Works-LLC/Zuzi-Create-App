@@ -59,24 +59,46 @@ feature.
 
 ### The input language: 4 checkboxes, no description field
 
-The user input is **exclusively four preset checkboxes** — `Color`, `Composition`,
+The user input is **exclusively four preset checkboxes** — `Color`, `Ambiance`,
 `Lighting`, `Background` — multi-select 0..4. There is **no free-text prompt field**.
 This is a hard product invariant: a description field would push the tool from "make
 this beautiful" toward "do what I say," which is the wrong product. Anyone tempted to
 add a description input as "just one more knob" should re-read this paragraph and the
 plan's reference docs first.
 
+#### Preset table (canonical reference)
+
+| Checkbox | What changes | What's preserved |
+|---|---|---|
+| **Color** | Hue and palette | Drawing, marks, value structure, subject, composition, ambient feel |
+| **Ambiance** | Atmospheric depth, ambient presence, fills sparse/empty areas with feeling | Existing marks and brushwork (don't repaint), color palette, composition, subject identity, level of finish on already-developed passages |
+| **Lighting** | Mood, shadows, light direction | Color palette, composition, brushwork, subject, background |
+| **Background** | Environment behind the subject | Subject/figure, brushwork, lighting on subject, color palette |
+
+> **Composition is gone.** Composition (reframing/repositioning the subject) was tried,
+> didn't match the user's actual workflow, and was removed. Ambiance (adding atmospheric
+> depth to sparse areas) is the operation she actually wants. **Don't add Composition
+> back without explicit user request.**
+
 The checkboxes determine the prompt via `lib/gemini/imagePrompts.ts buildPrompt()`:
   - **Empty** (no checkboxes) → freeform "make this beautiful" — the validated v0
     prompt: vary colors, preserve everything else. This is Zuzi's smoke-validated default.
-  - **One or more** → vary the listed aspects, preserve the rest. The builder removes
-    each varied aspect from the preserve list (e.g. `lighting` removes both "lighting"
-    and "value structure" because lighting drives values).
-  - **All four** → vary everything except identity-defining brushwork, drawing style,
-    marks, subject, and level of finish.
+  - **Ambiance is checked (alone or with others)** → the dedicated atmospheric-pass
+    prompt fires (the verbatim `AMBIANCE_PROMPT_BODY` in `imagePrompts.ts`). Ambiance is
+    a focused additive operation, not a "vary X" knob — it identifies sparse/empty
+    passages and adds tonal/environmental presence without retouching developed areas.
+    Because the Ambiance prompt explicitly says "match the existing palette and
+    lighting," combining it with Color/Lighting would produce contradictory directives;
+    Ambiance dominates when checked. The user can uncheck it to fall back to the per-
+    preset vary-X path.
+  - **One or more (no Ambiance)** → vary the listed aspects, preserve the rest. The
+    builder removes each varied aspect from the preserve list (e.g. `lighting` removes
+    both "lighting" and "value structure" because lighting drives values).
+  - **All four (sans Ambiance)** is structurally not possible since Ambiance is one of
+    the four; the "all four" case routes to the Ambiance path.
 
 The preset-set is rendered into the prompt in **fixed canonical order**
-(color → composition → lighting → background) regardless of UI click order, so a given
+(color → ambiance → lighting → background) regardless of UI click order, so a given
 set always produces the same prompt and the prompt cache stays stable.
 
 ### Tile count

@@ -54,7 +54,7 @@ export const iterations = sqliteTable(
       .default("1k"),
     tile_count: integer("tile_count").notNull().default(3),
     /**
-     * JSON array of selected preset strings: 'color' | 'composition' |
+     * JSON array of selected preset strings: 'color' | 'ambiance' |
      * 'lighting' | 'background'. Empty = freeform. Determines the prompt
      * via lib/gemini/imagePrompts.ts buildPrompt().
      */
@@ -73,8 +73,12 @@ export const iterations = sqliteTable(
   ],
 );
 
-/** Allowed preset strings stored in iterations.presets JSON. */
-export const PRESETS = ["color", "composition", "lighting", "background"] as const;
+/** Allowed preset strings stored in iterations.presets JSON. The set is the
+ *  canonical, fixed-order list of UI checkboxes. See AGENTS.md §4 for the
+ *  preset table + the rationale on why Composition was removed in favor of
+ *  Ambiance (composition's reframing operation didn't match the user's
+ *  workflow). Don't add Composition back without explicit user request. */
+export const PRESETS = ["color", "ambiance", "lighting", "background"] as const;
 export type Preset = (typeof PRESETS)[number];
 
 export const tiles = sqliteTable(

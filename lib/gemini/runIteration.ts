@@ -24,9 +24,9 @@ import { buildPrompt } from "./imagePrompts";
 import { callWithRetry } from "./callWithRetry";
 import { extractImageBytes } from "./extract";
 import { classifyError } from "./errors";
+import { parseStoredPresets } from "./presets";
 import * as bus from "../bus";
 import { costForCompletedIteration } from "../cost";
-import { PRESETS, type Preset } from "../db/schema";
 import {
   getIteration,
   getSource,
@@ -41,30 +41,6 @@ import { getObject, putObject } from "../storage/r2";
 const OUTPUT_JPEG_QUALITY = 90;
 const THUMB_LONG_EDGE_PX = 512;
 const THUMB_WEBP_QUALITY = 80;
-
-/**
- * Parse the `iterations.presets` JSON column into a typed `Preset[]`.
- *
- * Defense-in-depth: the API route validates inputs, but we re-validate here so a
- * malformed row (manual DB edit, bad migration, recovered backup) can't crash the
- * worker. Anything unparseable or unknown is dropped silently — equivalent to
- * "freeform" — which falls back to the make-this-beautiful prompt rather than
- * failing the whole iteration. Logged so the issue surfaces in the worker tail.
- */
-function parsePresets(raw: string, iterationId: string): Preset[] {
-  try {
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    const allowed = new Set<string>(PRESETS);
-    return parsed.filter((p): p is Preset => typeof p === "string" && allowed.has(p));
-  } catch (e) {
-    console.warn(
-      `[runIteration ${iterationId}] presets JSON parse failed; falling back to freeform`,
-      e instanceof Error ? e.message : e,
-    );
-    return [];
-  }
-}
 
 interface TileRunResult {
   idx: number;
@@ -232,7 +208,7 @@ export async function runIteration(iterationId: string): Promise<void> {
   const modelId =
     iter.model_tier === "flash" ? IMAGE_MODEL_FLASH : IMAGE_MODEL_PRO;
   const aspectRatio = source.aspect_ratio;
-  const presets = parsePresets(iter.presets, iterationId);
+  const presets = parseStoredPresets(iter.presets, iterationId);
   const promptText = buildPrompt({ presets, aspectRatio });
 
   // Recovery rehydration — only matters for boot-time replays where the iteration row

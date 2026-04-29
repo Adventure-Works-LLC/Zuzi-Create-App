@@ -31,7 +31,7 @@ import {
   listIterations,
   tilesForIterations,
 } from "@/lib/db/queries";
-import { PRESETS, type Preset } from "@/lib/db/schema";
+import { parseStoredPresets } from "@/lib/gemini/presets";
 
 export const runtime = "nodejs";
 
@@ -41,19 +41,6 @@ async function isAuthed(): Promise<boolean> {
     return typeof session.authedAt === "number" && session.authedAt > 0;
   } catch {
     return false;
-  }
-}
-
-function parsePresets(raw: string): Preset[] {
-  try {
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    const allowed = new Set<string>(PRESETS);
-    return parsed.filter(
-      (p): p is Preset => typeof p === "string" && allowed.has(p),
-    );
-  } catch {
-    return [];
   }
 }
 
@@ -98,7 +85,7 @@ export async function GET(req: Request): Promise<Response> {
       modelTier: it.model_tier,
       resolution: it.resolution,
       tileCount: it.tile_count,
-      presets: parsePresets(it.presets),
+      presets: parseStoredPresets(it.presets),
       status: it.status,
       createdAt: it.created_at,
       completedAt: it.completed_at,

@@ -15,6 +15,13 @@
       "when": 1777465957654,
       "tag": "0001_dusty_kronos",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1777551600000,
+      "tag": "0002_backfill_tile_count",
+      "breakpoints": true
     }
   ]
 }

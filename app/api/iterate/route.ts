@@ -14,7 +14,17 @@
  *     `iterations.presets`. Determines the prompt via
  *     `lib/gemini/imagePrompts.ts buildPrompt()`.
  *
- * Returns: { iterationId }
+ * Returns:
+ *   - First write: { iterationId }
+ *   - Idempotent replay (early short-circuit OR UNIQUE collision):
+ *       { iterationId, idempotentReplay: true, count, presets }
+ *     where `count` and `presets` reflect the ORIGINAL row's values, NOT the
+ *     retry's body. Clients SHOULD reconcile any optimistic placeholder
+ *     skeleton (e.g. tile-count grid) against these fields if present —
+ *     a retry whose body differed will otherwise render the wrong skeleton
+ *     for the embedded tiles.
+ *     TODO(client): hooks/useIterations.ts should consume `count`/`presets`
+ *     from the replay response and reconcile optimistic placeholders.
  *
  * Idempotency: iterations.request_id is UNIQUE. Concurrent retries with the same
  * requestId hit the constraint and we return the existing iteration's id.
@@ -40,6 +50,7 @@ import {
   TILE_COUNT_DEFAULT,
   TILE_COUNT_MAX,
 } from "@/lib/gemini/imagePrompts";
+import { parseStoredPresets } from "@/lib/gemini/presets";
 import { costFor } from "@/lib/cost";
 
 export const runtime = "nodejs";
@@ -137,7 +148,12 @@ export async function POST(req: Request): Promise<Response> {
   const existing = findIterationByRequestId(requestId);
   if (existing) {
     return NextResponse.json(
-      { iterationId: existing.id, idempotentReplay: true },
+      {
+        iterationId: existing.id,
+        idempotentReplay: true,
+        count: existing.tile_count,
+        presets: parseStoredPresets(existing.presets, existing.id),
+      },
       { status: 200 },
     );
   }
@@ -202,7 +218,12 @@ export async function POST(req: Request): Promise<Response> {
     const reread = findIterationByRequestId(requestId);
     if (reread) {
       return NextResponse.json(
-        { iterationId: reread.id, idempotentReplay: true },
+        {
+          iterationId: reread.id,
+          idempotentReplay: true,
+          count: reread.tile_count,
+          presets: parseStoredPresets(reread.presets, reread.id),
+        },
         { status: 200 },
       );
     }

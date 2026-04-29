@@ -113,9 +113,17 @@ export function Lightbox() {
         if (e.target === e.currentTarget) setLightboxTile(null);
       }}
     >
-      {/* Image area */}
+      {/* Image area.
+          NOTE: `min-h-0` is load-bearing. Flex children default to
+          `min-height: auto` which lets them grow past the parent's resolved
+          height — when the source painting is taller than the dialog (e.g. a
+          portrait painting on iPad in landscape), that pushes the toolbar
+          below the visible viewport and the user can't reach Save / Use as
+          source / Favorite / Close. With `min-h-0` the flex item respects its
+          flex-basis so `max-h-full` on the <img> resolves against the bounded
+          area and the toolbar stays anchored at the bottom. */}
       <div
-        className="flex flex-1 items-center justify-center p-6"
+        className="flex min-h-0 flex-1 items-center justify-center p-6"
         onClick={(e) => {
           if (e.target === e.currentTarget) setLightboxTile(null);
         }}
@@ -124,16 +132,19 @@ export function Lightbox() {
           <img
             src={url}
             alt=""
-            className="max-h-full max-w-full rounded-md"
+            className="max-h-full max-w-full rounded-md object-contain"
           />
         ) : (
           <Loader2 className="h-8 w-8 text-text-mute animate-spin" />
         )}
       </div>
 
-      {/* Toolbar */}
+      {/* Toolbar — `shrink-0` keeps the buttons their natural size so the
+          flex-1 image area can never push them past the viewport. The bottom
+          padding adds env(safe-area-inset-bottom) so on iPad the row sits
+          above the home-indicator gutter (~34px in standalone mode). */}
       <div
-        className="flex items-center justify-center gap-2 px-4 py-4"
+        className="flex shrink-0 items-center justify-center gap-2 px-4 py-4"
         style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 1rem)" }}
       >
         <button

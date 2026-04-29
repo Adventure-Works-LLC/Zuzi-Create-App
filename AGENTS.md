@@ -189,4 +189,43 @@ were carried in the schema until the product shape stabilized, then removed:
 Apply when adding columns too. "We might need this later" is not a reason. The reason has
 to be "the current product shape requires this column right now." If you can't name the
 read-or-write path that uses it in the current code, leave it out.
+
+## 7. Infrastructure
+
+Pinned values for external services. Do NOT put any of these in committed env files —
+paste them into local `.env` (and into Railway sealed env vars when those exist).
+
+### Cloudflare R2
+
+| Bucket | Visibility | Purpose | Public URL |
+|---|---|---|---|
+| `zuzi-images` | Public | Source uploads, generated outputs, thumbnails (`inputs/`, `outputs/`, `thumbs/`) | `https://pub-00ea5347e7c44125bbf6d96839b774b7.r2.dev` |
+| `zuzi-backups` | Private | Nightly SQLite + recovery.jsonl backups (Prompt 6) | (none — accessed via S3 API only) |
+
+Env var values:
+- `R2_PUBLIC_HOST` = `pub-00ea5347e7c44125bbf6d96839b774b7.r2.dev` (hostname only; `lib/storage/r2.ts` adds `https://` and the key path)
+- `R2_BUCKET` = `zuzi-images`
+- `R2_ACCOUNT_ID`, `R2_ACCESS_KEY`, `R2_SECRET_KEY` — issued by Cloudflare; rotate when needed
+- `R2_BACKUP_BUCKET` = `zuzi-backups`
+- `R2_BACKUP_KEY`, `R2_BACKUP_SECRET` — separate credentials scoped to the backup bucket
+
+### Railway
+
+- App URL: Railway-issued `*.up.railway.app` subdomain (assigned at first deploy; see plan §"Decisions Confirmed").
+- Custom domain: deferred to v2.
+- iPad PWA "Add to Home Screen" makes the URL invisible after day one — see §4 ITP note.
+
+### `.env` gotcha
+
+Next.js loads `.env` via `@next/env`, which runs dotenv-expand. **Bcrypt hashes contain
+`$` characters that get consumed as variable references** and silently mangled (e.g.,
+`$2b$12$abcd...` → `abcd...`). Single-quoting does NOT prevent this. Backslash-escape
+every `$` in `.env`:
+
+    ZUZI_PASSWORD_HASH=\$2b\$12\$abc...     # OK (works in @next/env)
+    ZUZI_PASSWORD_HASH='$2b$12$abc...'      # BROKEN (mangled by dotenv-expand)
+
+Railway sealed env vars do NOT need escaping (Railway doesn't run dotenv-expand).
+`scripts/hash-password.ts` emits both forms — bare hash to stdout (Railway), escaped form
+to stderr (local `.env`). When generating a new hash, paste from the right stream.
 <!-- END:zuzi-studio-guardrails -->

@@ -27,6 +27,7 @@ interface FavoriteRow {
   sourceArchived: boolean;
   sourceAspectRatio: string;
   iterationId: string;
+  idx: number;
   outputKey: string | null;
   thumbKey: string | null;
   favoritedAt: number;
@@ -66,6 +67,8 @@ export function FavoritesPanel() {
   const open = useCanvas((s) => s.favoritesOpen);
   const setOpen = useCanvas((s) => s.setFavoritesOpen);
   const setLightboxSnapshot = useCanvas((s) => s.setLightboxSnapshot);
+  const lightboxTileId = useCanvas((s) => s.lightboxTileId);
+  const lightboxSnapshot = useCanvas((s) => s.lightboxSnapshot);
 
   const [loading, setLoading] = useState(false);
   const [favorites, setFavorites] = useState<FavoriteRow[]>([]);
@@ -95,14 +98,19 @@ export function FavoritesPanel() {
   }, [open]);
 
   // Esc-to-close.
+  // Lightbox (z-50) sits on top of FavoritesPanel (z-40); both attach
+  // window-level keydown listeners, so peel topmost first — if a lightbox
+  // is open (either by-id or snapshot mode), let its handler consume the
+  // Esc and skip closing the panel. Second Esc then closes the panel.
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
+      if (lightboxTileId !== null || lightboxSnapshot !== null) return;
       if (e.key === "Escape") setOpen(false);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, setOpen]);
+  }, [open, setOpen, lightboxTileId, lightboxSnapshot]);
 
   if (!open) return null;
 
@@ -174,11 +182,11 @@ export function FavoritesPanel() {
                     setLightboxSnapshot({
                       tileId: fav.tileId,
                       iterationId: fav.iterationId,
-                      // idx isn't surfaced in the Lightbox UI for cross-source
-                      // opens (the filename built for share / use-as-source
-                      // uses iterationId + idx; 0 is fine — there's no
-                      // collision risk since iterationId is unique per run).
-                      idx: 0,
+                      // idx is needed downstream for unique share /
+                      // use-as-source filenames (zuzi-<iter>-<idx+1>.jpg);
+                      // two favorites from the same iteration would otherwise
+                      // share a filename and overwrite on iPad Files.
+                      idx: fav.idx,
                       outputKey: fav.outputKey,
                       thumbKey: fav.thumbKey,
                       // Anything in this list is favorited by definition.

@@ -45,6 +45,13 @@ export function Lightbox() {
   const lightboxSnapshot = useCanvas((s) => s.lightboxSnapshot);
   const setLightboxTile = useCanvas((s) => s.setLightboxTile);
   const setLightboxSnapshot = useCanvas((s) => s.setLightboxSnapshot);
+  // Use-as-Source from a snapshot lightbox (opened from FavoritesPanel)
+  // creates a new source and switches the canvas to it. The FavoritesPanel
+  // is its own state slot — it doesn't auto-close when the lightbox does —
+  // so without an explicit dismiss the user lands on the new source's
+  // empty stream with the favorites grid still overlaying everything.
+  // We pull setFavoritesOpen here so the success path can close it.
+  const setFavoritesOpen = useCanvas((s) => s.setFavoritesOpen);
   const iterations = useCanvas((s) => s.iterations);
 
   const isOpen = lightboxTileId !== null || lightboxSnapshot !== null;
@@ -182,6 +189,14 @@ export function Lightbox() {
       // is already current and the InputBar's Generate is wired up.
       console.info("[lightbox] use-as-source: closing lightbox");
       closeLightbox();
+      // If the lightbox was opened from FavoritesPanel (snapshot mode),
+      // the panel is still mounted at z-40 over the new source's empty
+      // stream. Use-as-Source semantically means "work on this new
+      // source" — leaving the panel open hides the result of the action
+      // from the user. Dismiss it. Calling setFavoritesOpen(false) when
+      // the panel was already closed is a no-op, so this is safe in the
+      // id-mode path too.
+      setFavoritesOpen(false);
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       console.warn("[lightbox] use-as-source: failed", { message, error: e });

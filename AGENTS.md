@@ -89,8 +89,8 @@ The four presets split into two architectural categories in `imagePrompts.ts`:
     subsumed. This is intentional — dominator prompts include strong preserve-this-
     aspect language ("palette family stays identical", "lighting direction stays
     identical", etc.) that contradicts a "vary X" composer. If Zuzi wants compound
-    edits, she runs two passes (e.g. Background to swap setting → favorite a result
-    → Color on the favorite to recolor).
+    edits, she runs two passes (e.g. Background to develop the existing setting →
+    favorite a result → Color on the favorite to recolor).
       - **Ambiance v8** — `AMBIANCE_PROMPT_BODY` (locked, Krea-validated).
       - **Background v5** — `BACKGROUND_PROMPT_BODY` (locked, Krea-validated).
         READ-AND-DEVELOP framing: Pro is asked to identify the artist's

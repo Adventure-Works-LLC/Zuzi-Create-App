@@ -20,7 +20,7 @@
  *   then Lighting on a favorited result.
  *     - Color v3 (locked) — see `COLOR_PROMPT_BODY`.
  *     - Ambiance v8 (locked) — see `AMBIANCE_PROMPT_BODY`.
- *     - Background v4 (locked) — see `BACKGROUND_PROMPT_BODY`.
+ *     - Background v5 (locked) — see `BACKGROUND_PROMPT_BODY`.
  *
  *   **Composers** — would participate in the templated "Reimagine X,
  *   preserve Y" path. Today only Lighting falls here, and only when checked
@@ -104,7 +104,7 @@ const PRESET_ORDER: ReadonlyArray<Preset> = PRESETS;
  * "lighting direction, and mood", which contradicts a Lighting checkbox
  * checked alongside Color. So Color is a **dominator** (early-return
  * regardless of other checked presets). Same routing pattern as Ambiance
- * v8 and Background v4. If Zuzi wants compound edits (refined colors AND
+ * v8 and Background v5. If Zuzi wants compound edits (refined colors AND
  * new lighting), she runs two passes: Color first, then Lighting on a
  * favorited result.
  *

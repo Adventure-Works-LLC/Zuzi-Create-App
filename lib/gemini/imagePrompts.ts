@@ -69,58 +69,92 @@ export const TILE_COUNT_MAX = 9;
 const PRESET_ORDER: ReadonlyArray<Preset> = PRESETS;
 
 // ---------------------------------------------------------------------------
-// COLOR — frozen body for solo rendering.
+// COLOR — v3 locked.
 // ---------------------------------------------------------------------------
 
 /**
- * Color prompt body — **v1 (LOCKED)**. First opinionated Color version,
- * supplied by Jeff verbatim. Earlier "frozen byte-identical to the
- * templated output" snapshot is gone; this version targets a specific
- * aesthetic (1980s/90s hand-painted cel-animation palette sensibility)
- * rather than the generic "vary colors, preserve everything else"
- * framing the freeze inherited from the original templater.
+ * Color prompt body — **v3 (LOCKED)**. Validated by Jeff in Krea against
+ * multiple Zuzi WIPs.
+ *
+ * Operation: refine and enrich her existing palette toward 1980s/90s cel-
+ * animation color richness — bumps saturation, deepens complementary play,
+ * adds painterly color depth — while keeping the dominant colors of the
+ * input as the dominant colors of the output, exempting skin tones from
+ * any shift, and preserving her actual peaceful/gentle/warm emotional
+ * register. NOT wholesale palette replacement (that was v2's failure
+ * mode — drifted skin tones, shifted mood toward moody/dramatic).
  *
  * Honors the cross-prompt rules pinned in `docs/PROMPT_LESSONS.md`:
  *   - Anti-language: "Do NOT use AI-illustration finish", "Do NOT make
- *     the colors look digital or printed".
- *   - Narrow operation: pick ONE era / sensibility (cel animation 80s/90s)
- *     instead of offering Pro a buffet of color directions.
- *   - Judgment imitation: "feels drawn from that era" / "should feel
- *     hand-painted, like gouache backgrounds" — sensibility imitation
- *     beats outcome prescription.
- *   - Redundant style anchoring: "in HER existing brushwork and style.
- *     Her marks, her gestural quality, her flatness or dimensionality,
- *     her level of finish all stay identical." Multiple ways of saying
- *     the same preserve directive — load-bearing per the lessons doc.
+ *     the colors look digital, printed, or vector".
+ *   - Narrow operation: ONE era / sensibility (cel animation 80s/90s) +
+ *     ONE mood register (her existing peaceful/gentle/warm) — both pinned.
+ *   - Judgment imitation: refine her existing palette as SHE would have
+ *     pushed it, not Pro's idea of "more colorful".
+ *   - Redundant style anchoring: "Her marks, her gestural quality, her
+ *     flatness or dimensionality, her level of finish all stay identical."
+ *   - Lesson #7 (mood-override): the cartoon-era reference is named as
+ *     stylistic anchor AND the input's actual mood is named explicitly
+ *     ("PEACEFUL, GENTLE, and QUIETLY WARM") so Pro doesn't reach for the
+ *     reference's stereotypical mood and override hers.
+ *   - Lesson #7 (skin-identity): skin tones are exempt from any shift —
+ *     identity-bearing pixels in figurative work, never touched.
  *
- * **Architectural change vs the prior frozen body**: the new prompt's
- * preserve list explicitly includes "lighting direction, and mood" —
- * which contradicts a Lighting checkbox checked alongside Color. So
- * Color promotes from composer (templated when combined) to **dominator**
- * (early-return regardless of other checked presets). Same routing
- * pattern as Ambiance v8 and Background v4. If Zuzi wants compound edits
- * (cel-animation colors AND new lighting), she runs two passes: Color
- * first, then Lighting on a favorited result.
+ * **Architectural placement**: the preserve list explicitly includes
+ * "lighting direction, and mood", which contradicts a Lighting checkbox
+ * checked alongside Color. So Color is a **dominator** (early-return
+ * regardless of other checked presets). Same routing pattern as Ambiance
+ * v8 and Background v4. If Zuzi wants compound edits (refined colors AND
+ * new lighting), she runs two passes: Color first, then Lighting on a
+ * favorited result.
  *
  * **Iteration lineage:**
- *   - v0 (frozen): byte-identical snapshot of the original templater's
- *     output for `['color']`. Generic "make the colors beautiful" with no
- *     aesthetic direction. Worked, but Pro picked whatever palette it
- *     felt like — nondeterministic across runs.
- *   - **v1 (locked)**: opinionated era-specific palette sensibility.
- *     Awaits Krea-on-Zuzi-WIPs validation; current canonical text is
- *     Jeff's spec verbatim.
+ *   - v1 (frozen, original templated): "Reimagine the colors and palette
+ *     as beautiful as possible, preserve everything else." Produced clean
+ *     palette variations; Zuzi-validated as a working baseline but with
+ *     no aesthetic direction (Pro picked nondeterministically per run).
+ *   - v2 (locked, then superseded): first opinionated lock — "Recolor it
+ *     using the palette sensibility of 1980s and 1990s Saturday morning
+ *     cartoons." Anchored on cartoon-era stylistically but did wholesale
+ *     palette replacement, drifted skin tones (faces lost identity), and
+ *     shifted mood toward moody/dramatic when Pro reached for the cartoon
+ *     reference's stereotypical mood.
+ *   - **v3 (locked)**: refines v2 — anchors on HER existing palette
+ *     (refinement not replacement), exempts skin from any shift,
+ *     preserves her peaceful/gentle/warm mood register explicitly.
+ *     Lillian Bassman / chiaroscuro framing was tried and rejected — it
+ *     shifted Pro toward moody output that didn't match her actual
+ *     emotional register. Validated in Krea against multiple WIPs by
+ *     Jeff.
+ *
+ * **Lesson:** when adding stylistic reference anchors to a preset prompt,
+ * always also explicitly preserve the user's actual emotional register.
+ * Pro will reach for the reference's stereotypical mood (cartoon =
+ * bright/playful, Bassman = moody/dark) and override the input's actual
+ * mood unless told not to. Skin tones are identity in figurative work —
+ * any preset that affects color must explicitly exempt skin or risk
+ * shifting facial identity. See `docs/PROMPT_LESSONS.md` lesson #7.
  *
  * Multi-paragraph body; aspect-ratio sentence appended as its own
  * trailing paragraph at render time per AGENTS.md §3.
  */
-const COLOR_PROMPT_BODY = `This painting is shown as the input image. Recolor it using the palette sensibility of 1980s and 1990s Saturday morning cartoons and animated features — hand-painted cel animation from that era. Think Disney's late-80s/90s renaissance (Little Mermaid, Beauty and the Beast, Aladdin, Lion King), Don Bluth films (Land Before Time, All Dogs Go to Heaven), Saturday morning cartoons (DuckTales, Gargoyles, Batman: The Animated Series), and Studio Ghibli's 80s/90s output. Saturated but harmonious, painted backgrounds with rich color depth, bold complementary accents, slightly heightened "cartoon" color logic where the palette serves mood and storytelling.
+const COLOR_PROMPT_BODY = `This painting is shown as the input image. Tune and refine the existing palette by enriching it with the color sensibility of 1980s and 1990s hand-animated cel animation — Disney's late-80s/90s renaissance, Don Bluth films, Saturday morning cartoons, 80s/90s Studio Ghibli — saturated but harmonious, painted color depth, complementary play, mood-rich palettes that serve storytelling.
 
-Apply this color sensibility to the existing painting. Replace the current palette with one that feels drawn from that era — but paint it in HER existing brushwork and style. Her marks, her gestural quality, her flatness or dimensionality, her level of finish all stay identical. Only the color values change.
+CRITICAL on mood: this artist's work is PEACEFUL, GENTLE, and QUIETLY WARM. Her paintings have a calm daydream quality — soft warmth, airy light, gentle cheerfulness, contemplative ease. Not moody. Not dark. Not chiaroscuro. Not gloomy. Not melancholic. The cartoon-color enrichment must preserve and enhance her existing peaceful warmth, not introduce a different emotional register.
 
-Preserve EXACTLY: the brushwork, mark-making, drawing style, composition, framing, subject, level of finish, value structure, lighting direction, and mood. Only the colors shift to the 80s/90s cel-animation palette sensibility.
+CRITICAL: Use HER existing colors as the base. The dominant colors in the input must remain the dominant colors in the output. Do NOT replace her palette wholesale. Refine and enrich.
 
-Do NOT use AI-illustration finish or smooth her marks. Do NOT change the subject's appearance, proportions, or rendering style toward cartoon characters — only the color choices come from that era. Do NOT make the colors look digital or printed; the palette should feel hand-painted, like gouache backgrounds from that era of animation.`;
+ABSOLUTE RULE on skin tones: skin colors stay IDENTICAL to the input. Do not shift skin hue, do not change skin warmth or coolness, do not redistribute skin values, do not darken skin. Faces, hands, exposed skin must look exactly as she painted them. Skin is identity — never touch it.
+
+For non-skin areas (clothing, hair, environmental color, accents): push her existing colors toward cartoon-color richness while keeping her warm peaceful mood. Bump saturation slightly where it serves her existing register. Allow accent colors to feel a bit more painterly-rich. Add gentle complementary play. The painting should feel like she made the same color choices but pushed them toward more painted color depth — same airy light, same peaceful warmth, just with the satisfying color-richness of those animation films' palettes.
+
+The painting must still feel calm, peaceful, warm, and gently lit. Soft daylight stays. Gentle cheerfulness stays. Contemplative ease stays. Add cartoon-color richness as an undertone that supports the existing mood, never as a takeover that changes it.
+
+Apply this to the existing painting in HER style. Her marks, her gestural quality, her flatness or dimensionality, her level of finish all stay identical. Only color values shift, not color choices. Skin is exempt — skin stays identical.
+
+Preserve EXACTLY: the brushwork, mark-making, drawing style, composition, framing, subject, level of finish, value structure, lighting direction, mood, warmth, peaceful quality, and gentle airy light.
+
+Do NOT replace her palette. Do NOT shift skin. Do NOT darken the painting. Do NOT shift mood toward moody, gloomy, melancholic, or dramatic. Do NOT introduce chiaroscuro or romantic-photography moodiness. Do NOT make the painting feel cold, grey, or shadowed. Do NOT shift her warm peaceful register toward anything else. Do NOT introduce colors that aren't already in her input. Do NOT use AI-illustration finish or smooth her marks. Do NOT make the colors look digital, printed, or vector. Do NOT change the subject's appearance, proportions, or rendering.`;
 
 // ---------------------------------------------------------------------------
 // AMBIANCE — v8 locked.

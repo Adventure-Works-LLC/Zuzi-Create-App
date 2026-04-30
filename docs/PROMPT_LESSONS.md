@@ -150,6 +150,58 @@ the prompt must explicitly forbid the construct-then-texture pattern and anchor
 the construction stage to her hand. Anti-perspective + anti-accurate-proportions
 language belongs in the same paragraph as the her-shape-language demand.
 
+## 7. Stylistic reference anchors will override the input's actual mood unless told not to
+
+When a preset prompt names a stylistic reference for aesthetic anchoring (e.g.
+"80s/90s cel animation", "Lillian Bassman photography", "Caravaggio
+chiaroscuro"), Pro reaches for the reference's stereotypical mood AND applies
+it to the output — overriding the input painting's actual emotional register.
+Cartoon = bright/playful; Bassman = moody/dark; Caravaggio = dramatic
+chiaroscuro. The output ends up looking like a generic "cartoon mood"
+photograph, not like Zuzi's painting with cartoon-color richness.
+
+The Color v2 → v3 iteration is the canonical example. v2 anchored on "1980s/90s
+Saturday morning cartoons" stylistically and produced wholesale palette swaps
+that drifted skin tones and shifted mood toward moody/dramatic when Pro reached
+for the cartoon reference's stereotypical aesthetic. v3 fixes this with four
+explicit moves:
+
+  1. **Anchor on HER existing palette as the base.** "Refine and enrich, don't
+     replace." The dominant colors of the input must remain the dominant colors
+     of the output.
+  2. **Hard rule: skin tones are IDENTICAL to input, exempt from any shift.**
+     Skin is identity in figurative work (see corollary below).
+  3. **Explicitly name her actual emotional register.** v3 says "this artist's
+     work is PEACEFUL, GENTLE, and QUIETLY WARM" so Pro doesn't manufacture a
+     different mood from the cartoon reference.
+  4. **Frame the stylistic reference as undertone, not takeover.** v3 says "Add
+     cartoon-color richness as an undertone that supports the existing mood,
+     never as a takeover that changes it."
+
+**Rule:** when adding stylistic reference anchors to a preset prompt, ALWAYS
+also explicitly preserve the user's actual emotional register. Pro will reach
+for the reference's stereotypical mood and override the input's actual mood
+unless told not to. Anchor the reference, then explicitly disclaim its
+stereotypical mood ("Not moody. Not dark. Not chiaroscuro.") and name the
+input's actual mood instead.
+
+### Corollary: skin tones are identity in figurative work
+
+Any preset that affects color must explicitly exempt skin or risk shifting
+facial identity. Faces, hands, exposed skin must look exactly as the artist
+painted them — even small hue/value shifts read as the model "deciding" the
+subject's complexion, which is identity-altering in a way no painter would
+accept. Color v3's load-bearing line:
+
+  > Skin colors stay IDENTICAL to the input. Do not shift skin hue, do not
+  > change skin warmth or coolness, do not redistribute skin values, do not
+  > darken skin. Faces, hands, exposed skin must look exactly as she painted
+  > them. Skin is identity — never touch it.
+
+This corollary likely applies to Lighting (when iterated) and any future
+color-touching preset. Even a "preserve the lighting" preset can drift skin
+under the guise of relighting; the exemption needs to be explicit.
+
 ## How to use this doc
 
 When iterating a preset prompt:

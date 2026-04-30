@@ -70,7 +70,7 @@ plan's reference docs first.
 
 | Checkbox | What changes | What's preserved |
 |---|---|---|
-| **Color** | Recolors with a 1980s/90s hand-painted cel-animation palette sensibility (Disney renaissance, Don Bluth, Saturday morning cartoons, Ghibli 80s/90s). Saturated but harmonious, gouache-feel, NOT digital/printed/AI-illustration finish | Brushwork, marks, drawing style, composition, framing, subject, level of finish, value structure, lighting direction, mood — only color values shift |
+| **Color** | Tunes her existing palette toward 80s/90s cel-animation color richness — bumps saturation, deepens complementary play, adds painterly color depth. Skin tones exempt. | Skin tones (identical), the dominant color choices in her input (refined not replaced), her peaceful/gentle/warm mood, brushwork, marks, composition, level of finish, value structure, lighting direction |
 | **Ambiance** | Continues the painting in her voice — extends her own brushwork, marks, level of finish into the canvas; adds elements (a small object, a mark in negative space, atmospheric depth) painted in HER style | Existing developed passages (don't repaint), composition, palette family, subject identity, brushwork voice |
 | **Lighting** | Mood, shadows, light direction | Color palette, composition, brushwork, subject, background, level of finish |
 | **Background** | The background environment is replaced with a different setting in her universe (same kind of place), with greater atmospheric depth and painted richness inspired by 80s/90s painted-animation backgrounds, rendered entirely in her style — including the shape language of background elements (no realistic perspective, no accurate proportions) | Subject, composition, framing, palette family, lighting direction, brushwork on the foreground, level of finish on the foreground, painterly register, her world/universe of subjects |
@@ -97,11 +97,13 @@ The four presets split into two architectural categories in `imagePrompts.ts`:
         explicit shape-language anchoring (geometry must come from her hand
         from the construction stage, not painterly surface applied to
         perspective-correct geometry — see lesson #6).
-      - **Color v1** — `COLOR_PROMPT_BODY` (locked, awaiting Krea-on-Zuzi-WIPs
-        validation; supplied verbatim by Jeff). Targets a 1980s/90s cel-animation
-        palette sensibility — opinionated era-specific recolor, not the generic
-        "vary colors" framing the prior "frozen byte-identical templated output"
-        version inherited.
+      - **Color v3** — `COLOR_PROMPT_BODY` (locked, Krea-validated). Refines her
+        existing palette toward 80s/90s cel-animation color richness — anchors
+        on HER colors as the base (refinement, not replacement), exempts skin
+        tones from any shift (skin = identity in figurative work), and
+        explicitly preserves her peaceful/gentle/warm mood register so Pro
+        doesn't reach for the cartoon reference's stereotypical mood (see
+        lesson #7).
   - **Composers**: would participate in the templated "Reimagine X, preserve Y"
     path. Today only Lighting falls here, and only when checked alone — every
     combination involving Lighting + a dominator routes to the dominator. When
@@ -561,7 +563,7 @@ a no-env shell (§8.5) will catch violations.
   1. Renders all 16 preset combinations × 4 representative aspect ratios
      and asserts each produces a non-empty string with the literal aspect
      ratio interpolated into the canonical sentence.
-  2. Runs 9 canary substring checks against the locked prompt bodies —
+  2. Runs 10 canary substring checks against the locked prompt bodies —
      opening sentences and load-bearing anchors:
        - v0 freeform: `"Reimagine it with new colors"`
        - Ambiance v8: opens `"Continue this painting in the same style…"`
@@ -569,7 +571,10 @@ a no-env shell (§8.5) will catch violations.
        - Background v4: opens `"This painting needs a different background
          environment within HER existing world."` and contains the shape-
          language anchor `"wobbly, simplified, gestural"`
-       - Color frozen body: `"Reimagine the colors and palette"`
+       - Color v3: opens `"Tune and refine the existing palette…"` +
+         contains the mood-register anchor `"PEACEFUL, GENTLE, and QUIETLY
+         WARM"` + contains the skin-identity anchor `"Skin is identity —
+         never touch it"`
   3. Verifies dominator routing — `['color','ambiance']` → Ambiance,
      `['lighting','background']` → Background, all-four → Ambiance.
 

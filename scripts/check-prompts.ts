@@ -19,8 +19,10 @@
  *        - Background v4: opening "This painting needs a different
  *          background environment within HER existing world." + the
  *          shape-language anchor "wobbly, simplified, gestural"
- *        - Color v1: cel-animation opener "Recolor it using the palette
- *          sensibility of 1980s and 1990s…" + anti-AI-illustration anchor
+ *        - Color v3: refine-not-replace opener "Tune and refine the
+ *          existing palette…" + mood-register anchor "PEACEFUL, GENTLE,
+ *          and QUIETLY WARM" + skin-identity anchor "Skin is identity —
+ *          never touch it"
  *   4. Dominator routing — Ambiance, Background, and Color (now also a
  *      dominator under v1) early-returns still fire when combined with other
  *      presets. The failure mode is someone reorders the resolution ladder
@@ -116,11 +118,14 @@ if (!background.includes("wobbly, simplified, gestural")) {
 }
 
 const colorSolo = buildPrompt({ presets: ["color"], aspectRatio: "4:5" });
-if (!colorSolo.startsWith("This painting is shown as the input image. Recolor it using the palette sensibility of 1980s and 1990s")) {
-  fail("[color]", "Color v1 prompt regressed (cel-animation opener canary missing)");
+if (!colorSolo.startsWith("This painting is shown as the input image. Tune and refine the existing palette")) {
+  fail("[color]", "Color v3 prompt regressed (refine-not-replace opener canary missing)");
 }
-if (!colorSolo.includes("Do NOT use AI-illustration finish")) {
-  fail("[color]", "Color v1 lost anti-'AI-illustration finish' language");
+if (!colorSolo.includes("PEACEFUL, GENTLE, and QUIETLY WARM")) {
+  fail("[color]", "Color v3 lost mood-register anchor ('PEACEFUL, GENTLE, and QUIETLY WARM') — risk of cartoon-mood-override regression (lesson #7)");
+}
+if (!colorSolo.includes("Skin is identity — never touch it")) {
+  fail("[color]", "Color v3 lost skin-identity anchor ('Skin is identity — never touch it') — risk of skin-tone-shift regression (lesson #7)");
 }
 
 // --- 4: dominator routing must fire when combined with other presets ---
@@ -140,7 +145,7 @@ if (!bgLighting.startsWith("This painting needs a different background")) {
 // produce contradictory directives. Color wins; user runs two passes for
 // compound edits.
 const colorLighting = buildPrompt({ presets: ["color", "lighting"], aspectRatio: "4:5" });
-if (!colorLighting.startsWith("This painting is shown as the input image. Recolor it")) {
+if (!colorLighting.startsWith("This painting is shown as the input image. Tune and refine the existing palette")) {
   fail("[color,lighting]", "Color dominator early-return broken (combined with lighting); previously templated, now must dominate");
 }
 
@@ -165,5 +170,5 @@ if (failures.length > 0) {
 }
 
 console.log(
-  `[check-prompts] ok — ${totalRenders} prompt renders across ${combos.length} preset combos × ${RATIOS.length} aspect ratios + 9 canary checks all green.`,
+  `[check-prompts] ok — ${totalRenders} prompt renders across ${combos.length} preset combos × ${RATIOS.length} aspect ratios + 10 canary checks all green.`,
 );

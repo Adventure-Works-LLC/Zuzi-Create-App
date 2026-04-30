@@ -133,16 +133,32 @@ export function Lightbox() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
-  // Pre-fetch the image bytes as soon as the signed URL is available. iOS
-  // Safari rejects navigator.share() if it isn't called synchronously inside
-  // the user-gesture click handler — any `await` between click and share
-  // kills the gesture. Loading the Blob now means the click handler can
-  // construct the File + call navigator.share() with no awaits in between.
-  // Also avoids the 1h presigned-URL expiry footgun: we fetch within seconds
-  // of the URL minting (useImageUrl refreshes any URL <60s from expiry), so
-  // the blob is in memory long before any URL could expire.
+  // Pre-fetch the image bytes as soon as the open tile's R2 key resolves.
+  //
+  // Two reasons we do this on lightbox-open instead of inside the click
+  // handler:
+  //
+  //   (a) iOS Safari rejects navigator.share() if it isn't called
+  //       synchronously inside the user-gesture click handler — any `await`
+  //       between click and share kills the gesture. Loading the Blob now
+  //       means the click handler can construct the File + call navigator.
+  //       share() with no awaits in between.
+  //
+  //   (b) The fetch routes through our same-origin /api/image-bytes proxy
+  //       endpoint, NOT through the R2 signed URL directly. R2 doesn't
+  //       return CORS headers by default, so a direct cross-origin
+  //       fetch("https://...r2.cloudflarestorage.com/...") fails with
+  //       "TypeError: Load failed" on iPad PWA — the same byte stream that
+  //       <img src="..."> renders fine, because img loads don't enforce
+  //       CORS but fetch() does. Routing through our server makes this a
+  //       same-origin request and CORS is moot.
+  //
+  // We key on `fullKey` (the R2 object key itself) rather than `url` (the
+  // signed URL) so the pre-fetch is decoupled from useImageUrl's signed-URL
+  // lifecycle. The signed URL is still used for the <img> render; the
+  // proxy is used for the bytes that need to end up as a File in JS.
   useEffect(() => {
-    if (!url) {
+    if (!fullKey) {
       setShareBlob(null);
       setShareBlobError(null);
       return;
@@ -150,13 +166,19 @@ export function Lightbox() {
     let cancelled = false;
     setShareBlob(null);
     setShareBlobError(null);
-    console.info("[lightbox] share: pre-fetch start", {
-      urlPrefix: url.slice(0, 80),
-    });
-    fetch(url)
+    const proxyUrl = `/api/image-bytes?key=${encodeURIComponent(fullKey)}`;
+    console.info("[lightbox] share: pre-fetch start", { proxyUrl });
+    // `cache: "no-store"` is belt-and-suspenders — the SW skips /api/* per
+    // scripts/sw-template.js, and the endpoint sets Cache-Control: no-store
+    // — but explicit hint here means anyone reading the call-site knows the
+    // intent without chasing through the proxy + SW config.
+    fetch(proxyUrl, { cache: "no-store" })
       .then((resp) => {
-        if (!resp.ok)
-          throw new Error(`pre-fetch HTTP ${resp.status}`);
+        if (!resp.ok) {
+          throw new Error(
+            `pre-fetch HTTP ${resp.status}${resp.statusText ? ` (${resp.statusText})` : ""}`,
+          );
+        }
         return resp.blob();
       })
       .then((blob) => {
@@ -169,14 +191,25 @@ export function Lightbox() {
       })
       .catch((e) => {
         if (cancelled) return;
+        // Surface as much diagnostic detail as possible. The previous bug
+        // class (CORS) showed up as `TypeError: Load failed` with no other
+        // signal; logging name + message + error helps future failures
+        // localize faster from production console output.
+        const errName =
+          e instanceof Error && typeof e.name === "string" ? e.name : "unknown";
         const message = e instanceof Error ? e.message : String(e);
-        console.warn("[lightbox] share: pre-fetch failed", { message, error: e });
-        setShareBlobError(message);
+        console.warn("[lightbox] share: pre-fetch failed", {
+          proxyUrl,
+          errName,
+          message,
+          error: e,
+        });
+        setShareBlobError(`${errName}: ${message}`);
       });
     return () => {
       cancelled = true;
     };
-  }, [url]);
+  }, [fullKey]);
 
   if (!view) return null;
 

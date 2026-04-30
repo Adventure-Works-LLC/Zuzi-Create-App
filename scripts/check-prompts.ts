@@ -23,10 +23,10 @@
  *          existing palette…" + mood-register anchor "PEACEFUL, GENTLE,
  *          and QUIETLY WARM" + skin-identity anchor "Skin is identity —
  *          never touch it"
- *   4. Dominator routing — Ambiance, Background, and Color (now also a
- *      dominator under v1) early-returns still fire when combined with other
- *      presets. The failure mode is someone reorders the resolution ladder
- *      and breaks dominance silently.
+ *   4. Dominator routing — Ambiance, Background, and Color (a dominator
+ *      since v2; current lock is v3) early-returns still fire when combined
+ *      with other presets. The failure mode is someone reorders the
+ *      resolution ladder and breaks dominance silently.
  *
  * Background: the Ambiance v8 deploy at 088b3f9 failed on Railway for
  * environmental reasons (cache / native rebuild / Railpack quirk — the
@@ -139,11 +139,11 @@ if (!bgLighting.startsWith("This painting needs a different background")) {
   fail("[lighting,background]", "Background dominator early-return broken (combined with lighting)");
 }
 
-// Color v1 (now a dominator) must win over Lighting. This is the case the
-// templated path used to handle; under the v1 lock, Color's preserve list
-// includes "lighting direction, and mood" so combining the two would
-// produce contradictory directives. Color wins; user runs two passes for
-// compound edits.
+// Color (a dominator since v2; current lock is v3) must win over Lighting.
+// This is the case the templated path used to handle; under the locked body,
+// Color's preserve list includes "lighting direction, and mood" so combining
+// the two would produce contradictory directives. Color wins; user runs two
+// passes for compound edits.
 const colorLighting = buildPrompt({ presets: ["color", "lighting"], aspectRatio: "4:5" });
 if (!colorLighting.startsWith("This painting is shown as the input image. Tune and refine the existing palette")) {
   fail("[color,lighting]", "Color dominator early-return broken (combined with lighting); previously templated, now must dominate");

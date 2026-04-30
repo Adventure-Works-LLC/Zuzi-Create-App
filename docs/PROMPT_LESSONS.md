@@ -193,10 +193,10 @@ painted them — even small hue/value shifts read as the model "deciding" the
 subject's complexion, which is identity-altering in a way no painter would
 accept. Color v3's load-bearing line:
 
-  > Skin colors stay IDENTICAL to the input. Do not shift skin hue, do not
-  > change skin warmth or coolness, do not redistribute skin values, do not
-  > darken skin. Faces, hands, exposed skin must look exactly as she painted
-  > them. Skin is identity — never touch it.
+  > ABSOLUTE RULE on skin tones: skin colors stay IDENTICAL to the input. Do
+  > not shift skin hue, do not change skin warmth or coolness, do not
+  > redistribute skin values, do not darken skin. Faces, hands, exposed skin
+  > must look exactly as she painted them. Skin is identity — never touch it.
 
 This corollary likely applies to Lighting (when iterated) and any future
 color-touching preset. Even a "preserve the lighting" preset can drift skin

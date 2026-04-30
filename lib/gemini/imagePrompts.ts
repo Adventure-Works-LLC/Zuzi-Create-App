@@ -14,11 +14,11 @@
  *   preset is checked, its body short-circuits the builder and any other
  *   checked presets are subsumed. This is intentional: dominator prompts
  *   include strong preserve-this-aspect language that contradicts a "vary X"
- *   composer (e.g. Color v1 says "lighting direction stays identical", which
+ *   composer (e.g. Color v3 keeps lighting direction identical, which
  *   would clash with Lighting). If the user wants compound edits — e.g.
- *   cel-animation colors AND new lighting — they run two passes: Color
- *   first, then Lighting on a favorited result.
- *     - Color v1 (locked) — see `COLOR_PROMPT_BODY`.
+ *   refined colors AND new lighting — they run two passes: Color first,
+ *   then Lighting on a favorited result.
+ *     - Color v3 (locked) — see `COLOR_PROMPT_BODY`.
  *     - Ambiance v8 (locked) — see `AMBIANCE_PROMPT_BODY`.
  *     - Background v4 (locked) — see `BACKGROUND_PROMPT_BODY`.
  *
@@ -299,7 +299,7 @@ const PRESERVE_LIST: ReadonlyArray<{ id: string; phrase: string }> = [
  * because changing lighting necessarily changes values). Ambiance and
  * Background entries are unused — both bypass the templated path. */
 const PRESET_REMOVES_FROM_PRESERVE: Record<Preset, ReadonlyArray<string>> = {
-  color: [], // unreachable — color has its own prompt body (v1 dominator)
+  color: [], // unreachable — color has its own prompt body (v3 dominator)
   ambiance: [], // unreachable — ambiance has its own prompt body
   lighting: ["lighting", "value"],
   background: [], // unreachable — background has its own prompt body
@@ -333,7 +333,7 @@ export function buildPrompt({ presets, aspectRatio }: BuildPromptArgs): string {
     return `${BACKGROUND_PROMPT_BODY}\n\nMatch the input aspect ratio exactly (${aspectRatio}).`;
   }
 
-  // 4. Color dominates — v1 prompt's preserve list explicitly includes
+  // 4. Color dominates — the locked body's preserve list explicitly includes
   //    "lighting direction, and mood", which would contradict a Lighting
   //    checkbox checked alongside Color. Same dominator pattern as Ambiance
   //    and Background. If Zuzi wants Color + Lighting compound edits, she

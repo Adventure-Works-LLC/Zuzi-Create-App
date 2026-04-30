@@ -53,6 +53,14 @@ export interface UseSourcesResult {
   error: string | null;
   uploading: boolean;
   uploadFile: (file: File) => Promise<Source>;
+  /** Server-side promote-from-tile path used by the Lightbox's "Use as
+   *  Source" button. Sends `{promoteFromTileId}` JSON to /api/sources;
+   *  server reads the tile's output bytes from R2, runs the same sharp
+   *  normalize as a multipart upload, inserts a sources row, returns the
+   *  same shape. Avoids the client fetch+upload roundtrip and the 1h
+   *  presigned-URL expiry footgun (lightbox open >1h would otherwise hit
+   *  an expired URL on the client fetch step). */
+  promoteFromTile: (tileId: string) => Promise<Source>;
   archive: (sourceId: string) => Promise<void>;
   refresh: () => Promise<void>;
 }
@@ -144,6 +152,53 @@ export function useSources(): UseSourcesResult {
     [addSourceToStore, setUploading, setSourcesError],
   );
 
+  const promoteFromTile = useCallback(
+    async (tileId: string): Promise<Source> => {
+      setUploading(true);
+      setSourcesError(null);
+      try {
+        const resp = await fetch("/api/sources", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ promoteFromTileId: tileId }),
+        });
+        if (!resp.ok) {
+          const data = (await resp.json().catch(() => ({}))) as {
+            error?: string;
+            detail?: string;
+          };
+          // Bubble the server's detail up so the Lightbox can surface a
+          // useful error instead of a console-warned blob (the original
+          // failure mode that hid this whole bug).
+          throw new Error(
+            data.detail ?? data.error ?? `promote failed (${resp.status})`,
+          );
+        }
+        const data = (await resp.json()) as {
+          sourceId: string;
+          inputKey: string;
+          w: number;
+          h: number;
+          aspectRatio: string;
+        };
+        const source: Source = {
+          sourceId: data.sourceId,
+          inputKey: data.inputKey,
+          w: data.w,
+          h: data.h,
+          aspectRatio: data.aspectRatio,
+          uploadedAt: Date.now(),
+          archivedAt: null,
+        };
+        addSourceToStore(source);
+        return source;
+      } finally {
+        setUploading(false);
+      }
+    },
+    [addSourceToStore, setUploading, setSourcesError],
+  );
+
   const archive = useCallback(
     async (sourceId: string) => {
       // Optimistic update — pull from store immediately. Roll back on failure.
@@ -166,5 +221,5 @@ export function useSources(): UseSourcesResult {
     [archiveSourceInStore, refresh],
   );
 
-  return { loading, error, uploading, uploadFile, archive, refresh };
+  return { loading, error, uploading, uploadFile, promoteFromTile, archive, refresh };
 }

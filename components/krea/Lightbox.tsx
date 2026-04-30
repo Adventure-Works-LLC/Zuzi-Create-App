@@ -91,13 +91,19 @@ export function Lightbox() {
   const { url } = useImageUrl(fullKey);
   const { toggle } = useFavorites();
   const { canShare, shareImage } = useShare();
-  const { uploadFile } = useSources();
+  const { promoteFromTile } = useSources();
   const [busyAction, setBusyAction] = useState<"share" | "use" | null>(null);
+  /** Visible error string for whichever action just failed. Cleared on the
+   *  next attempt or close. Replaces the prior swallowed-to-console.warn
+   *  pattern that hid Use-as-Source breakage entirely. */
+  const [actionError, setActionError] = useState<string | null>(null);
 
-  /** Close clears both state slots. Either mode can have been the opener. */
+  /** Close clears both state slots and any inline error. Either mode can
+   *  have been the opener. */
   const closeLightbox = () => {
     setLightboxTile(null);
     setLightboxSnapshot(null);
+    setActionError(null);
   };
 
   // Esc-to-close.
@@ -128,22 +134,58 @@ export function Lightbox() {
     }
   };
 
+  /**
+   * "Use as Source" — promote the open tile into a new source row.
+   *
+   * Was previously a client roundtrip: fetch the cached signed URL → blob
+   * → File → multipart POST /api/sources. That had two failure modes,
+   * both swallowed silently to console.warn:
+   *   1. Cached signed URL expires after 1h. If the lightbox had been
+   *      open >1h, the fetch step 403'd. The user clicked the button, the
+   *      console.warn fired, but the user saw nothing change.
+   *   2. Blob → File → multipart added a re-encode roundtrip that wasn't
+   *      doing anything useful — the worker had already written a clean
+   *      JPEG to R2.
+   *
+   * v2 (this code): single JSON POST to /api/sources with the tileId.
+   * Server reads the bytes from R2 directly, runs the same sharp normalize
+   * as a multipart upload, returns the new source. Plus user-visible
+   * errors (replaces the console.warn blackhole) and step-by-step
+   * console.info breadcrumbs so any future failure is easy to localize
+   * from production logs.
+   */
   const onUseAsSource = async () => {
-    if (!url) return;
-    setBusyAction("use");
-    try {
-      const resp = await fetch(url);
-      if (!resp.ok) throw new Error("fetch failed");
-      const blob = await resp.blob();
-      const file = new File(
-        [blob],
-        `zuzi-${view.iterationId}-${view.idx + 1}.jpg`,
-        { type: blob.type || "image/jpeg" },
+    if (!view) return;
+    if (view.tileId.startsWith("opt-")) {
+      setActionError(
+        "Optimistic tile not yet finalized — wait a moment and try again.",
       );
-      await uploadFile(file);
+      return;
+    }
+    setBusyAction("use");
+    setActionError(null);
+    console.info(
+      "[lightbox] use-as-source: clicked",
+      { tileId: view.tileId, iterationId: view.iterationId },
+    );
+    try {
+      console.info("[lightbox] use-as-source: POST /api/sources start");
+      const newSource = await promoteFromTile(view.tileId);
+      console.info(
+        "[lightbox] use-as-source: POST /api/sources ok",
+        { newSourceId: newSource.sourceId, inputKey: newSource.inputKey },
+      );
+      // useSources.promoteFromTile already calls the canvas store's
+      // addSource, which both inserts the new source AND sets it as
+      // currentSourceId (see stores/canvas.ts addSource). So we don't
+      // need a separate setCurrentSource call here — the new source
+      // is already current and the InputBar's Generate is wired up.
+      console.info("[lightbox] use-as-source: closing lightbox");
       closeLightbox();
     } catch (e) {
-      console.warn("[lightbox] use-as-source failed", e);
+      const message = e instanceof Error ? e.message : String(e);
+      console.warn("[lightbox] use-as-source: failed", { message, error: e });
+      setActionError(`Couldn't use as source — ${message}`);
     } finally {
       setBusyAction(null);
     }
@@ -189,6 +231,20 @@ export function Lightbox() {
           <Loader2 className="h-8 w-8 text-text-mute animate-spin" />
         )}
       </div>
+
+      {/* Inline error banner — surfaces failures from Use-as-Source / Share
+          that previously got swallowed to console.warn. `shrink-0` keeps it
+          above the toolbar; quiet warm orange (`#C9602B`-ish) so it reads
+          without screaming. Auto-clears on the next action attempt or close. */}
+      {actionError && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="shrink-0 mx-4 mb-1 rounded-md bg-[#C9602B]/15 border border-[#C9602B]/40 px-4 py-2 text-sm text-[#E8B58A]"
+        >
+          {actionError}
+        </div>
+      )}
 
       {/* Toolbar — `shrink-0` keeps the buttons their natural size so the
           flex-1 image area can never push them past the viewport. The bottom

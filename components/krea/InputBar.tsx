@@ -42,18 +42,20 @@ const PRESET_LABEL: Record<Preset, string> = {
  *  Background, and Color all carry sublines because their operations don't
  *  read literally from the label:
  *    - Ambiance is "continue in her voice" (not just add atmosphere).
- *    - Background is "deeper setting in her hand, including her shape
- *      language" (not Pro's perspective-correct geometry under a painterly
- *      filter).
+ *    - Background (v5) is now "develop her background ideas" — Pro reads
+ *      the source's compositional intent (interior/outdoor, framing,
+ *      motifs, rhythm) and DEVELOPS it rather than swapping the setting.
+ *      Phrasing deliberately avoids "swap" / "replace" / "different
+ *      setting" since v5 explicitly does not do those things.
  *    - Color (v3) is "enrich her existing palette, keep her mood" — NOT
  *      wholesale palette replacement, NOT a mood swap toward the cartoon
  *      reference's stereotypical brightness/moodiness, NOT a skin-tone
  *      shift. The literal "Color" label undersells what fires.
  *  Lighting reads literally so it gets no subline. Phrasing tracks the
- *  v8/v4/v3 prompt framings in `lib/gemini/imagePrompts.ts`. */
+ *  v8/v5/v3 prompt framings in `lib/gemini/imagePrompts.ts`. */
 const PRESET_SUBLINE: Partial<Record<Preset, string>> = {
   ambiance: "complete it in her voice",
-  background: "deeper setting, her shapes",
+  background: "develop her background ideas",
   color: "enrich her palette, keep her mood",
 };
 

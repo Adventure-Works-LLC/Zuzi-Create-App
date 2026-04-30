@@ -73,7 +73,7 @@ plan's reference docs first.
 | **Color** | Tunes her existing palette toward 80s/90s cel-animation color richness — bumps saturation, deepens complementary play, adds painterly color depth. Skin tones exempt. | Skin tones (identical), the dominant color choices in her input (refined not replaced), her peaceful/gentle/warm mood, brushwork, marks, composition, level of finish, value structure, lighting direction |
 | **Ambiance** | Continues the painting in her voice — extends her own brushwork, marks, level of finish into the canvas; adds elements (a small object, a mark in negative space, atmospheric depth) painted in HER style | Existing developed passages (don't repaint), composition, palette family, subject identity, brushwork voice |
 | **Lighting** | Mood, shadows, light direction | Color palette, composition, brushwork, subject, background, level of finish |
-| **Background** | The background environment is replaced with a different setting in her universe (same kind of place), with greater atmospheric depth and painted richness inspired by 80s/90s painted-animation backgrounds, rendered entirely in her style — including the shape language of background elements (no realistic perspective, no accurate proportions) | Subject, composition, framing, palette family, lighting direction, brushwork on the foreground, level of finish on the foreground, painterly register, her world/universe of subjects |
+| **Background** | Reads the artist's compositional intent (interior/outdoor, framing devices, motifs, rhythm, color fields) and develops it — pushes her existing ideas further, refines them, makes them more atmospherically resolved. Indoor stays indoor; outdoor stays outdoor; existing motifs are preserved and developed. | Setting type (indoor/outdoor), her compositional ideas (framing, motifs, rhythm, color fields), foreground figure and subject, foreground brushwork, palette family, lighting direction, peaceful/warm mood, her dry chalky restrained mark register, her wonky gestural shape language |
 
 > **Composition is gone.** Composition (reframing/repositioning the subject) was tried,
 > didn't match the user's actual workflow, and was removed. Ambiance (continuing the
@@ -92,11 +92,16 @@ The four presets split into two architectural categories in `imagePrompts.ts`:
     edits, she runs two passes (e.g. Background to swap setting → favorite a result
     → Color on the favorite to recolor).
       - **Ambiance v8** — `AMBIANCE_PROMPT_BODY` (locked, Krea-validated).
-      - **Background v4** — `BACKGROUND_PROMPT_BODY` (locked, Krea-validated).
-        Adds 80s/90s painted-animation atmospheric reference for mood depth +
-        explicit shape-language anchoring (geometry must come from her hand
-        from the construction stage, not painterly surface applied to
-        perspective-correct geometry — see lesson #6).
+      - **Background v5** — `BACKGROUND_PROMPT_BODY` (locked, Krea-validated).
+        READ-AND-DEVELOP framing: Pro is asked to identify the artist's
+        compositional intent first (interior/outdoor, framing devices,
+        motifs, rhythm) and develop it rather than replace the setting.
+        Hard rules: indoor stays indoor, outdoor stays outdoor; motifs
+        (polka dots, pattern, repeating shapes) are preserved and
+        developed, never removed. Mood register anchored on the canonical
+        "PEACEFUL, GENTLE, and QUIETLY WARM" language shared with Color
+        v3. Lesson #6 (construct-not-just-surface) and lesson #8 (read-
+        and-develop beats swap-and-replace) both apply.
       - **Color v3** — `COLOR_PROMPT_BODY` (locked, Krea-validated). Refines her
         existing palette toward 80s/90s cel-animation color richness — anchors
         on HER colors as the base (refinement, not replacement), exempts skin
@@ -563,14 +568,17 @@ a no-env shell (§8.5) will catch violations.
   1. Renders all 16 preset combinations × 4 representative aspect ratios
      and asserts each produces a non-empty string with the literal aspect
      ratio interpolated into the canonical sentence.
-  2. Runs 10 canary substring checks against the locked prompt bodies —
+  2. Runs 13 canary substring checks against the locked prompt bodies —
      opening sentences and load-bearing anchors:
        - v0 freeform: `"Reimagine it with new colors"`
        - Ambiance v8: opens `"Continue this painting in the same style…"`
          and contains `"HER style"`
-       - Background v4: opens `"This painting needs a different background
-         environment within HER existing world."` and contains the shape-
-         language anchor `"wobbly, simplified, gestural"`
+       - Background v5: opens `"This painting needs its background developed
+         and improved"` + read-source anchor `"Read the source carefully
+         first"` + indoor/outdoor invariant `"Indoor stays indoor. Outdoor
+         stays outdoor."` + motif-preservation anchor `"preserve those
+         motifs as part of the composition"` + canonical mood anchor
+         `"PEACEFUL, GENTLE, and QUIETLY WARM"` (shared with Color v3)
        - Color v3: opens `"Tune and refine the existing palette…"` +
          contains the mood-register anchor `"PEACEFUL, GENTLE, and QUIETLY
          WARM"` + contains the skin-identity anchor `"Skin is identity —

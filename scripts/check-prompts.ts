@@ -16,9 +16,13 @@
  *        - v0 freeform: "Reimagine it with new colors"
  *        - Ambiance v8: opening "Continue this painting in the same style…"
  *          + the load-bearing "HER style" anchor
- *        - Background v4: opening "This painting needs a different
- *          background environment within HER existing world." + the
- *          shape-language anchor "wobbly, simplified, gestural"
+ *        - Background v5: opening "This painting needs its background
+ *          developed and improved" + read-source anchor "Read the source
+ *          carefully first" + indoor/outdoor invariant "Indoor stays
+ *          indoor. Outdoor stays outdoor." + motif-preservation anchor
+ *          "preserve those motifs as part of the composition" + canonical
+ *          mood anchor "PEACEFUL, GENTLE, and QUIETLY WARM" (shared with
+ *          Color v3)
  *        - Color v3: refine-not-replace opener "Tune and refine the
  *          existing palette…" + mood-register anchor "PEACEFUL, GENTLE,
  *          and QUIETLY WARM" + skin-identity anchor "Skin is identity —
@@ -110,11 +114,20 @@ if (!ambiance.includes("HER style")) {
 }
 
 const background = buildPrompt({ presets: ["background"], aspectRatio: "4:5" });
-if (!background.startsWith("This painting needs a different background environment within HER existing world.")) {
-  fail("[background]", "Background v4 prompt regressed (opening sentence canary missing)");
+if (!background.startsWith("This painting needs its background developed and improved")) {
+  fail("[background]", "Background v5 prompt regressed (read-and-develop opener canary missing)");
 }
-if (!background.includes("wobbly, simplified, gestural")) {
-  fail("[background]", "Background v4 lost shape-language anchor ('wobbly, simplified, gestural')");
+if (!background.includes("Read the source carefully first")) {
+  fail("[background]", "Background v5 lost read-source anchor ('Read the source carefully first') — risk of swap-instead-of-develop regression (lesson #8)");
+}
+if (!background.includes("Indoor stays indoor. Outdoor stays outdoor.")) {
+  fail("[background]", "Background v5 lost indoor/outdoor invariant anchor — Pro may swap setting type (lesson #8)");
+}
+if (!background.includes("preserve those motifs as part of the composition")) {
+  fail("[background]", "Background v5 lost motif-preservation anchor — Pro may strip her decorative motifs (polka dots, pattern, etc.)");
+}
+if (!background.includes("PEACEFUL, GENTLE, and QUIETLY WARM")) {
+  fail("[background]", "Background v5 lost canonical mood-register anchor ('PEACEFUL, GENTLE, and QUIETLY WARM') shared with Color v3 — risk of mood drift (lesson #7)");
 }
 
 const colorSolo = buildPrompt({ presets: ["color"], aspectRatio: "4:5" });
@@ -135,7 +148,7 @@ if (!ambColor.startsWith("Continue this painting")) {
 }
 
 const bgLighting = buildPrompt({ presets: ["lighting", "background"], aspectRatio: "4:5" });
-if (!bgLighting.startsWith("This painting needs a different background")) {
+if (!bgLighting.startsWith("This painting needs its background developed and improved")) {
   fail("[lighting,background]", "Background dominator early-return broken (combined with lighting)");
 }
 
@@ -170,5 +183,5 @@ if (failures.length > 0) {
 }
 
 console.log(
-  `[check-prompts] ok — ${totalRenders} prompt renders across ${combos.length} preset combos × ${RATIOS.length} aspect ratios + 10 canary checks all green.`,
+  `[check-prompts] ok — ${totalRenders} prompt renders across ${combos.length} preset combos × ${RATIOS.length} aspect ratios + 13 canary checks all green.`,
 );

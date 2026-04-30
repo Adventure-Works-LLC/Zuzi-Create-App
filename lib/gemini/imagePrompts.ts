@@ -209,62 +209,96 @@ You can add elements — a small object, a mark in negative space, something in 
 The output should look like a finished version of the input painting.`;
 
 // ---------------------------------------------------------------------------
-// BACKGROUND — v4 locked.
+// BACKGROUND — v5 locked.
 // ---------------------------------------------------------------------------
 
 /**
- * Background prompt body — **v4 (LOCKED)**. Validated by Jeff in Krea against
- * multiple Zuzi WIPs.
+ * Background prompt body — **v5 (LOCKED)**. Validated by Jeff in Krea against
+ * the bouquet portrait — Pro now reads the source's interior framing + polka
+ * dot motif and develops them rather than swapping for a pastoral outdoor
+ * scene.
  *
- * Operation: replace the existing background with a different setting **in her
- * universe** (same kind of place — interior stays interior, outdoor stays
- * outdoor), with greater atmospheric depth (channeling 1980s/90s painted-
- * animation backgrounds for FEELING only, not finish), rendered entirely in
- * her style — including the SHAPE LANGUAGE of background elements. Pro's
- * default for "paint in her style" is to construct geometry with realistic
- * perspective and apply painterly surface as a texture overlay; v4 forbids
- * that explicitly and forces the geometry itself to be hers from
- * construction. See `docs/PROMPT_LESSONS.md` lesson #6.
+ * Operation: read the artist's compositional intent (interior/outdoor,
+ * framing devices, motifs, rhythm, color fields) and DEVELOP it — push her
+ * existing ideas further, refine them, deepen them, make them more
+ * resolved. NOT replace the setting. Indoor stays indoor; outdoor stays
+ * outdoor; existing motifs (polka dots, pattern, repeating shapes) are
+ * preserved and developed, never removed. Mood anchored on the canonical
+ * `PEACEFUL, GENTLE, and QUIETLY WARM` register matching Color v3.
+ *
+ * The structural shift v4 → v5 is significant: previous versions framed
+ * Background as "swap setting in her style." v5 frames it as "read her
+ * intent, develop her intent." This is the operation she actually wants
+ * for background work — a thoughtful collaborator developing her
+ * compositional ideas, not a replacement engine. See lesson #8.
  *
  * **Iteration lineage:**
- *   - v1 (templated, original): "as beautiful as possible" framing — drifted
- *     to rendered AI-style backgrounds, generic illustration finish.
+ *   - v1 (templated, original): "as beautiful as possible" framing —
+ *     drifted to rendered AI-style backgrounds, generic illustration finish.
  *   - v2 (Krea iteration): added style anchoring + her-hand language +
  *     "she would have chosen" judgment imitation.
- *   - v3 (previously locked): refined v2 with concrete examples (interior
- *     figure → a different interior; still life → a different surface or
- *     setting). Validated in Krea. Production-served until v4.
- *   - **v4 (locked)**: added 80s/90s animation atmospheric reference for
- *     mood depth + explicit shape-language anchoring (anti-perspective,
- *     anti-texture-overlay) — Jeff iterated extensively in Krea, Pro was
- *     constructing perfect-perspective geometry with painterly surface
- *     overlay; v4 forces the geometry itself to be in her hand from the
- *     construction stage. Replaces v3.
+ *   - v3 (locked, then superseded): refined v2 with concrete examples
+ *     (interior figure → a different interior; still life → a different
+ *     surface or setting). Production-served until v4.
+ *   - v4 (locked, then superseded): added 80s/90s animation atmospheric
+ *     reference + explicit shape-language anti-perspective anchoring (Pro
+ *     was constructing perfect-perspective geometry with painterly surface
+ *     overlay; v4 forced the geometry itself to be hers). Lesson #6
+ *     (construct-not-just-surface) came out of this round. Production-
+ *     served until v5. Still framed Background as "swap setting in her
+ *     style," which Pro often executed too aggressively — losing the
+ *     artist's existing compositional intent (motifs, framing devices,
+ *     rhythm) in favor of a generic "different setting in her hand."
+ *   - **v5 (locked)**: READ-AND-DEVELOP framing. Pro is asked to identify
+ *     the artist's compositional intent first ("Read the source carefully
+ *     first. What is the artist doing? What is she trying to achieve in
+ *     the background?") and develop it rather than replace the setting.
+ *     Hard rules: indoor stays indoor, outdoor stays outdoor; motifs are
+ *     preserved and developed, not removed. Mood register anchored on the
+ *     canonical `PEACEFUL, GENTLE, and QUIETLY WARM` language shared with
+ *     Color v3 — both prompts now use the same canonical mood-anchor for
+ *     consistency. AIRY DAYLIGHT animation reference (Howl's flower fields,
+ *     Kiki's summer skies) replaces v4's broader atmospheric reference,
+ *     pinning Pro to the bright-airy register that matches her source
+ *     mood. Dry chalky restrained mark register made explicit (NOT dense
+ *     scratchy crosshatching, NOT painterly oil bravura). Validated in
+ *     Krea by Jeff against the bouquet portrait.
  *
- * **Lesson:** painterly surface alone isn't enough — when an operation
- * requires the artist's style to drive shape language (not just surface
- * treatment), the prompt must explicitly forbid the construct-then-texture
- * pattern and anchor the construction stage to her hand. See lesson #6 in
- * `docs/PROMPT_LESSONS.md`.
+ * **Lesson:** read-and-develop beats swap-and-replace for presets that
+ * touch structural elements of the input. The swap framing makes Pro
+ * invent a replacement; the read-and-develop framing makes Pro identify
+ * what the artist is doing and push it further. See lesson #8 in
+ * `docs/PROMPT_LESSONS.md`. The mood-anchor pattern shared with Color v3
+ * (lesson #7) is also applied here.
  *
  * Multi-paragraph body; the aspect-ratio sentence is appended as its own
  * trailing paragraph at render time per AGENTS.md §3.
  */
-const BACKGROUND_PROMPT_BODY = `This painting needs a different background environment within HER existing world. Stay in her universe — her subjects, her settings, her mood, the kinds of places her paintings depict. The new background should be the same KIND of setting her paintings already live in. If her painting shows a woman in a domestic interior, the new background is still a domestic interior. If her painting is set outdoors or in a quiet room, the new setting stays in that thematic world.
+const BACKGROUND_PROMPT_BODY = `This painting needs its background developed and improved — not replaced with a different setting. Read the source carefully first. What is the artist doing? Is this an interior or an outdoor scene? What compositional ideas is she working with — vertical framing elements, color fields, repeating motifs (like polka dots, stripes, pattern), layered passages, window framing, architectural rhythm? What spatial logic is she using? What is she TRYING to achieve in the background?
 
-What changes is the visual richness and atmospheric depth of the background. Channel the painted-background quality of 1980s and 1990s hand-animated films — the way Belle's village interior feels warmly lit and atmospherically deep, the way Howl's bedroom feels rich with painted color and layered tone, the way the Lion King savanna feels saturated and dimensional. That feeling of mood and atmospheric color depth in the background, applied to her existing world.
+Your job is to identify her compositional intent and DEVELOP it — push her existing ideas further, refine them, deepen them, make them more resolved. Not to invent a different scene.
 
-But render everything entirely in HER style. Her exact brushwork, her exact marks, her exact level of finish, her exact line work, her exact surface treatment, her exact gestural quality. Do not borrow line work, finish quality, or rendering style from animation. Borrow only the FEELING of mood-rich painted backgrounds — the atmospheric depth, the considered warm/cool color play, the way the background carries emotional weight. Translate that feeling into her hand.
+If she's painted an INTERIOR with framing devices (windows, walls, curtains, vertical compositional elements, decorative motifs like polka dots): the new background stays an interior, develops her existing framing, refines her motif use, deepens her color field choices, makes her compositional rhythm more intentional. Same kind of interior, same compositional ideas, just resolved further.
 
-The SHAPES THEMSELVES of background elements must also come from her hand, not from realistic construction. She does not draw furniture, architecture, or objects using accurate perspective, correct proportions, or realistic geometry. Her shapes are simplified, gestural, slightly wonky, often flattened or distorted, with perspective that's broken, ignored, or treated loosely. A window in her work isn't a perspective-correct rectangle — it's a rough quadrilateral with wobbling lines. A table edge isn't a clean receding plane — it's a tilted shape drawn with the same exploratory line work as her figures. Architectural elements have approximate angles, not measured ones. Furniture has cartooned proportions, not realistic ones.
+If she's painted an OUTDOOR scene (landscape, sky, foliage, outdoor space): the new background stays outdoor, develops her existing landscape ideas, refines her atmospheric depth, makes her spatial logic more resolved. Same kind of outdoor scene, just developed further.
 
-Do NOT construct background elements using accurate linear perspective and then apply painterly surface as a texture overlay. The shapes underneath must already be hers — wobbly, simplified, gestural — before any surface treatment is applied. If you find yourself drawing a "correct" window or "correct" piece of furniture, simplify it, distort it, flatten it, redraw it with her hand's wobble. The geometry is hers. The construction is hers. Not just the surface.
+Whatever direction she's working in — stay in it. Indoor stays indoor. Outdoor stays outdoor. Her compositional ideas (motifs, framing, rhythm, color fields) are preserved and developed, not replaced.
 
-The foreground figure, subject, composition, framing, palette family, lighting direction, and brushwork all stay IDENTICAL to the input. Only the background environment changes — same kind of place, but with deeper atmospheric mood, painted in her hand, with shapes drawn the way her hand draws shapes.
+CRITICAL on mood: this artist's work is PEACEFUL, GENTLE, and QUIETLY WARM. Her paintings have a calm daydream quality — soft warmth, airy light, gentle cheerfulness, contemplative ease. The background development must preserve that peaceful airy feeling. Not moody. Not earthy-dim. Not autumnal. Not olive-toned. Not gloomy. Light and warm, same emotional register as her source.
 
-The result should look like ONE coherent painting by ONE artist — her — where the background now has more atmospheric weight and painted richness, while staying in her painterly register and her world.
+What you're enriching is the visual richness — atmospheric depth, color sophistication, compositional resolution. Channel the painted-background sensibility of 1980s and 1990s hand-animated films in their AIRY DAYLIGHT register: Howl's flower fields, Kiki's summer skies, Totoro daylight forests, Belle's sunlit interiors. Bright, airy, gently saturated, painterly daylight — only as a sensibility for color depth and atmospheric mood, never for setting choice or rendering style.
 
-Do NOT change the type of setting (interior stays interior, outdoor stays outdoor). Do NOT use cel-animation finish or clean rendering. Do NOT bifurcate her foreground style from the background style. Do NOT introduce visual qualities (clean lines, smooth gradients, polished surfaces) that aren't already in her work. Do NOT use realistic perspective or accurate proportions for background elements.`;
+Render everything entirely in HER style. Her exact brushwork, her exact marks, her exact level of finish, her exact line work. She works in dry media — chalky pastel, charcoal, colored pencil — but RESTRAINED. Most of her background is SOFT CHALKY COLOR FIELD with sparse confident gestural marks as accents. NOT dense scratchy crosshatching. NOT painterly oil bravura. Quiet chalky color does most of the work; one or two confident dry strokes suggest place. Her existing motifs (polka dots, vertical strokes, etc) stay in her register — chalky, gestural, not cleaned up.
+
+The SHAPES of background elements come from her hand, not from realistic construction. Simplified, gestural, slightly wonky, flattened. A window is a wobbling rough quadrilateral. Architectural elements have approximate angles. Foliage is loose suggestion, not literal trees. Geometry is hers, not constructed.
+
+If she has decorative motifs (polka dots, repeating shapes, pattern marks): preserve those motifs as part of the composition. Don't remove them. Don't replace them. Develop them — refine their rhythm, place them more intentionally, integrate them more deeply with the surrounding color fields.
+
+Do NOT change the type of setting. Indoor stays indoor. Outdoor stays outdoor. Do NOT replace her composition with a different one. Do NOT abandon her framing devices, motifs, or compositional ideas. Do NOT render objects literally or use accurate perspective. Do NOT use dense scratchy marks. Do NOT use loose oil-painting brushwork. Do NOT use cel-animation finish. Do NOT shift mood toward moody, earthy, autumnal, olive-toned. Do NOT darken the painting.
+
+The figure, subject, foreground composition, palette family, lighting direction, and brushwork on the foreground all stay IDENTICAL to the input. Only the background DEVELOPS — same kind of place, same compositional ideas, just made more resolved and atmospherically rich, in her dry chalky restrained register.
+
+The result should look like the same painting after she made one focused background development pass — same intent, same compositional ideas, more resolved.`;
 
 // ---------------------------------------------------------------------------
 // Templated path — for Lighting solo and Color+Lighting combos.

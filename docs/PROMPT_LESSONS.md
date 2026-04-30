@@ -178,29 +178,94 @@ explicit moves:
      cartoon-color richness as an undertone that supports the existing mood,
      never as a takeover that changes it."
 
-**Rule:** when adding stylistic reference anchors to a preset prompt, ALWAYS
-also explicitly preserve the user's actual emotional register. Pro will reach
-for the reference's stereotypical mood and override the input's actual mood
-unless told not to. Anchor the reference, then explicitly disclaim its
-stereotypical mood ("Not moody. Not dark. Not chiaroscuro.") and name the
-input's actual mood instead.
+**Rule:** when using a stylistic/cultural reference in a preset prompt,
+always explicitly preserve the user's actual emotional register first, then
+apply the reference. Pro will reach for the reference's stereotypical mood
+(cartoon = bright/playful, animation backgrounds = moody/atmospheric,
+Bassman = dark/dramatic) and override the input's actual mood unless told
+not to. The pattern: name the user's mood explicitly (e.g., `PEACEFUL,
+GENTLE, QUIETLY WARM`), forbid the wrong moods explicitly ("Not moody. Not
+dark. Not chiaroscuro."), then frame the reference as enhancement-of-mood
+not replacement-of-mood.
+
+**Cross-prompt consistency:** both Color v3 and Background v5 use the SAME
+canonical mood-anchor language — `PEACEFUL, GENTLE, and QUIETLY WARM` is a
+single shared string across both bodies. Future presets that touch color or
+atmosphere should reuse this exact string rather than reinventing the
+phrase. The canary `includes("PEACEFUL, GENTLE, and QUIETLY WARM")` runs
+against both bodies in `scripts/check-prompts.ts`.
 
 ### Corollary: skin tones are identity in figurative work
 
-Any preset that affects color must explicitly exempt skin or risk shifting
-facial identity. Faces, hands, exposed skin must look exactly as the artist
-painted them — even small hue/value shifts read as the model "deciding" the
-subject's complexion, which is identity-altering in a way no painter would
-accept. Color v3's load-bearing line:
+Skin tones must be explicitly exempted from any color-affecting operation.
+Without the exemption, Pro will shift skin hue/warmth as part of palette
+refinement and accidentally change facial identity — even small hue/value
+shifts read as the model "deciding" the subject's complexion, which is
+identity-altering in a way no painter would accept. The fix: an "ABSOLUTE
+RULE" paragraph stating skin colors stay IDENTICAL to the input, separate
+from the broader color-refinement instructions. Color v3's load-bearing
+line:
 
   > ABSOLUTE RULE on skin tones: skin colors stay IDENTICAL to the input. Do
   > not shift skin hue, do not change skin warmth or coolness, do not
   > redistribute skin values, do not darken skin. Faces, hands, exposed skin
   > must look exactly as she painted them. Skin is identity — never touch it.
 
-This corollary likely applies to Lighting (when iterated) and any future
-color-touching preset. Even a "preserve the lighting" preset can drift skin
-under the guise of relighting; the exemption needs to be explicit.
+This rule applies to Color, will apply to Lighting if/when iterated, and to
+any future preset that touches color values. Even a "preserve the lighting"
+preset can drift skin under the guise of relighting; the exemption needs to
+be explicit.
+
+## 8. Read-and-develop beats swap-and-replace for structural presets
+
+Presets that touch structural elements of the input (composition, setting,
+framing, layout) work better when framed as "read the artist's intent and
+DEVELOP it" rather than "swap this element for a different one." The swap
+framing makes Pro invent a replacement; the read-and-develop framing makes
+Pro identify what the artist is doing and push it further.
+
+The Background v4 → v5 iteration is the canonical example. v4 framed
+Background as "swap setting in her style" — Pro often executed too
+aggressively, losing the artist's existing compositional intent (motifs,
+framing devices, rhythm) in favor of a generic "different setting in her
+hand." v5 reframed Background as "read her intent, develop her intent" and
+Pro now reads the source's interior framing + polka dot motif and develops
+them rather than swapping for an unrelated pastoral outdoor scene.
+
+The fix language pattern, from Background v5:
+
+  > Read the source carefully first. What is the artist doing? Is this an
+  > interior or an outdoor scene? What compositional ideas is she working
+  > with — vertical framing elements, color fields, repeating motifs (like
+  > polka dots, stripes, pattern), layered passages, window framing,
+  > architectural rhythm? What spatial logic is she using? What is she
+  > TRYING to achieve in the background?
+  >
+  > Your job is to identify her compositional intent and DEVELOP it — push
+  > her existing ideas further, refine them, deepen them, make them more
+  > resolved. Not to invent a different scene.
+
+Three load-bearing moves come with this framing:
+
+  1. **Open with diagnostic questions.** "Read the source carefully first.
+     What is the artist doing?" forces Pro into observation mode before
+     generation mode — the prompt becomes a critique-then-respond pattern
+     instead of a pure generative one.
+  2. **Preserve the artist's structural choices explicitly.** Setting type
+     (indoor/outdoor), motifs, framing devices, compositional rhythm —
+     name each as something to keep, not something to replace.
+  3. **Frame the operation as DEVELOP, not REPLACE.** Vocabulary matters:
+     "develop", "refine", "deepen", "resolve further" all push toward
+     iteration on the existing ideas; "swap", "replace", "new",
+     "different" all push toward invention of a substitute.
+
+**Rule:** for any preset that affects structural elements of the input
+(composition, setting, framing, layout), use the read-and-develop framing
+instead of swap-and-replace. Open with diagnostic questions about the
+artist's intent, name the structural choices to preserve, and use
+develop/refine/deepen vocabulary throughout. This pattern likely applies
+to any future preset that affects compositional structure — not just
+Background.
 
 ## How to use this doc
 

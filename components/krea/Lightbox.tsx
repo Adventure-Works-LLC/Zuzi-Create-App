@@ -258,10 +258,17 @@ export function Lightbox() {
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
-        // Revoke after a comfortable window so any in-flight save still
-        // resolves. 60s is generous; the browser holds the URL alive for
-        // the duration of the download anyway.
-        setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+        // Revoke synchronously: a.click() above has already initiated the
+        // browser's download with its own internal reference to the
+        // underlying Blob. Per the WHATWG File API spec, revokeObjectURL
+        // only invalidates the URL string for NEW fetches — the in-flight
+        // download completes normally. Revoking now (instead of via a
+        // 60s setTimeout, the prior pattern) avoids leaking timers + Blob
+        // refs across Lightbox unmount and across repeated fallback
+        // triggers. The Blob itself is still held by `shareBlob` state for
+        // the lightbox's open lifetime regardless, so this is purely about
+        // the ObjectURL handle.
+        URL.revokeObjectURL(objectUrl);
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e);
         console.warn("[lightbox] share: download fallback failed", { message, error: e });

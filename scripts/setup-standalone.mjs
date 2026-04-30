@@ -58,6 +58,29 @@ for (const d of SCRUB_DIRS) {
   }
 }
 
+// Scrub .env* files. Next 16's writeStandaloneDirectory hardcodes a copy of
+// `.env` and `.env.production` into `.next/standalone/` regardless of what
+// `outputFileTracingExcludes` says — see AGENTS.md §8.3. Production is
+// unaffected (the Dockerfile builder context excludes `.env*` via
+// `.dockerignore`, so there's nothing to copy in production), but local
+// `npm run build` would otherwise leak live secrets (GEMINI_API_KEY, R2
+// credentials, SESSION_SECRET, ZUZI_PASSWORD_HASH) into the standalone
+// tree where they could end up in tarballs, screenshots, or shared
+// debugging archives.
+//
+// Hardcoded list (not a glob) because (a) Next only copies these two
+// specific files, (b) `.env.example` if added later is documentation that
+// happens to be safe to ship, but Next won't copy it anyway since
+// writeStandaloneDirectory's source list is hardcoded.
+const SCRUB_FILES = [".env", ".env.production"];
+for (const f of SCRUB_FILES) {
+  const target = resolve(STANDALONE, f);
+  if (existsSync(target)) {
+    rmSync(target, { force: true });
+    console.log(`[setup-standalone] scrubbed ${target}`);
+  }
+}
+
 cpSync(STATIC_SRC, STATIC_DST, { recursive: true });
 console.log(`[setup-standalone] copied ${STATIC_SRC} → ${STATIC_DST}`);
 

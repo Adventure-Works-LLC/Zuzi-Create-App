@@ -131,11 +131,11 @@ follows.
 
 Example fix from Background v4:
 
-  > "The shapes underneath must already be hers — wobbly, simplified, gestural —
+  > The shapes underneath must already be hers — wobbly, simplified, gestural —
   > before any surface treatment is applied. If you find yourself drawing a
-  > 'correct' window or 'correct' piece of furniture, simplify it, distort it,
+  > "correct" window or "correct" piece of furniture, simplify it, distort it,
   > flatten it, redraw it with her hand's wobble. The geometry is hers. The
-  > construction is hers. Not just the surface."
+  > construction is hers. Not just the surface.
 
 This lesson is distinct from #1 (anti-AI-illustration) and #4 (redundant style
 anchoring). #1 forbids the wrong AESTHETIC; #4 demands repeated style anchoring at

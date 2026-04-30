@@ -20,7 +20,7 @@
  *   first, then Lighting on a favorited result.
  *     - Color v1 (locked) — see `COLOR_PROMPT_BODY`.
  *     - Ambiance v8 (locked) — see `AMBIANCE_PROMPT_BODY`.
- *     - Background v3 (locked) — see `BACKGROUND_PROMPT_BODY`.
+ *     - Background v4 (locked) — see `BACKGROUND_PROMPT_BODY`.
  *
  *   **Composers** — would participate in the templated "Reimagine X,
  *   preserve Y" path. Today only Lighting falls here, and only when checked
@@ -98,7 +98,7 @@ const PRESET_ORDER: ReadonlyArray<Preset> = PRESETS;
  * which contradicts a Lighting checkbox checked alongside Color. So
  * Color promotes from composer (templated when combined) to **dominator**
  * (early-return regardless of other checked presets). Same routing
- * pattern as Ambiance v8 and Background v3. If Zuzi wants compound edits
+ * pattern as Ambiance v8 and Background v4. If Zuzi wants compound edits
  * (cel-animation colors AND new lighting), she runs two passes: Color
  * first, then Lighting on a favorited result.
  *
@@ -175,7 +175,7 @@ You can add elements — a small object, a mark in negative space, something in 
 The output should look like a finished version of the input painting.`;
 
 // ---------------------------------------------------------------------------
-// BACKGROUND — v3 locked.
+// BACKGROUND — v4 locked.
 // ---------------------------------------------------------------------------
 
 /**
@@ -291,9 +291,9 @@ export function buildPrompt({ presets, aspectRatio }: BuildPromptArgs): string {
     return `${AMBIANCE_PROMPT_BODY}\n\nMatch the input aspect ratio exactly (${aspectRatio}).`;
   }
 
-  // 3. Background dominates — same reason. v3 says "palette family stays
-  //    identical" which would clash with Color, and "lighting direction stays
-  //    identical" which would clash with Lighting. If Zuzi wants compound
+  // 3. Background dominates — same reason. The locked body's preserve list
+  //    keeps palette family and lighting direction IDENTICAL, which would
+  //    clash with Color and Lighting respectively. If Zuzi wants compound
   //    edits she runs two passes (Background, then Color on a favorite).
   if (presets.includes("background")) {
     return `${BACKGROUND_PROMPT_BODY}\n\nMatch the input aspect ratio exactly (${aspectRatio}).`;

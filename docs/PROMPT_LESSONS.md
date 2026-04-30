@@ -116,6 +116,40 @@ sources, even if it reads worse on the page. Pin the iteration lineage
 in a comment so future maintainers know why the prompt looks the way it
 looks.
 
+## 6. Painterly surface alone isn't enough — the geometry must be hers from construction
+
+Pro's default behavior when prompted with "paint in her style" is to construct
+geometry using realistic-perspective training defaults and THEN apply painterly
+surface as a texture overlay. The result has correct linear perspective, accurate
+proportions, and clean architectural angles underneath painterly brushwork — which
+reads as "AI illustration with a painterly filter," not as her actual hand.
+
+To get her actual shape language, the prompt must explicitly forbid the construct-
+then-texture pattern and require the geometry itself to come from her hand from
+the start. The construction is hers. The geometry is hers. The surface treatment
+follows.
+
+Example fix from Background v4:
+
+  > "The shapes underneath must already be hers — wobbly, simplified, gestural —
+  > before any surface treatment is applied. If you find yourself drawing a
+  > 'correct' window or 'correct' piece of furniture, simplify it, distort it,
+  > flatten it, redraw it with her hand's wobble. The geometry is hers. The
+  > construction is hers. Not just the surface."
+
+This lesson is distinct from #1 (anti-AI-illustration) and #4 (redundant style
+anchoring). #1 forbids the wrong AESTHETIC; #4 demands repeated style anchoring at
+the SURFACE level. #6 is about the CONSTRUCTION layer — even with anti-language
+and redundant style anchors, Pro will draw the underlying shape with realistic
+geometry unless the prompt also forbids that explicitly. This pattern likely
+applies to other operations beyond Background where her style needs to drive
+construction (the underlying shape language), not just surface treatment.
+
+**Rule:** when an operation requires the artist's style to drive shape language,
+the prompt must explicitly forbid the construct-then-texture pattern and anchor
+the construction stage to her hand. Anti-perspective + anti-accurate-proportions
+language belongs in the same paragraph as the her-shape-language demand.
+
 ## How to use this doc
 
 When iterating a preset prompt:

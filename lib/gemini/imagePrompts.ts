@@ -179,46 +179,58 @@ The output should look like a finished version of the input painting.`;
 // ---------------------------------------------------------------------------
 
 /**
- * Background prompt body — **v3 (LOCKED)**. Validated by Jeff in Krea against
+ * Background prompt body — **v4 (LOCKED)**. Validated by Jeff in Krea against
  * multiple Zuzi WIPs.
  *
- * Operation: replace the existing background with a different setting,
- * painted in her hand. NOT "make a beautiful background" (which Pro defaults
- * to rendering as a generic AI-illustration) — instead, "her hand made this,
- * in this same session, with the same brushes." The anti-language ("Do NOT
- * use AI-illustration finish") is required: Pro's default is exactly the
- * thing we're forbidding.
+ * Operation: replace the existing background with a different setting **in her
+ * universe** (same kind of place — interior stays interior, outdoor stays
+ * outdoor), with greater atmospheric depth (channeling 1980s/90s painted-
+ * animation backgrounds for FEELING only, not finish), rendered entirely in
+ * her style — including the SHAPE LANGUAGE of background elements. Pro's
+ * default for "paint in her style" is to construct geometry with realistic
+ * perspective and apply painterly surface as a texture overlay; v4 forbids
+ * that explicitly and forces the geometry itself to be hers from
+ * construction. See `docs/PROMPT_LESSONS.md` lesson #6.
  *
  * **Iteration lineage:**
  *   - v1 (templated, original): "as beautiful as possible" framing — drifted
  *     to rendered AI-style backgrounds, generic illustration finish.
  *   - v2 (Krea iteration): added style anchoring + her-hand language +
  *     "she would have chosen" judgment imitation.
- *   - **v3 (locked)**: refined v2 with concrete examples (interior figure →
- *     a different interior; still life → a different surface or setting).
- *     Validated in Krea against multiple WIPs.
- *   - v4 (rejected): added abstract-background option; biased Pro toward
- *     abstract by giving it as a choice.
- *   - v5 (rejected): tried three options on a spectrum; still produced
- *     unbalanced output.
+ *   - v3 (previously locked): refined v2 with concrete examples (interior
+ *     figure → a different interior; still life → a different surface or
+ *     setting). Validated in Krea. Production-served until v4.
+ *   - **v4 (locked)**: added 80s/90s animation atmospheric reference for
+ *     mood depth + explicit shape-language anchoring (anti-perspective,
+ *     anti-texture-overlay) — Jeff iterated extensively in Krea, Pro was
+ *     constructing perfect-perspective geometry with painterly surface
+ *     overlay; v4 forces the geometry itself to be in her hand from the
+ *     construction stage. Replaces v3.
  *
- * **Lesson:** Pro handles narrow operations better than broad ones. When a
- * preset has multiple legitimate interpretations, pick the one that lands
- * more reliably and don't try to support both as choices in the prompt. See
+ * **Lesson:** painterly surface alone isn't enough — when an operation
+ * requires the artist's style to drive shape language (not just surface
+ * treatment), the prompt must explicitly forbid the construct-then-texture
+ * pattern and anchor the construction stage to her hand. See lesson #6 in
  * `docs/PROMPT_LESSONS.md`.
  *
  * Multi-paragraph body; the aspect-ratio sentence is appended as its own
  * trailing paragraph at render time per AGENTS.md §3.
  */
-const BACKGROUND_PROMPT_BODY = `This painting needs a different background environment. Replace the existing background with a new one — different setting, different surroundings — but paint it in the same style the artist is already using. Look at her brushwork, her marks, her flatness or dimensionality, her color application, her level of finish — and paint the new background using exactly those same qualities. The new background must look like SHE painted it, in this same session, with the same brushes.
+const BACKGROUND_PROMPT_BODY = `This painting needs a different background environment within HER existing world. Stay in her universe — her subjects, her settings, her mood, the kinds of places her paintings depict. The new background should be the same KIND of setting her paintings already live in. If her painting shows a woman in a domestic interior, the new background is still a domestic interior. If her painting is set outdoors or in a quiet room, the new setting stays in that thematic world.
 
-Do NOT introduce a rendered, smooth, photographic, or generically "beautiful" background. Do NOT use AI-illustration finish. The background should feel like her hand made it — gestural where she's gestural, flat where she's flat, sketchy where she's sketchy, painterly where she's painterly. Match her color palette family. Match her level of finish exactly.
+What changes is the visual richness and atmospheric depth of the background. Channel the painted-background quality of 1980s and 1990s hand-animated films — the way Belle's village interior feels warmly lit and atmospherically deep, the way Howl's bedroom feels rich with painted color and layered tone, the way the Lion King savanna feels saturated and dimensional. That feeling of mood and atmospheric color depth in the background, applied to her existing world.
 
-Pick a background environment she would have chosen — something that fits the mood and subject of her painting. If she's painted an interior figure, the new background might be a different interior. If she's painted a still life, a different surface or setting. Make a choice that feels in character with the rest of the work.
+But render everything entirely in HER style. Her exact brushwork, her exact marks, her exact level of finish, her exact line work, her exact surface treatment, her exact gestural quality. Do not borrow line work, finish quality, or rendering style from animation. Borrow only the FEELING of mood-rich painted backgrounds — the atmospheric depth, the considered warm/cool color play, the way the background carries emotional weight. Translate that feeling into her hand.
 
-The figure, subject, composition, framing, palette family, lighting direction, and brushwork on the foreground all stay IDENTICAL to the input. Only the background environment changes — and it changes into something painted in her hand, not Pro's hand.
+The SHAPES THEMSELVES of background elements must also come from her hand, not from realistic construction. She does not draw furniture, architecture, or objects using accurate perspective, correct proportions, or realistic geometry. Her shapes are simplified, gestural, slightly wonky, often flattened or distorted, with perspective that's broken, ignored, or treated loosely. A window in her work isn't a perspective-correct rectangle — it's a rough quadrilateral with wobbling lines. A table edge isn't a clean receding plane — it's a tilted shape drawn with the same exploratory line work as her figures. Architectural elements have approximate angles, not measured ones. Furniture has cartooned proportions, not realistic ones.
 
-The output should look like the input painting, repainted by the same artist with the same brushes in the same session, with a different choice of background. Same hand, same voice, different setting.`;
+Do NOT construct background elements using accurate linear perspective and then apply painterly surface as a texture overlay. The shapes underneath must already be hers — wobbly, simplified, gestural — before any surface treatment is applied. If you find yourself drawing a "correct" window or "correct" piece of furniture, simplify it, distort it, flatten it, redraw it with her hand's wobble. The geometry is hers. The construction is hers. Not just the surface.
+
+The foreground figure, subject, composition, framing, palette family, lighting direction, and brushwork all stay IDENTICAL to the input. Only the background environment changes — same kind of place, but with deeper atmospheric mood, painted in her hand, with shapes drawn the way her hand draws shapes.
+
+The result should look like ONE coherent painting by ONE artist — her — where the background now has more atmospheric weight and painted richness, while staying in her painterly register and her world.
+
+Do NOT change the type of setting (interior stays interior, outdoor stays outdoor). Do NOT use cel-animation finish or clean rendering. Do NOT bifurcate her foreground style from the background style. Do NOT introduce visual qualities (clean lines, smooth gradients, polished surfaces) that aren't already in her work. Do NOT use realistic perspective or accurate proportions for background elements.`;
 
 // ---------------------------------------------------------------------------
 // Templated path — for Lighting solo and Color+Lighting combos.

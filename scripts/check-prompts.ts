@@ -16,7 +16,9 @@
  *        - v0 freeform: "Reimagine it with new colors"
  *        - Ambiance v8: opening "Continue this painting in the same style…"
  *          + the load-bearing "HER style" anchor
- *        - Background v3: opening + the anti-AI-illustration language
+ *        - Background v4: opening "This painting needs a different
+ *          background environment within HER existing world." + the
+ *          shape-language anchor "wobbly, simplified, gestural"
  *        - Color v1: cel-animation opener "Recolor it using the palette
  *          sensibility of 1980s and 1990s…" + anti-AI-illustration anchor
  *   4. Dominator routing — Ambiance, Background, and Color (now also a
@@ -106,11 +108,11 @@ if (!ambiance.includes("HER style")) {
 }
 
 const background = buildPrompt({ presets: ["background"], aspectRatio: "4:5" });
-if (!background.startsWith("This painting needs a different background environment.")) {
-  fail("[background]", "Background v3 prompt regressed (opening sentence canary missing)");
+if (!background.startsWith("This painting needs a different background environment within HER existing world.")) {
+  fail("[background]", "Background v4 prompt regressed (opening sentence canary missing)");
 }
-if (!background.includes("AI-illustration finish")) {
-  fail("[background]", "Background v3 lost anti-'AI-illustration finish' language");
+if (!background.includes("wobbly, simplified, gestural")) {
+  fail("[background]", "Background v4 lost shape-language anchor ('wobbly, simplified, gestural')");
 }
 
 const colorSolo = buildPrompt({ presets: ["color"], aspectRatio: "4:5" });

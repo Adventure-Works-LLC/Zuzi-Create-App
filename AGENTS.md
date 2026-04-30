@@ -73,7 +73,7 @@ plan's reference docs first.
 | **Color** | Recolors with a 1980s/90s hand-painted cel-animation palette sensibility (Disney renaissance, Don Bluth, Saturday morning cartoons, Ghibli 80s/90s). Saturated but harmonious, gouache-feel, NOT digital/printed/AI-illustration finish | Brushwork, marks, drawing style, composition, framing, subject, level of finish, value structure, lighting direction, mood — only color values shift |
 | **Ambiance** | Continues the painting in her voice — extends her own brushwork, marks, level of finish into the canvas; adds elements (a small object, a mark in negative space, atmospheric depth) painted in HER style | Existing developed passages (don't repaint), composition, palette family, subject identity, brushwork voice |
 | **Lighting** | Mood, shadows, light direction | Color palette, composition, brushwork, subject, background, level of finish |
-| **Background** | Replaces the background with a different setting, painted in her hand (her style, her marks, her finish — NOT a generic AI-rendered background) | Foreground (figure, subject), composition, framing, palette family, lighting direction, brushwork on the subject, level of finish |
+| **Background** | The background environment is replaced with a different setting in her universe (same kind of place), with greater atmospheric depth and painted richness inspired by 80s/90s painted-animation backgrounds, rendered entirely in her style — including the shape language of background elements (no realistic perspective, no accurate proportions) | Subject, composition, framing, palette family, lighting direction, brushwork on the foreground, level of finish on the foreground, painterly register, her world/universe of subjects |
 
 > **Composition is gone.** Composition (reframing/repositioning the subject) was tried,
 > didn't match the user's actual workflow, and was removed. Ambiance (continuing the
@@ -92,7 +92,11 @@ The four presets split into two architectural categories in `imagePrompts.ts`:
     edits, she runs two passes (e.g. Background to swap setting → favorite a result
     → Color on the favorite to recolor).
       - **Ambiance v8** — `AMBIANCE_PROMPT_BODY` (locked, Krea-validated).
-      - **Background v3** — `BACKGROUND_PROMPT_BODY` (locked, Krea-validated).
+      - **Background v4** — `BACKGROUND_PROMPT_BODY` (locked, Krea-validated).
+        Adds 80s/90s painted-animation atmospheric reference for mood depth +
+        explicit shape-language anchoring (geometry must come from her hand
+        from the construction stage, not painterly surface applied to
+        perspective-correct geometry — see lesson #6).
       - **Color v1** — `COLOR_PROMPT_BODY` (locked, awaiting Krea-on-Zuzi-WIPs
         validation; supplied verbatim by Jeff). Targets a 1980s/90s cel-animation
         palette sensibility — opinionated era-specific recolor, not the generic
@@ -562,8 +566,9 @@ a no-env shell (§8.5) will catch violations.
        - v0 freeform: `"Reimagine it with new colors"`
        - Ambiance v8: opens `"Continue this painting in the same style…"`
          and contains `"HER style"`
-       - Background v3: opens `"This painting needs a different background
-         environment."` and contains `"AI-illustration finish"`
+       - Background v4: opens `"This painting needs a different background
+         environment within HER existing world."` and contains the shape-
+         language anchor `"wobbly, simplified, gestural"`
        - Color frozen body: `"Reimagine the colors and palette"`
   3. Verifies dominator routing — `['color','ambiance']` → Ambiance,
      `['lighting','background']` → Background, all-four → Ambiance.

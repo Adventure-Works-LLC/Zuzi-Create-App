@@ -41,13 +41,14 @@ const PRESET_LABEL: Record<Preset, string> = {
 /** Optional one-line subline rendered under the checkbox label. Ambiance and
  *  Background both have sublines because their operations don't read
  *  literally from the label — Ambiance is "continue in her voice" (not just
- *  add atmosphere), and Background is "different setting in HER hand" (not
- *  Pro's default rendered AI illustration). Color and Lighting read
- *  literally so they get no subline. Phrasing tracks the v8/v3 prompt
+ *  add atmosphere), and Background is now "deeper setting in her hand,
+ *  including her shape language" (not Pro's default perspective-correct
+ *  geometry with painterly surface overlay). Color and Lighting read
+ *  literally so they get no subline. Phrasing tracks the v8/v4 prompt
  *  framings in `lib/gemini/imagePrompts.ts`. */
 const PRESET_SUBLINE: Partial<Record<Preset, string>> = {
   ambiance: "complete it in her voice",
-  background: "different setting, in her hand",
+  background: "deeper setting, her shapes",
 };
 
 function PillToggle<T extends string>({

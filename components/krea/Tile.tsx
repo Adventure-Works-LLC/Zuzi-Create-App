@@ -55,8 +55,20 @@ export function Tile({ tile, aspectRatio, optimistic = false }: TileProps) {
   const onFav = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (optimistic || tile.id.startsWith("opt-")) return;
-    void toggle(tile.id, !tile.isFavorite).catch(() => {
-      /* hook handles rollback */
+    // useFavorites does optimistic update + automatic rollback on failure,
+    // so the user-visible feedback IS the star snapping back. That's the
+    // intentional UX for a high-frequency action (toast spam would hurt).
+    // Still: log the actual failure reason so any future debugging session
+    // has a breadcrumb instead of pure silence. The prior `.catch(() => {})`
+    // ate even the console signal.
+    void toggle(tile.id, !tile.isFavorite).catch((err) => {
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn("[tile] favorite toggle failed (rolled back)", {
+        tileId: tile.id,
+        nextValue: !tile.isFavorite,
+        message,
+        error: err,
+      });
     });
   };
 

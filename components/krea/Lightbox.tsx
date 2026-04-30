@@ -97,13 +97,21 @@ export function Lightbox() {
   const fullKey = view?.outputKey ?? null;
   const { url } = useImageUrl(fullKey);
   const { toggle } = useFavorites();
-  const { canShare, shareImage } = useShare();
+  const { canShare } = useShare();
   const { promoteFromTile } = useSources();
   const [busyAction, setBusyAction] = useState<"share" | "use" | null>(null);
   /** Visible error string for whichever action just failed. Cleared on the
    *  next attempt or close. Replaces the prior swallowed-to-console.warn
    *  pattern that hid Use-as-Source breakage entirely. */
   const [actionError, setActionError] = useState<string | null>(null);
+  /** Pre-fetched image bytes for the Share path. Loaded as soon as `url`
+   *  resolves so that when the user clicks Share we can construct the File
+   *  + call navigator.share() synchronously from the click event — which
+   *  is what iOS Safari requires (any `await` between user gesture and
+   *  navigator.share kills the gesture chain and iOS rejects the share).
+   *  Resets to null when the open tile changes. */
+  const [shareBlob, setShareBlob] = useState<Blob | null>(null);
+  const [shareBlobError, setShareBlobError] = useState<string | null>(null);
 
   /** Close clears both state slots and any inline error. Either mode can
    *  have been the opener. */
@@ -125,20 +133,168 @@ export function Lightbox() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
+  // Pre-fetch the image bytes as soon as the signed URL is available. iOS
+  // Safari rejects navigator.share() if it isn't called synchronously inside
+  // the user-gesture click handler — any `await` between click and share
+  // kills the gesture. Loading the Blob now means the click handler can
+  // construct the File + call navigator.share() with no awaits in between.
+  // Also avoids the 1h presigned-URL expiry footgun: we fetch within seconds
+  // of the URL minting (useImageUrl refreshes any URL <60s from expiry), so
+  // the blob is in memory long before any URL could expire.
+  useEffect(() => {
+    if (!url) {
+      setShareBlob(null);
+      setShareBlobError(null);
+      return;
+    }
+    let cancelled = false;
+    setShareBlob(null);
+    setShareBlobError(null);
+    console.info("[lightbox] share: pre-fetch start", {
+      urlPrefix: url.slice(0, 80),
+    });
+    fetch(url)
+      .then((resp) => {
+        if (!resp.ok)
+          throw new Error(`pre-fetch HTTP ${resp.status}`);
+        return resp.blob();
+      })
+      .then((blob) => {
+        if (cancelled) return;
+        console.info("[lightbox] share: pre-fetch ok", {
+          size: blob.size,
+          type: blob.type,
+        });
+        setShareBlob(blob);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        const message = e instanceof Error ? e.message : String(e);
+        console.warn("[lightbox] share: pre-fetch failed", { message, error: e });
+        setShareBlobError(message);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [url]);
+
   if (!view) return null;
 
-  const onShare = async () => {
-    if (!url) return;
-    setBusyAction("share");
-    try {
-      await shareImage({
-        url,
-        filename: `zuzi-${view.iterationId}-${view.idx + 1}.jpg`,
-        title: "Zuzi Studio",
-      });
-    } finally {
-      setBusyAction(null);
+  /**
+   * Share — open the iOS native share sheet (which natively includes "Save
+   * Image" alongside AirDrop, Messages, etc.) for the open tile.
+   *
+   * iOS Safari's user-gesture rule: navigator.share() must be invoked
+   * synchronously inside the click event handler. Any `await` between the
+   * click and the share call breaks the gesture chain and iOS rejects with
+   * "NotAllowedError: The request is not allowed by the user agent..."
+   *
+   * The previous implementation did `await fetch(signedUrl); await
+   * navigator.share(...)` from inside a single async click handler, which
+   * triggered exactly that rejection. The catch fell through to a hidden
+   * download link with no surfacing — silent failure.
+   *
+   * v2: we pre-fetch the blob in a useEffect when the signed URL resolves
+   * (above), so by the time the user clicks Share the blob is in memory.
+   * The click handler is then synchronous up to and including navigator.
+   * share(); the .then/.catch on the returned promise are fine because
+   * they run after iOS has already accepted the gesture.
+   */
+  const onShare = () => {
+    if (!view) return;
+    console.info("[lightbox] share: clicked", {
+      tileId: view.tileId,
+      hasBlob: !!shareBlob,
+      shareBlobError,
+    });
+
+    // Pre-fetch hasn't completed (or failed). Surface a useful message
+    // instead of dropping the click.
+    if (!shareBlob) {
+      const msg = shareBlobError
+        ? `Couldn't prepare share — ${shareBlobError}. Tap Share again or close + reopen.`
+        : "Image still loading — tap Share again in a moment.";
+      setActionError(msg);
+      return;
     }
+
+    setActionError(null);
+    setBusyAction("share");
+
+    // Construct File synchronously from the in-memory blob. Filename +
+    // explicit MIME type are load-bearing for iOS — the share sheet uses
+    // the filename for "Save Image", and a generic blob with no name lands
+    // as "image.jpg" or worse.
+    const filename = `zuzi-${view.iterationId}-${view.idx + 1}.jpg`;
+    const file = new File([shareBlob], filename, {
+      type: shareBlob.type || "image/jpeg",
+    });
+    console.info("[lightbox] share: file constructed", {
+      filename,
+      size: file.size,
+      type: file.type,
+    });
+
+    const shareData: ShareData = { files: [file], title: "Zuzi Studio" };
+
+    const canShareThisFile =
+      typeof navigator !== "undefined" &&
+      typeof navigator.canShare === "function" &&
+      navigator.canShare(shareData);
+    console.info("[lightbox] share: canShare check", { canShareThisFile });
+
+    if (!canShareThisFile || typeof navigator.share !== "function") {
+      // Web Share API isn't available for this file (PWA context restriction,
+      // unsupported browser, etc.). Fall back to a download link constructed
+      // from the in-memory blob. The user can long-press the resulting
+      // image in Photos to save manually if even this doesn't land.
+      console.info("[lightbox] share: fallback to download link");
+      try {
+        const objectUrl = URL.createObjectURL(shareBlob);
+        const a = document.createElement("a");
+        a.href = objectUrl;
+        a.download = filename;
+        a.rel = "noopener";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        // Revoke after a comfortable window so any in-flight save still
+        // resolves. 60s is generous; the browser holds the URL alive for
+        // the duration of the download anyway.
+        setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        console.warn("[lightbox] share: download fallback failed", { message, error: e });
+        setActionError(`Couldn't save image — ${message}`);
+      } finally {
+        setBusyAction(null);
+      }
+      return;
+    }
+
+    // Synchronous from here. DO NOT introduce an await before navigator.share()
+    // — iOS user-gesture chain depends on it.
+    navigator
+      .share(shareData)
+      .then(() => {
+        console.info("[lightbox] share: shared ok");
+      })
+      .catch((e) => {
+        // navigator.share rejects with AbortError when the user dismisses
+        // the share sheet — that's the normal "user changed their mind"
+        // case, not a failure. Anything else is real.
+        const name = (e as Error)?.name;
+        if (name === "AbortError") {
+          console.info("[lightbox] share: dismissed by user");
+          return;
+        }
+        const message = e instanceof Error ? e.message : String(e);
+        console.warn("[lightbox] share: failed", { message, error: e });
+        setActionError(`Share failed — ${message}`);
+      })
+      .finally(() => {
+        setBusyAction(null);
+      });
   };
 
   /**
@@ -285,8 +441,14 @@ export function Lightbox() {
         {canShare && (
           <button
             type="button"
-            onClick={() => void onShare()}
-            disabled={!url || busyAction !== null}
+            // IMPORTANT: onShare is synchronous (not async) and must be
+            // called directly here — wrapping in `() => void onShare()` or
+            // `async () => await onShare()` doesn't break iOS, but moving
+            // ANY await onto the gesture path between this click and
+            // navigator.share() does. The body of onShare itself is
+            // sync-up-to-and-including navigator.share().
+            onClick={onShare}
+            disabled={busyAction !== null}
             className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/5 px-4 py-2 text-sm text-white hover:bg-white/10 transition-colors disabled:opacity-50 no-callout"
           >
             {busyAction === "share" ? (

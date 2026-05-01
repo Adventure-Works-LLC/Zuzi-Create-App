@@ -61,7 +61,21 @@ export interface UseSourcesResult {
    *  presigned-URL expiry footgun (lightbox open >1h would otherwise hit
    *  an expired URL on the client fetch step). */
   promoteFromTile: (tileId: string) => Promise<Source>;
+  /** Soft-archive (PATCH `{archived: true}`). Reversible via `unarchive`. */
   archive: (sourceId: string) => Promise<void>;
+  /** Reverse of archive (PATCH `{archived: false}`). Triggers a refresh of
+   *  the active strip so the unarchived source reappears at its
+   *  created_at slot. The ArchivedSourcesPanel reads from a separate
+   *  fetch — it refetches on its own each open, so the row will be
+   *  visibly absent from the panel after this resolves. */
+  unarchive: (sourceId: string) => Promise<void>;
+  /** Hard-delete the source row + every R2 object that belongs to it.
+   *  Irreversible. Server-side does the R2 cleanup; the client-side
+   *  store removal happens optimistically before the network roundtrip
+   *  to keep the UI snappy. On failure: refresh the active strip to
+   *  recover canonical state (the deleted source will reappear), then
+   *  rethrow so the caller can surface the error. */
+  deleteForever: (sourceId: string) => Promise<void>;
   refresh: () => Promise<void>;
 }
 
@@ -69,6 +83,7 @@ export function useSources(): UseSourcesResult {
   const setSources = useCanvas((s) => s.setSources);
   const addSourceToStore = useCanvas((s) => s.addSource);
   const archiveSourceInStore = useCanvas((s) => s.archiveSource);
+  const removeSourceInStore = useCanvas((s) => s.removeSource);
   const setSourcesLoading = useCanvas((s) => s.setSourcesLoading);
   const setSourcesError = useCanvas((s) => s.setSourcesError);
   const setUploading = useCanvas((s) => s.setUploading);
@@ -221,5 +236,76 @@ export function useSources(): UseSourcesResult {
     [archiveSourceInStore, refresh],
   );
 
-  return { loading, error, uploading, uploadFile, promoteFromTile, archive, refresh };
+  const unarchive = useCallback(
+    async (sourceId: string) => {
+      // PATCH server first, then refresh the active strip so the row
+      // reappears in the SourceStrip. We don't optimistically add the
+      // row back to the store because we don't have the full Source
+      // shape on hand (the panel only carries summary fields like
+      // archivedAt; the active-strip query joins iterations + tiles
+      // for aggregate counts, which we'd be missing). Refresh is the
+      // canonical-state path.
+      const resp = await fetch(`/api/sources/${sourceId}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ archived: false }),
+      });
+      if (!resp.ok) {
+        const data = (await resp.json().catch(() => ({}))) as {
+          error?: string;
+          detail?: string;
+        };
+        throw new Error(
+          data.detail ?? data.error ?? `unarchive failed (${resp.status})`,
+        );
+      }
+      await refresh();
+    },
+    [refresh],
+  );
+
+  const deleteForever = useCallback(
+    async (sourceId: string) => {
+      // Optimistic store removal (same shape as archive). The active
+      // strip drops the thumb immediately. The DELETE call is followed
+      // by a refresh so the canonical state is restored — particularly
+      // important if the deleted source was archived (and so wasn't in
+      // the active store at all), since this method is also called
+      // from the ArchivedSourcesPanel.
+      removeSourceInStore(sourceId);
+      try {
+        const resp = await fetch(
+          `/api/sources/${encodeURIComponent(sourceId)}?permanent=true`,
+          { method: "DELETE" },
+        );
+        if (!resp.ok) {
+          const data = (await resp.json().catch(() => ({}))) as {
+            error?: string;
+            detail?: string;
+          };
+          throw new Error(
+            data.detail ?? data.error ?? `delete failed (${resp.status})`,
+          );
+        }
+      } catch (e) {
+        // Rollback to canonical server state on failure. Throws after
+        // refresh so caller can surface to the user.
+        await refresh();
+        throw e;
+      }
+    },
+    [removeSourceInStore, refresh],
+  );
+
+  return {
+    loading,
+    error,
+    uploading,
+    uploadFile,
+    promoteFromTile,
+    archive,
+    unarchive,
+    deleteForever,
+    refresh,
+  };
 }

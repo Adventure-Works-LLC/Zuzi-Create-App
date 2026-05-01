@@ -120,6 +120,17 @@ interface CanvasState {
   addSource: (source: Source) => void;
   setCurrentSource: (sourceId: string | null) => void;
   archiveSource: (sourceId: string) => void;
+  /**
+   * Hard-delete a source from the active strip. Same store-side shape
+   * as `archiveSource` (filter out, re-pick currentSourceId if needed,
+   * blank iterations[] if the deleted one was current) — the only
+   * difference is intent: archive is reversible (the row stays in DB
+   * with `archived_at` set), removeSource is for the permanent-delete
+   * path (DB row + R2 objects gone). Both paths produce the same store
+   * mutation; we keep them as separate methods for code-readability and
+   * so future analytics can distinguish the two flows.
+   */
+  removeSource: (sourceId: string) => void;
   setSourcesLoading: (v: boolean) => void;
   setSourcesError: (v: string | null) => void;
   setUploading: (v: boolean) => void;
@@ -196,6 +207,14 @@ interface CanvasState {
   // ---- favorites panel ----
   favoritesOpen: boolean;
   setFavoritesOpen: (open: boolean) => void;
+
+  // ---- archived sources panel ----
+  // Same lifecycle pattern as `favoritesOpen`: a UI flag toggled by the
+  // SourceStrip's archive-icon button. The ArchivedSourcesPanel mounts
+  // unconditionally and renders nothing when `archivedSourcesPanelOpen`
+  // is false.
+  archivedSourcesPanelOpen: boolean;
+  setArchivedSourcesPanelOpen: (open: boolean) => void;
 }
 
 export const useCanvas = create<CanvasState>((set) => ({
@@ -245,6 +264,19 @@ export const useCanvas = create<CanvasState>((set) => ({
     }),
   archiveSource: (sourceId) =>
     set((s) => {
+      const remaining = s.sources.filter((x) => x.sourceId !== sourceId);
+      const wasCurrent = s.currentSourceId === sourceId;
+      return {
+        sources: remaining,
+        currentSourceId: wasCurrent ? pickCurrent(null, remaining) : s.currentSourceId,
+        iterations: wasCurrent ? [] : s.iterations,
+      };
+    }),
+  removeSource: (sourceId) =>
+    set((s) => {
+      // Same shape as archiveSource — see the comment on the type
+      // declaration above for why this is a separate method despite
+      // the same mutation logic.
       const remaining = s.sources.filter((x) => x.sourceId !== sourceId);
       const wasCurrent = s.currentSourceId === sourceId;
       return {
@@ -368,6 +400,10 @@ export const useCanvas = create<CanvasState>((set) => ({
   // ---- favorites panel ----
   favoritesOpen: false,
   setFavoritesOpen: (open) => set({ favoritesOpen: open }),
+
+  // ---- archived sources panel ----
+  archivedSourcesPanelOpen: false,
+  setArchivedSourcesPanelOpen: (open) => set({ archivedSourcesPanelOpen: open }),
 }));
 
 /** When the source list changes, decide what currentSourceId should be. Keeps

@@ -19,6 +19,8 @@
  */
 
 import {
+  DeleteObjectCommand,
+  DeleteObjectsCommand,
   GetObjectCommand,
   PutObjectCommand,
   S3Client,
@@ -104,6 +106,60 @@ export async function getObject(key: string): Promise<Buffer> {
   if (!resp.Body) throw new Error(`R2 getObject: empty body for ${key}`);
   const bytes = await resp.Body.transformToByteArray();
   return Buffer.from(bytes);
+}
+
+/**
+ * Delete a single object from R2. Idempotent — deleting a non-existent
+ * key succeeds (S3-compat semantics; R2 returns 204 either way). Caller
+ * is responsible for prefix validation (only `inputs/`, `outputs/`,
+ * `thumbs/` should ever be deleted via this path).
+ */
+export async function deleteObject(key: string): Promise<void> {
+  await client().send(
+    new DeleteObjectCommand({
+      Bucket: requireEnv("R2_BUCKET"),
+      Key: key,
+    }),
+  );
+}
+
+/**
+ * Batch-delete up to 1000 objects in a single S3 DeleteObjects call. Used
+ * by the source-hard-delete path: a source's R2 footprint is its
+ * input image + every output_image_key + every thumb_image_key for tiles
+ * across all of its iterations. A typical Zuzi source with 5–10 generations
+ * × 3 tiles each + thumbs lands around 30–60 keys; well under the batch
+ * cap.
+ *
+ * The S3 API caps batch size at 1000; we chunk above that defensively
+ * even though Zuzi's footprint will never come close.
+ *
+ * Returns nothing — callers that need per-key success state should fall
+ * back to single-shot `deleteObject` calls. The hard-delete path treats
+ * R2 cleanup as best-effort (we log + continue on failure rather than
+ * blocking the DB delete) since orphan R2 objects are recoverable via a
+ * future sweep job; the user-facing "delete forever" promise is about
+ * the row leaving the UI, not perfect storage hygiene.
+ */
+export async function deleteObjects(keys: ReadonlyArray<string>): Promise<void> {
+  if (keys.length === 0) return;
+  const bucket = requireEnv("R2_BUCKET");
+  const BATCH_SIZE = 1000;
+  for (let i = 0; i < keys.length; i += BATCH_SIZE) {
+    const chunk = keys.slice(i, i + BATCH_SIZE);
+    await client().send(
+      new DeleteObjectsCommand({
+        Bucket: bucket,
+        Delete: {
+          Objects: chunk.map((Key) => ({ Key })),
+          // Quiet mode: the response omits successfully-deleted keys, only
+          // returning failures. We don't surface failures per-key today
+          // (best-effort cleanup) so quiet=true reduces response size.
+          Quiet: true,
+        },
+      }),
+    );
+  }
 }
 
 /**

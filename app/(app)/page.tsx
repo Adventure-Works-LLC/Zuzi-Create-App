@@ -5,12 +5,15 @@
  *
  * Layout (per docs/UX_INSPIRATION.md):
  *   - SourceStrip (sticky top): horizontal scroll of active sources + [+] add
- *     + Favorites button. Hidden in the empty state.
+ *     + archive-folder button + Favorites button. Hidden in the empty state.
  *   - Mid-canvas: either the tile stream OR a centered Fraunces-italic cue.
  *   - InputBar (sticky bottom): preset checkboxes + Flash|Pro + 1K|4K + count
  *     + Generate. In the empty state, just shows Take photo / Choose.
  *   - Lightbox: full-bleed dark overlay when a tile is open.
  *   - FavoritesPanel: right-side drawer when favoritesOpen is true.
+ *   - ArchivedSourcesPanel: right-side drawer when
+ *     archivedSourcesPanelOpen is true. Per-row Unarchive +
+ *     Delete-forever actions.
  *
  * Empty state: bare InputBar at the bottom of an otherwise empty canvas, with
  * a single Fraunces-italic cue centered above it. No hero, no examples, no
@@ -24,6 +27,7 @@ import { TileStream } from "@/components/krea/TileStream";
 import { InputBar } from "@/components/krea/InputBar";
 import { Lightbox } from "@/components/krea/Lightbox";
 import { FavoritesPanel } from "@/components/krea/FavoritesPanel";
+import { ArchivedSourcesPanel } from "@/components/krea/ArchivedSourcesPanel";
 import { useSources } from "@/hooks/useSources";
 import { useIterations } from "@/hooks/useIterations";
 import { useCanvas } from "@/stores/canvas";
@@ -75,6 +79,7 @@ export default function Studio() {
 
       <Lightbox />
       <FavoritesPanel />
+      <ArchivedSourcesPanel />
     </main>
   );
 }

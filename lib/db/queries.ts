@@ -88,6 +88,80 @@ export function listAllSources(limit = 50): Source[] {
     .all();
 }
 
+/**
+ * Returns the full set of R2 keys associated with a source for the
+ * "delete forever" cleanup path. Includes:
+ *   - the source's own input image (`sources.input_image_key`),
+ *   - every output / thumb key for tiles whose iterations belong to this
+ *     source — INCLUDING soft-deleted tiles, since the R2 objects
+ *     persist even after a soft delete (tile rows keep `deleted_at` but
+ *     the underlying images stayed put).
+ *
+ * Callers pass the array to `deleteObjects()` before hard-deleting the
+ * `sources` row. CASCADE handles the iterations + tiles row removal;
+ * R2 cleanup is the only piece that needs explicit listing.
+ */
+export function listAllR2KeysForSource(sourceId: string): string[] {
+  const src = getSource(sourceId);
+  if (!src) return [];
+  // Single join query: pull both columns from tiles for every iteration of
+  // this source. Soft-deleted tiles included (we want the R2 objects gone
+  // either way).
+  const tileRows = db()
+    .select({
+      output_image_key: tiles.output_image_key,
+      thumb_image_key: tiles.thumb_image_key,
+    })
+    .from(tiles)
+    .innerJoin(iterations, eq(iterations.id, tiles.iteration_id))
+    .where(eq(iterations.source_id, sourceId))
+    .all();
+  const keys: string[] = [src.input_image_key];
+  for (const row of tileRows) {
+    if (row.output_image_key) keys.push(row.output_image_key);
+    if (row.thumb_image_key) keys.push(row.thumb_image_key);
+  }
+  return keys;
+}
+
+/**
+ * Hard-delete a source row. Returns true if the row existed and was
+ * removed. CASCADE on `iterations.source_id` removes all of this
+ * source's iterations, which in turn cascades to `tiles.iteration_id`
+ * for the tile rows. `usage_log.iteration_id` has no ON DELETE clause
+ * (defaults to NO ACTION / restrict in SQLite), so callers must clear
+ * the iteration_id FK on usage_log rows BEFORE calling this if any
+ * usage_log rows reference iterations of this source — see
+ * `nullifyUsageLogForSource`.
+ *
+ * Wrapped at the API layer in a transaction with the usage_log update +
+ * R2 cleanup so the whole operation is atomic from the DB's perspective
+ * (R2 is best-effort; orphan objects are recoverable).
+ */
+export function hardDeleteSource(id: string): boolean {
+  const result = db().delete(sources).where(eq(sources.id, id)).run();
+  return result.changes > 0;
+}
+
+/**
+ * Set `usage_log.iteration_id = NULL` for every row whose iteration
+ * belongs to this source. Preserves the cost record (cap math still
+ * sees the spend) but breaks the FK link so iterations can be hard-
+ * deleted. Called inside the source-hard-delete transaction.
+ */
+export function nullifyUsageLogForSource(sourceId: string): void {
+  // SQLite update with subquery: we don't have a usage_log → source FK
+  // directly; we need to find usage_log rows whose iteration_id matches
+  // any iteration whose source_id matches.
+  db().run(sql`
+    UPDATE usage_log
+       SET iteration_id = NULL
+     WHERE iteration_id IN (
+       SELECT id FROM iterations WHERE source_id = ${sourceId}
+     )
+  `);
+}
+
 // ---------- iterations ----------
 
 export function findIterationByRequestId(

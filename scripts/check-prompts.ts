@@ -109,8 +109,8 @@ if (!empty.includes("Reimagine it with new colors")) {
 }
 
 const ambiance = buildPrompt({ presets: ["ambiance"], aspectRatio: "4:5" });
-if (!ambiance.startsWith("Continue this painting in the same style the artist is already using.")) {
-  fail("[ambiance]", "Ambiance v8 prompt regressed (opening sentence canary missing)");
+if (!ambiance.startsWith("This painting is the artist's work-in-progress.")) {
+  fail("[ambiance]", "Ambiance prompt regressed (opening sentence canary missing)");
 }
 if (!ambiance.includes("HER style")) {
   fail("[ambiance]", "Ambiance v8 lost load-bearing 'HER style' anchor");
@@ -155,7 +155,7 @@ if (!colorSolo.includes("Skin is identity — never touch it")) {
 
 // --- 4: dominator routing must fire when combined with other presets ---
 const ambColor = buildPrompt({ presets: ["color", "ambiance"], aspectRatio: "4:5" });
-if (!ambColor.startsWith("Continue this painting")) {
+if (!ambColor.startsWith("This painting is the artist's work-in-progress.")) {
   fail("[color,ambiance]", "Ambiance dominator early-return broken (combined with color)");
 }
 
@@ -178,7 +178,7 @@ const allFour = buildPrompt({
   presets: ["color", "ambiance", "lighting", "background"],
   aspectRatio: "4:5",
 });
-if (!allFour.startsWith("Continue this painting")) {
+if (!allFour.startsWith("This painting is the artist's work-in-progress.")) {
   fail("[all four]", "Ambiance dominator must win over Background and Color when all are checked (resolution order regressed)");
 }
 

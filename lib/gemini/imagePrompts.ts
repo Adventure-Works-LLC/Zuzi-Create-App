@@ -233,13 +233,61 @@ The result should look like the same painting after the artist made one focused 
  * Multi-paragraph body; the aspect-ratio sentence is appended as its own
  * trailing paragraph at render time per AGENTS.md §3.
  */
-const AMBIANCE_PROMPT_BODY = `Continue this painting in the same style the artist is already using. Look at her brushwork, her marks, her flatness or dimensionality, her color application, her level of finish — and add more of the same. Extend her painting in her own voice. But do so in a way that completes the painting in the most satisfying way visually.
+const AMBIANCE_PROMPT_BODY = `This painting is the artist's work-in-progress. She has been staring at it, sometimes for hours, trying to see the one move that would resolve it — the addition that would take it from almost-done to truly complete, from a painting to a masterpiece in her voice.
 
-Do NOT make the image busy or change the composition. Your final image should look like the input image with additional work put into completing the image in a way that she would likely have completed it. It should feel not overly empty or not overfilled with new things.
+Your job is to find that move with her precision. Not to add something. Not to make the painting feel less empty. To identify, with painterly judgment, the SPECIFIC move that completes THIS specific painting and makes it unmistakably, fully Zuzi.
 
-You can add elements — a small object, a mark in negative space, something in the background, atmospheric depth — but everything you add must be painted in HER style, with HER kind of marks. If she's working flat and painterly, your additions are flat and painterly. If she's using thick gestural strokes, your additions are thick gestural strokes. Match her hand exactly.
+CRITICAL — work AT the painting level, never at the meta level: You are editing the painting itself by adding marks to its canvas. You are NOT photographing the painting. You are NOT framing the painting in a room or on a wall. You are NOT showing the painting being held or displayed. You are NOT adding masking tape, easels, studio context, walls, windows, floors, or any environment around the painting. The output must be the painting itself, edge-to-edge, exactly as it would appear if she added one more pass to the canvas. The frame of the output IS the frame of the painting. There is nothing outside it.
 
-The output should look like a finished version of the input painting.`;
+A Zuzi painting that's complete has these qualities — the figure carries quiet emotional weight, the composition has intentional restraint, every element in the painting feels purposeful, and the negative space breathes rather than feels empty. The completion move you find should bring the painting fully into that resolved state.
+
+Before you make any move, you must be able to answer:
+
+1. What specific compositional problem does this painting have right now? Where does the eye lose its way? What feels unresolved? What would Zuzi notice if she looked at this for another hour?
+
+2. Why does this specific addition, in this specific location, solve that specific problem? What's the painterly logic? What's the compositional reasoning?
+
+3. Why is this move unmistakably hers — something she would have eventually arrived at, in her hand, in her vocabulary?
+
+If you cannot answer all three with confidence, the right move is to make NO change. Most paintings should come back unchanged or nearly unchanged. Only act when you've identified a genuine compositional problem AND a specific solution to it AND that solution is in her painterly vocabulary. The bar is high — make the move only when you can defend it.
+
+When you do act, the move must be:
+- COMPOSITIONALLY MOTIVATED: it solves a real visual problem in the painting (a weight imbalance, an unfinished passage, a disconnect between elements, an unresolved focal moment) — not added for atmospheric texture or decoration
+- INTENTIONALLY PLACED: every aspect of the move's location, size, and form serves the compositional logic — not placed wherever there's empty space
+- IN HER VOCABULARY: it uses the kind of element she actually paints — but ONLY her vocabulary, NEVER generic additions like decorative flowers, vases, picture frames, hearts, stars, butterflies, generic background objects, or any other stock decorative element. Her vocabulary is restrained and emotional: a quiet abstract mark, a subtle ambient passage, a gestural shape that supports the composition, a small accent that ties the painting together. Always emotionally and compositionally motivated, never decorative.
+- INEVITABLE IN RETROSPECT: when you look at the finished painting, the addition should feel obvious, like the painting was incomplete without it and she finally saw the answer
+
+Read the source carefully first. Spend real attention on:
+- The figure's gesture and emotional weight — what mood is the figure carrying?
+- The composition's structural logic — how do the elements relate? Is there compositional tension that wants resolution?
+- The negative space — is the empty space functioning as breath, or is it functioning as absence? There's a difference.
+- The existing motifs and elements — what visual language is she working in?
+- What would resolve THIS painting specifically — not paintings in general, not "an unfinished work" in the abstract, but the unique compositional question THIS painting is asking?
+
+Then make at most ONE move. Or none. Be Zuzi staring at her own work for hours and finally seeing it.
+
+CRITICAL on what makes a Zuzi move:
+- Her additions are ABSTRACT or GESTURAL — never representational decoration. A mark, a shape, a subtle color passage, a quiet gestural element. NOT a flower, NOT a vase, NOT a heart, NOT a recognizable object that wasn't already in her composition.
+- Her additions emerge from emotional and compositional logic, not from a desire to fill space or decorate
+- Her additions live in conversation with the figure — they relate to the subject emotionally or compositionally, they're never just background filler
+- Her additions feel like they belong, not like they were added
+- When in doubt, she leaves the painting alone
+
+CRITICAL on mood: this artist's work is PEACEFUL, GENTLE, and QUIETLY WARM. Her paintings have a calm daydream quality — soft warmth, airy light, gentle cheerfulness, contemplative ease. The completion move serves and amplifies that mood. Not moody. Not dark. Not dramatic. Not gloomy. Not cute. Not decorative.
+
+ABSOLUTE RULE on skin tones: skin colors stay IDENTICAL to the input. Do not shift skin hue, warmth, or coolness. Faces, hands, exposed skin must look exactly as she painted them. Skin is identity — never touch it.
+
+CRITICAL on palette: don't change her colors. Any addition uses colors from her existing palette family — you are completing her painting in her color world, not introducing a new color story.
+
+The painting must be rendered entirely in HER style. Her exact brushwork, her exact marks, her exact level of finish, her exact line work. Dry media — chalky pastel, charcoal, colored pencil — RESTRAINED. Surface dry, granular, chalky. Any new mark comes through her dry chalky register and must look like she painted it in this same session, with the same materials, in her hand.
+
+Existing elements MUST stay in their EXACT positions. Do not move, relocate, or shift ANY existing element. The completion move is an addition or a refinement to negative space, never a rearrangement.
+
+Preserve EXACTLY: the figure, subject, composition, framing, all existing painted elements and their exact positions, brushwork, mark-making, drawing style, color choices and palette family, skin tones, level of finish, value structure, lighting direction, peaceful warm mood, dry chalky restrained surface register, her wonky gestural shape language, her existing motifs.
+
+Do NOT show the painting in a room, on a wall, with a frame, with masking tape, on an easel, held by anyone, or in any environmental context. Do NOT add decorative objects (flowers, vases, hearts, stars, butterflies, generic background props). Do NOT add elements without compositional justification. Do NOT add ambient texture or atmospheric marks for the sake of "feeling less empty." Do NOT make decorative additions. Do NOT place additions wherever there's empty space — placement must be intentional. Do NOT add multiple elements. Do NOT shift skin or palette. Do NOT change mood. Do NOT relocate existing elements. Do NOT use AI-illustration finish or smooth her marks. Do NOT abandon her negative space. Do NOT make a move you cannot defend with painterly reasoning.
+
+The result should look like the same painting after the artist finally saw the one move she'd been searching for and made it with confidence — same composition, edge to edge as the canvas, same hand, same warm peaceful mood, with one inevitable, compositionally precise addition that makes the painting feel masterful and unmistakably hers. Or no change at all, if the painting was already complete.`;
 
 // ---------------------------------------------------------------------------
 // BACKGROUND — v5 locked.

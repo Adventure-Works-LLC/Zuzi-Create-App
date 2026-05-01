@@ -62,17 +62,6 @@ export interface UseSourcesResult {
    *  an expired URL on the client fetch step). */
   promoteFromTile: (tileId: string) => Promise<Source>;
   archive: (sourceId: string) => Promise<void>;
-  /** Restore an archived source (clears archived_at, returns it to the
-   *  active strip). Optimistic — no canonical-list refetch unless the
-   *  PATCH fails, in which case we refresh to re-sync. */
-  restore: (sourceId: string) => Promise<void>;
-  /** Permanent delete: hard-removes the source row (FK cascades iterations
-   *  + tiles), then R2 cleanup runs server-side best-effort. Used by both
-   *  the SourceStrip's "Delete forever" menu item and the Hidden Sources
-   *  panel's "Delete forever" button. The caller is responsible for any
-   *  user-visible confirmation (window.confirm) before invoking — the hook
-   *  trusts that the click reached this far on purpose. */
-  deletePermanent: (sourceId: string) => Promise<void>;
   refresh: () => Promise<void>;
 }
 
@@ -232,74 +221,5 @@ export function useSources(): UseSourcesResult {
     [archiveSourceInStore, refresh],
   );
 
-  const restore = useCallback(
-    async (sourceId: string) => {
-      // Restoring is a server-side state change with no obvious optimistic
-      // store mutation (the source isn't in the active sources[] array;
-      // the Hidden Sources panel owns its own local list). After the PATCH
-      // succeeds we refresh the active list so the un-archived source
-      // appears in the strip. If the PATCH fails, the panel will see the
-      // error via the throw and surface it inline.
-      const resp = await fetch(`/api/sources/${sourceId}`, {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ archived: false }),
-      });
-      if (!resp.ok) {
-        const data = (await resp.json().catch(() => ({}))) as {
-          error?: string;
-          detail?: string;
-        };
-        throw new Error(
-          data.detail ?? data.error ?? `restore failed (${resp.status})`,
-        );
-      }
-      await refresh();
-    },
-    [refresh],
-  );
-
-  const deletePermanent = useCallback(
-    async (sourceId: string) => {
-      // Optimistic store removal — the source disappears from the active
-      // strip immediately even though it might already be archived (the
-      // store's archiveSource is idempotent on archived rows). We do this
-      // BEFORE the server call so the UI feels instant. Rollback on
-      // failure is a refetch.
-      archiveSourceInStore(sourceId);
-      try {
-        const resp = await fetch(`/api/sources/${sourceId}`, {
-          method: "DELETE",
-        });
-        if (!resp.ok) {
-          const data = (await resp.json().catch(() => ({}))) as {
-            error?: string;
-            detail?: string;
-          };
-          throw new Error(
-            data.detail ?? data.error ?? `delete failed (${resp.status})`,
-          );
-        }
-        // Discard the response body — the route returns counts for
-        // logging but the client doesn't need them. The optimistic store
-        // removal already reflects the user-visible delete.
-      } catch (e) {
-        await refresh();
-        throw e;
-      }
-    },
-    [archiveSourceInStore, refresh],
-  );
-
-  return {
-    loading,
-    error,
-    uploading,
-    uploadFile,
-    promoteFromTile,
-    archive,
-    restore,
-    deletePermanent,
-    refresh,
-  };
+  return { loading, error, uploading, uploadFile, promoteFromTile, archive, refresh };
 }

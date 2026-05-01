@@ -60,11 +60,24 @@ feature.
 ### The input language: 4 checkboxes, no description field
 
 The user input is **exclusively four preset checkboxes** — `Color`, `Ambiance`,
-`Lighting`, `Background` — multi-select 0..4. There is **no free-text prompt field**.
-This is a hard product invariant: a description field would push the tool from "make
-this beautiful" toward "do what I say," which is the wrong product. Anyone tempted to
-add a description input as "just one more knob" should re-read this paragraph and the
-plan's reference docs first.
+`Lighting`, `Background` — **mutually exclusive (pick at most one)**. There is **no
+free-text prompt field**. This is a hard product invariant: a description field would
+push the tool from "make this beautiful" toward "do what I say," which is the wrong
+product. Anyone tempted to add a description input as "just one more knob" should
+re-read this paragraph and the plan's reference docs first.
+
+> **Mutually-exclusive UI.** The picker was originally multi-select 0..4. It became
+> single-select after Zuzi found the multi-select model harder to reason about than
+> the single-operation-per-generation framing the locked prompts already imply
+> (Ambiance/Background/Color all have strong preserve-this-aspect language that
+> contradicts other presets — see "Dominators vs composers" below). Selecting one
+> preset hides the other three (150ms fade-out + translateY); the selected one shows
+> a small `×` cancel affordance. No selection = freeform mode (`presets: []` →
+> v0 "make this beautiful" prompt). The technical capability for multi-element
+> arrays remains in `lib/gemini/imagePrompts.ts buildPrompt` for legacy data
+> compatibility — see the dominator-routing note below — but the UI never produces
+> them anymore. **Product simplification chose a cleaner mental model over the
+> theoretical flexibility of preset combinations; the trade was deliberate.**
 
 #### Preset table (canonical reference)
 
@@ -80,9 +93,17 @@ plan's reference docs first.
 > painting in her voice) is the operation she actually wants. **Don't add Composition
 > back without explicit user request.**
 
-#### Dominators vs composers
+#### Dominators vs composers (legacy / safety-net under exclusive UI)
 
-The four presets split into two architectural categories in `imagePrompts.ts`:
+The four presets split into two architectural categories in `imagePrompts.ts`. Under
+the current mutually-exclusive UI the routing is **legacy / safety-net code** — the
+UI only ever sends single-element preset arrays, so the dominator ladder never has
+multiple presets to disambiguate in production. It stays in place for two reasons:
+(a) legacy iterations in DB from before the UI exclusivity change may have multi-
+element `presets` JSON, and rendering a stable prompt for those rows matters for the
+History Drawer; (b) `scripts/smoke.ts` still accepts arbitrary `--presets` flags for
+development testing of the prompt builder — the UI invariant lives in the UI layer,
+not the prompt builder.
 
   - **Dominators**: have a dedicated multi-paragraph prompt body. When a dominator is
     checked, its body short-circuits the builder and any other checked presets are
@@ -90,7 +111,9 @@ The four presets split into two architectural categories in `imagePrompts.ts`:
     aspect language ("palette family stays identical", "lighting direction stays
     identical", etc.) that contradicts a "vary X" composer. If Zuzi wants compound
     edits, she runs two passes (e.g. Background to develop the existing setting →
-    favorite a result → Color on the favorite to recolor).
+    favorite a result → Color on the favorite to recolor). This was the v1 product
+    intent and remains true under exclusive UI — two passes is now the *only* way to
+    get a compound edit.
       - **Ambiance v8** — `AMBIANCE_PROMPT_BODY` (locked, Krea-validated).
       - **Background v5** — `BACKGROUND_PROMPT_BODY` (locked, Krea-validated).
         READ-AND-DEVELOP framing: Pro is asked to identify the artist's

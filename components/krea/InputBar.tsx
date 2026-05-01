@@ -8,10 +8,20 @@
  *      Take photo / Choose / drag+drop+paste — and nothing else. Above it
  *      the page renders a one-line italic cue.
  *   2. Populated (a current source is set): the full configurator —
- *      4 preset checkboxes (Color/Ambiance/Lighting/Background)
- *      + Flash|Pro pill + 1K|4K pill + count stepper + Generate button
- *      with live cost annotation. The current source's thumbnail sits to the
- *      left as a small preview.
+ *      mutually-exclusive preset picker (Color/Ambiance/Lighting/Background,
+ *      pick at most one) + Flash|Pro pill + 1K|4K pill + count stepper +
+ *      Generate button with live cost annotation. The current source's
+ *      thumbnail sits to the left as a small preview.
+ *
+ * Mutually-exclusive preset picker: tap a preset to select it; the other
+ * three fade out over 150ms; an `×` cancel affordance appears on the
+ * selected one for discoverable deselect. Tapping the selected cell ALSO
+ * deselects (default toggle), and tapping `×` is the explicit visual cue.
+ * No selection = freeform mode (empty `presets` array → v0 "make this
+ * beautiful" prompt). The single-operation-per-generation model produced
+ * a cleaner mental model than the original 0..4 multi-select; see AGENTS.md
+ * §4 for the rationale + why dominator routing in `buildPrompt` is now
+ * legacy/safety-net code rather than a daily-fire path.
  *
  * Drop + paste also work in both modes — the drop zone is the whole page so
  * paint can land anywhere. The InputBar just renders the explicit buttons.
@@ -21,7 +31,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Camera, Image as ImageIcon, Loader2 } from "lucide-react";
+import { Camera, Image as ImageIcon, Loader2, X } from "lucide-react";
 
 import { useSources } from "@/hooks/useSources";
 import { useIterations } from "@/hooks/useIterations";
@@ -101,26 +111,68 @@ function PillToggle<T extends string>({
   );
 }
 
+/**
+ * One preset cell in the mutually-exclusive picker grid.
+ *
+ * Visibility states:
+ *   - `selectedPreset === null`: ALL cells render normally; tap any to
+ *     select. (`hidden` prop is false on every cell.)
+ *   - `selectedPreset === <this>`: this cell renders checked + shows a
+ *     small `×` affordance; tapping the cell OR the `×` deselects.
+ *   - `selectedPreset === <other>`: this cell is `hidden` — opacity 0,
+ *     translateY -8px, pointer-events disabled, aria-hidden. The cell
+ *     remains in the grid so the selected one's column position is
+ *     preserved (no layout jump). Animation: 150ms ease-out.
+ *
+ * The `×` is a discoverable cancel affordance per Zuzi's spec. Tapping
+ * the rest of the checked cell ALSO deselects (default toggle), but the
+ * `×` is the explicit visual cue that the selection is dismissable.
+ */
 function PresetCheckbox({
   preset,
   checked,
-  onToggle,
+  hidden,
+  onSelect,
+  onCancel,
 }: {
   preset: Preset;
+  /** `true` if this preset is the currently-selected one. */
   checked: boolean;
-  onToggle: () => void;
+  /** `true` if a DIFFERENT preset is selected (this cell should fade out). */
+  hidden: boolean;
+  /** Called when the cell is tapped while not checked — selects this preset. */
+  onSelect: () => void;
+  /** Called when the cell is tapped while checked OR the `×` is tapped —
+   *  clears the selection back to none. */
+  onCancel: () => void;
 }) {
   const subline = PRESET_SUBLINE[preset];
+  const onCellClick = () => {
+    if (checked) onCancel();
+    else onSelect();
+  };
   return (
     <button
       type="button"
       role="checkbox"
       aria-checked={checked}
-      onClick={onToggle}
+      aria-hidden={hidden ? true : undefined}
+      tabIndex={hidden ? -1 : 0}
+      onClick={onCellClick}
       className={[
-        "flex items-center gap-2 px-3 py-2 rounded-md",
+        "relative flex w-full items-center gap-2 px-3 py-2 rounded-md",
         "border text-sm text-left",
-        "transition-colors no-callout",
+        "transition-[opacity,transform,colors,border-color,background-color] duration-150 ease-out",
+        // Visibility: opacity + transform animate. Hidden cells stay
+        // tappable so a tap during the fade-out window atomically swaps
+        // the selection (radio-button semantics: tap any cell, even
+        // mid-animation, to switch). The 150ms fade window is short
+        // enough that the mid-fade tappable surface doesn't cause real
+        // confusion. (We deliberately do NOT add `pointer-events-none`
+        // here — that would force a two-tap dance to switch presets.)
+        hidden
+          ? "opacity-0 -translate-y-2"
+          : "opacity-100 translate-y-0",
         checked
           ? "border-accent bg-accent/10 text-foreground"
           : "border-hairline/60 text-text-mute hover:text-foreground hover:border-hairline",
@@ -149,12 +201,45 @@ function PresetCheckbox({
           </svg>
         )}
       </span>
-      <span className="flex flex-col leading-tight">
-        <span>{PRESET_LABEL[preset]}</span>
+      <span className="flex flex-1 flex-col leading-tight min-w-0">
+        <span className="truncate">{PRESET_LABEL[preset]}</span>
         {subline && (
-          <span className="text-[11px] text-text-mute/80">{subline}</span>
+          <span className="text-[11px] text-text-mute/80 truncate">
+            {subline}
+          </span>
         )}
       </span>
+      {checked && (
+        // `<span role="button">` (not nested <button>) for the same reason
+        // Tile.tsx's favorite-star + menu-trigger use the pattern: nested
+        // <button> in HTML is invalid, role="button" with manual click +
+        // keyboard handlers preserves a11y. e.stopPropagation prevents
+        // the outer cell's onClick from also firing (would still
+        // deselect, just doubled).
+        <span
+          onClick={(e) => {
+            e.stopPropagation();
+            onCancel();
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.stopPropagation();
+              e.preventDefault();
+              onCancel();
+            }
+          }}
+          role="button"
+          tabIndex={0}
+          aria-label={`Clear ${PRESET_LABEL[preset]} selection`}
+          className={[
+            "ml-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full",
+            "text-text-mute hover:text-foreground hover:bg-background/60",
+            "transition-colors no-callout",
+          ].join(" ")}
+        >
+          <X className="h-3.5 w-3.5" strokeWidth={2} />
+        </span>
+      )}
     </button>
   );
 }
@@ -218,9 +303,19 @@ export function InputBar() {
   const resolution = useCanvas((s) => s.resolution);
   const setResolution = useCanvas((s) => s.setResolution);
   const presets = useCanvas((s) => s.presets);
-  const togglePreset = useCanvas((s) => s.togglePreset);
+  const setPreset = useCanvas((s) => s.setPreset);
   const count = useCanvas((s) => s.count);
   const setCount = useCanvas((s) => s.setCount);
+
+  // Mutually-exclusive UI: derive a single selection from the store's
+  // presets array. `presets[0] ?? null` is the rendered selection. The
+  // store's array stays the source of truth so /api/iterate (which sends
+  // `JSON.stringify(presets)`) keeps working unchanged. Legacy multi-
+  // preset rows from before this UI change still render correctly via
+  // the dominator ladder in lib/gemini/imagePrompts.ts buildPrompt; the
+  // UI just won't produce them anymore.
+  const selectedPreset: Preset | null =
+    (presets[0] as Preset | undefined) ?? null;
 
   const { uploadFile, uploading } = useSources();
   const { generate, generating } = useIterations();
@@ -354,15 +449,27 @@ export function InputBar() {
           </div>
         )}
 
-        {/* Top row — preset checkboxes (only when a source exists). */}
+        {/* Top row — mutually-exclusive preset picker.
+            All four cells live in a fixed grid (2 cols on phone, 4 on
+            tablet+). When a preset is selected, the other three transition
+            to opacity-0 + translateY-2 + pointer-events-none over 150ms;
+            the selected one stays in its grid column so its position
+            doesn't shift. This is the "selection picker" half of the
+            single-operation-per-generation product model — see AGENTS.md
+            §4 for the rationale on why combinations were dropped. The
+            store still holds an array (`presets`) so the API + buildPrompt
+            + dominator ladder stay unchanged; the UI just never produces
+            multi-element arrays now. Renders only when a source exists. */}
         {!isEmpty && (
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             {PRESETS.map((p) => (
               <PresetCheckbox
                 key={p}
                 preset={p}
-                checked={presets.includes(p)}
-                onToggle={() => togglePreset(p)}
+                checked={selectedPreset === p}
+                hidden={selectedPreset !== null && selectedPreset !== p}
+                onSelect={() => setPreset(p)}
+                onCancel={() => setPreset(null)}
               />
             ))}
           </div>

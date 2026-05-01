@@ -135,6 +135,17 @@ interface CanvasState {
   setModelTier: (tier: ModelTier) => void;
   setResolution: (resolution: Resolution) => void;
   togglePreset: (preset: Preset) => void;
+  /**
+   * Set or clear the active preset. Mirrors the mutually-exclusive UI
+   * model — `null` means freeform (empty array), a Preset value replaces
+   * the array with a single-element array. The store still holds an
+   * array because the API + buildPrompt + dominator routing all consume
+   * arrays (legacy multi-preset rows from before the UI exclusivity
+   * change can still exist in DB and must render correctly via the
+   * dominator ladder). `togglePreset` stays in place for legacy / future
+   * use; the InputBar uses `setPreset` exclusively under the new model.
+   */
+  setPreset: (preset: Preset | null) => void;
   setCount: (count: number) => void;
 
   // ---- lightbox ----
@@ -160,13 +171,6 @@ interface CanvasState {
   // ---- favorites panel ----
   favoritesOpen: boolean;
   setFavoritesOpen: (open: boolean) => void;
-
-  // ---- hidden (archived) sources panel ----
-  // Slide-in drawer (mirrors FavoritesPanel) that lists sources with
-  // archived_at != null. Each row exposes Unhide (restore) + Delete-
-  // forever buttons. Opened from a small icon in the SourceStrip header.
-  hiddenSourcesOpen: boolean;
-  setHiddenSourcesOpen: (open: boolean) => void;
 }
 
 export const useCanvas = create<CanvasState>((set) => ({
@@ -286,6 +290,8 @@ export const useCanvas = create<CanvasState>((set) => ({
   count: TILE_COUNT_DEFAULT,
   setModelTier: (modelTier) => set({ modelTier }),
   setResolution: (resolution) => set({ resolution }),
+  setPreset: (preset) =>
+    set({ presets: preset === null ? [] : [preset] }),
   togglePreset: (preset) =>
     set((s) => ({
       presets: s.presets.includes(preset)
@@ -314,10 +320,6 @@ export const useCanvas = create<CanvasState>((set) => ({
   // ---- favorites panel ----
   favoritesOpen: false,
   setFavoritesOpen: (open) => set({ favoritesOpen: open }),
-
-  // ---- hidden sources panel ----
-  hiddenSourcesOpen: false,
-  setHiddenSourcesOpen: (open) => set({ hiddenSourcesOpen: open }),
 }));
 
 /** When the source list changes, decide what currentSourceId should be. Keeps

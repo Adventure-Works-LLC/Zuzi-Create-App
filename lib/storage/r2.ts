@@ -19,8 +19,6 @@
  */
 
 import {
-  DeleteObjectCommand,
-  DeleteObjectsCommand,
   GetObjectCommand,
   PutObjectCommand,
   S3Client,
@@ -106,55 +104,6 @@ export async function getObject(key: string): Promise<Buffer> {
   if (!resp.Body) throw new Error(`R2 getObject: empty body for ${key}`);
   const bytes = await resp.Body.transformToByteArray();
   return Buffer.from(bytes);
-}
-
-/**
- * Best-effort delete of a single object. R2's S3-compatible API treats
- * deleting a non-existent key as a success (idempotent). Caller is
- * responsible for auth + key-prefix validation; we just issue the call.
- *
- * Throws on transport / auth errors. Wrap in try/catch + log if you want
- * "best-effort cleanup that doesn't roll back the user-visible action."
- * The hard-delete-source path uses that pattern: DB delete in a
- * transaction first, then R2 cleanup; orphaned R2 objects (rare:
- * transient network blip during cleanup) sit until a future sweep job.
- */
-export async function deleteObject(key: string): Promise<void> {
-  await client().send(
-    new DeleteObjectCommand({
-      Bucket: requireEnv("R2_BUCKET"),
-      Key: key,
-    }),
-  );
-}
-
-/**
- * Batched delete (up to 1000 keys per call per S3 spec). The hard-delete-
- * source path can produce dozens of keys per source (input + outputs +
- * thumbs across all iterations); batching keeps Railway-side latency
- * down + Cloudflare-side request count low.
- *
- * Returns the per-key error list from R2's response (empty on full
- * success). Caller decides whether partial failure rolls back or just
- * logs orphans.
- */
-export async function deleteObjects(
-  keys: ReadonlyArray<string>,
-): Promise<Array<{ key: string; message: string }>> {
-  if (keys.length === 0) return [];
-  const resp = await client().send(
-    new DeleteObjectsCommand({
-      Bucket: requireEnv("R2_BUCKET"),
-      Delete: {
-        Objects: keys.map((k) => ({ Key: k })),
-        Quiet: true, // suppresses per-key success entries; Errors[] still populated
-      },
-    }),
-  );
-  return (resp.Errors ?? []).map((e) => ({
-    key: e.Key ?? "<unknown>",
-    message: e.Message ?? "<unknown>",
-  }));
 }
 
 /**

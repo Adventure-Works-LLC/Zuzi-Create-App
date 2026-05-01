@@ -9,19 +9,55 @@
  *      the page renders a one-line italic cue.
  *   2. Populated (a current source is set): the full configurator —
  *      mutually-exclusive preset picker (Color/Ambiance/Lighting/Background,
- *      pick at most one) + Flash|Pro pill + 1K|4K pill + count stepper +
- *      Generate button with live cost annotation. The current source's
- *      thumbnail sits to the left as a small preview.
+ *      exactly one always selected) + Flash|Pro pill + Match|Flip aspect
+ *      pill + 1K|4K pill + count stepper + Generate button with live cost
+ *      annotation. The current source's thumbnail sits to the left as a
+ *      small preview.
  *
- * Mutually-exclusive preset picker: tap a preset to select it; the other
- * three fade out over 150ms; an `×` cancel affordance appears on the
- * selected one for discoverable deselect. Tapping the selected cell ALSO
- * deselects (default toggle), and tapping `×` is the explicit visual cue.
- * No selection = freeform mode (empty `presets` array → v0 "make this
- * beautiful" prompt). The single-operation-per-generation model produced
- * a cleaner mental model than the original 0..4 multi-select; see AGENTS.md
- * §4 for the rationale + why dominator routing in `buildPrompt` is now
- * legacy/safety-net code rather than a daily-fire path.
+ * ## Canonical input defaults
+ *
+ * Restored on page load AND on context shifts (upload, source switch).
+ * Never persisted across sessions — the canvas store is in-memory only;
+ * any future localStorage/cookie persistence on these would require an
+ * explicit user request (don't drift them by accident).
+ *
+ *   modelTier        'pro'                 better quality, what Zuzi works in
+ *   resolution       '1k'                  cheaper / faster — 4K is opt-in
+ *   aspectRatioMode  'match'               preserve source aspect — flip is opt-in
+ *   count            TILE_COUNT_DEFAULT    3 — fits the layout cleanly
+ *   presets          ['background']        Background is the always-on default
+ *
+ * `modelTier`, `resolution`, and `count` are sticky within a session
+ * (deliberately — they reflect the user's working-tier preference, not
+ * painting-specific state). `aspectRatioMode` and `presets` reset on any
+ * context shift (upload, source switch) to give each painting a clean
+ * starting point.
+ *
+ * ## Mutually-exclusive preset picker (transitional state)
+ *
+ * Exactly one preset is always canonically selected — the store never
+ * holds an empty `presets` array. Picker UX:
+ *
+ *   - Default: selected preset visible + `×` cancel affordance; the
+ *     other three are hidden (opacity 0 + translateY -8px,
+ *     pointer-events still alive for atomic-swap radio behavior).
+ *   - Tap × → enters TRANSITIONAL state: all four cells visible and
+ *     unchecked. Generate is disabled. The store is unchanged — the
+ *     previously selected preset is still in `presets[0]`. The
+ *     transitional state is purely a UI affordance.
+ *   - Pick a cell while transitional → that becomes the selected one,
+ *     transitional state ends.
+ *   - Click anywhere outside the cells (Flash|Pro toggle, source strip,
+ *     iteration stream, disabled Generate, etc.) while transitional →
+ *     Background snaps back as the selection, transitional state ends.
+ *     This enforces the "always-one-selected" invariant: the user can
+ *     never persistently land in a no-selection state.
+ *
+ * `buildPrompt`'s empty-presets branch stays in code as a defensive
+ * fallback for legacy iteration rows + smoke testing flexibility, but
+ * the UI never sends an empty array to /api/iterate.
+ *
+ * ## Other UI details
  *
  * Drop + paste also work in both modes — the drop zone is the whole page so
  * paint can land anywhere. The InputBar just renders the explicit buttons.
@@ -309,24 +345,71 @@ export function InputBar() {
   const count = useCanvas((s) => s.count);
   const setCount = useCanvas((s) => s.setCount);
 
-  // Mutually-exclusive UI: derive a single selection from the store's
-  // presets array. `presets[0] ?? null` is the rendered selection. The
-  // store's array stays the source of truth so /api/iterate (which sends
-  // `JSON.stringify(presets)`) keeps working unchanged. Legacy multi-
-  // preset rows from before this UI change still render correctly via
-  // the dominator ladder in lib/gemini/imagePrompts.ts buildPrompt; the
-  // UI just won't produce them anymore.
-  const selectedPreset: Preset | null =
-    (presets[0] as Preset | undefined) ?? null;
-
   const { uploadFile, uploading } = useSources();
   const { generate, generating } = useIterations();
 
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const libraryInputRef = useRef<HTMLInputElement>(null);
   const footerRef = useRef<HTMLElement>(null);
+  /** Wraps the four preset cells. Used by the picker-open dismiss
+   *  listener to detect outside-clicks: any pointerdown whose target
+   *  isn't a descendant of this element snaps back to Background and
+   *  closes the picker. Includes the cells AND the `×` cancel
+   *  affordance inside the selected cell, both of which should NOT
+   *  trigger dismissal. */
+  const presetCellsRef = useRef<HTMLDivElement>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [generateError, setGenerateError] = useState<string | null>(null);
+  /**
+   * Picker-open transitional state — see the docstring at top of file.
+   * UI-local: the canvas store always holds a non-empty `presets` array
+   * (canonical default ['background']); this flag toggles a visual
+   * "all four cells unselected" state without modifying the store.
+   * Resolved by either picking a cell (→ setPreset(p)) or clicking
+   * outside the cells container (→ setPreset('background')). Both
+   * paths set pickerOpen back to false.
+   */
+  const [pickerOpen, setPickerOpen] = useState(false);
+
+  // Mutually-exclusive UI: derive a single selection from the store's
+  // presets array. The canonical default is ['background'] (never
+  // empty), so `selectedPreset` is normally always a Preset. The
+  // `?? null` fallback covers the transient edge case where legacy
+  // data or a future bug produces an empty array — the picker treats
+  // that the same as transitional (all four visible) and the dismiss
+  // path snaps back to Background, restoring the invariant.
+  const selectedPreset: Preset | null =
+    (presets[0] as Preset | undefined) ?? null;
+  /** True when the picker should render in its "all four visible,
+   *  none checked" transitional state. Either user tapped × (pickerOpen)
+   *  or the store somehow has no selection (selectedPreset === null —
+   *  defensive). Drives both the cell visibility logic AND the
+   *  Generate-disabled gate. */
+  const showPicker = pickerOpen || selectedPreset === null;
+
+  // Outside-click dismiss while picker is open. pointerdown (not click)
+  // so the dismiss + the underlying control's click both happen on the
+  // same gesture — e.g., tapping the Flash|Pro pill while transitional
+  // both snaps Background back AND toggles tier in one tap. The
+  // listener is gated on `showPicker` so it only attaches during the
+  // transitional state; cleanup runs as soon as a pick or outside-tap
+  // resolves it.
+  useEffect(() => {
+    if (!showPicker) return;
+    const onOutside = (e: PointerEvent) => {
+      const cells = presetCellsRef.current;
+      if (!cells) return;
+      if (cells.contains(e.target as Node)) return;
+      // Outside click → snap Background back + close picker. Always
+      // Background, never the previously-selected preset, per spec:
+      // dismissal restores the always-on default rather than the user's
+      // last selection (which they explicitly tapped × on).
+      setPreset("background");
+      setPickerOpen(false);
+    };
+    document.addEventListener("pointerdown", onOutside);
+    return () => document.removeEventListener("pointerdown", onOutside);
+  }, [showPicker, setPreset]);
 
   // Publish the bar's actual rendered height (including padding + safe-area-
   // inset on PWA) as a CSS custom property so the tile stream / empty-canvas
@@ -453,25 +536,28 @@ export function InputBar() {
 
         {/* Top row — mutually-exclusive preset picker.
             All four cells live in a fixed grid (2 cols on phone, 4 on
-            tablet+). When a preset is selected, the other three transition
-            to opacity-0 + translateY-2 + pointer-events-none over 150ms;
-            the selected one stays in its grid column so its position
-            doesn't shift. This is the "selection picker" half of the
-            single-operation-per-generation product model — see AGENTS.md
-            §4 for the rationale on why combinations were dropped. The
-            store still holds an array (`presets`) so the API + buildPrompt
-            + dominator ladder stay unchanged; the UI just never produces
-            multi-element arrays now. Renders only when a source exists. */}
+            tablet+). Default state (showPicker=false): one cell selected
+            and visible with `×` cancel; the other three transition to
+            opacity-0 + translateY-2 over 150ms but stay in their grid
+            columns so the selected one's position doesn't shift.
+            Transitional state (showPicker=true): all four cells visible
+            and unchecked. Picking a cell → that becomes selected,
+            transitional ends. Outside-click → Background snaps back,
+            transitional ends (handled by the document listener above).
+            Renders only when a source exists. */}
         {!isEmpty && (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <div ref={presetCellsRef} className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             {PRESETS.map((p) => (
               <PresetCheckbox
                 key={p}
                 preset={p}
-                checked={selectedPreset === p}
-                hidden={selectedPreset !== null && selectedPreset !== p}
-                onSelect={() => setPreset(p)}
-                onCancel={() => setPreset(null)}
+                checked={selectedPreset === p && !showPicker}
+                hidden={!showPicker && selectedPreset !== p}
+                onSelect={() => {
+                  setPreset(p);
+                  if (pickerOpen) setPickerOpen(false);
+                }}
+                onCancel={() => setPickerOpen(true)}
               />
             ))}
           </div>
@@ -550,13 +636,19 @@ export function InputBar() {
               <button
                 type="button"
                 onClick={() => void onGenerate()}
-                disabled={generating || uploading}
+                // Disabled during the picker-open transitional state too —
+                // the user must commit to a preset (pick one OR click
+                // outside to snap back to Background) before Generate
+                // fires. The document-level pointerdown listener handles
+                // the click-outside-to-Background dismissal even when this
+                // disabled button is the click target.
+                disabled={generating || uploading || showPicker}
                 className={[
                   "inline-flex items-center gap-2 rounded-full",
                   "px-5 py-2 text-sm font-medium no-callout",
                   "bg-accent text-accent-foreground",
                   "transition-opacity",
-                  generating || uploading
+                  generating || uploading || showPicker
                     ? "opacity-60 cursor-wait"
                     : "hover:opacity-90",
                 ].join(" ")}

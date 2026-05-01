@@ -221,13 +221,28 @@ export const useCanvas = create<CanvasState>((set) => ({
       currentSourceId: source.sourceId,
       // New source = empty stream until the first generate fires.
       iterations: [],
+      // Context shift — restore canonical input defaults so the new
+      // painting starts from the always-on baseline (Background preset,
+      // Match aspect). Sticky settings like modelTier / resolution / count
+      // intentionally carry over since they reflect the user's working
+      // tier preference, not painting-specific state.
+      presets: ["background"],
+      aspectRatioMode: "match",
     })),
   setCurrentSource: (sourceId) =>
-    set((s) => ({
-      currentSourceId: sourceId,
-      // Switching sources blanks the stream — the iteration hook refetches.
-      iterations: sourceId === s.currentSourceId ? s.iterations : [],
-    })),
+    set((s) => {
+      const isSwitch = sourceId !== s.currentSourceId;
+      return {
+        currentSourceId: sourceId,
+        // Switching sources blanks the stream — the iteration hook refetches.
+        iterations: isSwitch ? [] : s.iterations,
+        // On an actual switch, restore the canonical input defaults — same
+        // rationale as `addSource`. A no-op call (sourceId already current)
+        // doesn't reset.
+        presets: isSwitch ? ["background"] : s.presets,
+        aspectRatioMode: isSwitch ? "match" : s.aspectRatioMode,
+      };
+    }),
   archiveSource: (sourceId) =>
     set((s) => {
       const remaining = s.sources.filter((x) => x.sourceId !== sourceId);
@@ -312,7 +327,13 @@ export const useCanvas = create<CanvasState>((set) => ({
   modelTier: "pro",
   resolution: "1k",
   aspectRatioMode: "match",
-  presets: [],
+  // Background is the always-on preset default. The UI never sends an
+  // empty preset array to /api/iterate — buildPrompt's empty-presets
+  // branch stays as a defensive fallback for legacy data + smoke
+  // testing, but the canonical UI state is always exactly one preset.
+  // See InputBar.tsx for the picker-open transitional behavior that
+  // visually shows all four cells while preserving this invariant.
+  presets: ["background"],
   count: TILE_COUNT_DEFAULT,
   setModelTier: (modelTier) => set({ modelTier }),
   setResolution: (resolution) => set({ resolution }),

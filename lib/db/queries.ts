@@ -223,8 +223,67 @@ export function listIterations(opts: {
 }
 
 /**
+ * Iterations whose status is still `pending` or `running` — candidates for the
+ * boot-time stuck-iteration recovery sweep. After a Railway redeploy mid-flight,
+ * any in-process worker dies; the iteration's row remains pending forever
+ * (the SSE stream and the optimistic UI both watch this column). Recovery
+ * reconciles each one against R2: tiles whose output bytes ARE in R2 are
+ * reconnected (status='done'); tiles without bytes are marked failed; the
+ * iteration's rolled-up status is updated last.
+ *
+ * Does NOT filter by age — at boot time, every still-pending iteration from a
+ * previous process is by definition orphaned (the worker that owned it is
+ * gone). Caller (lib/stuckRecovery.ts) walks them serially.
+ */
+export function listStuckIterations(): Iteration[] {
+  return db()
+    .select()
+    .from(iterations)
+    .where(
+      or(
+        eq(iterations.status, "pending"),
+        eq(iterations.status, "running"),
+      ),
+    )
+    .all();
+}
+
+/**
+ * R2 keys associated with one iteration — for the iteration-hard-delete
+ * path (DELETE /api/iterations/:id). Returns every output_image_key and
+ * thumb_image_key from `tiles` whose iteration_id matches, INCLUDING
+ * soft-deleted tiles (their R2 objects survive soft delete and need
+ * cleanup too).
+ *
+ * Mirror of `listAllR2KeysForSource` but scoped to one iteration. Caller
+ * passes the array to `deleteObjects()` after the DB delete commits.
+ */
+export function listAllR2KeysForIteration(iterationId: string): string[] {
+  const tileRows = db()
+    .select({
+      output_image_key: tiles.output_image_key,
+      thumb_image_key: tiles.thumb_image_key,
+    })
+    .from(tiles)
+    .where(eq(tiles.iteration_id, iterationId))
+    .all();
+  const keys: string[] = [];
+  for (const row of tileRows) {
+    if (row.output_image_key) keys.push(row.output_image_key);
+    if (row.thumb_image_key) keys.push(row.thumb_image_key);
+  }
+  return keys;
+}
+
+/**
  * Mark any tile that's been `pending` for longer than `thresholdMs` as `failed`
  * with `error_message='server_restart'`. Called from instrumentation.ts at boot.
+ *
+ * Note: this is now a fallback. The primary boot-time recovery path is
+ * `lib/stuckRecovery.ts recoverStuckIterations()` which checks R2 for
+ * already-uploaded outputs and reconnects them where possible. This helper
+ * stays in place as defense-in-depth for any tile the recovery missed
+ * (e.g., R2 outage at boot caused all HEAD requests to fail).
  */
 export function markStalePendingFailed(thresholdMs: number): number {
   const cutoff = Date.now() - thresholdMs;

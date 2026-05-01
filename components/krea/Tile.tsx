@@ -54,9 +54,22 @@ interface TileProps {
   /** Optimistic ids (placed before /api/iterate replies) shouldn't allow
    * favoriting yet — there's no DB row to write against. */
   optimistic?: boolean;
+  /** When true, the iteration this tile belongs to has been declared
+   * "stuck or interrupted" by IterationRow. Pending tiles stop their
+   * loading pulse and render a static "stuck" indicator instead — the
+   * static state communicates "the wait isn't going to resolve on its
+   * own; use Recover or Delete in the iteration row above." Done /
+   * blocked / failed tiles ignore this prop (their visual is already
+   * terminal). */
+  frozen?: boolean;
 }
 
-export function Tile({ tile, aspectRatio, optimistic = false }: TileProps) {
+export function Tile({
+  tile,
+  aspectRatio,
+  optimistic = false,
+  frozen = false,
+}: TileProps) {
   const setLightboxTile = useCanvas((s) => s.setLightboxTile);
   const removeTile = useCanvas((s) => s.removeTile);
   const { toggle } = useFavorites();
@@ -230,13 +243,32 @@ export function Tile({ tile, aspectRatio, optimistic = false }: TileProps) {
                 : "Tile generating"
         }
       >
-        {/* Soft warm pulse for pending tiles. The "bloom-warm" class lives in
-            globals.css. */}
-        {tile.status === "pending" && (
+        {/* Pending tile: animated pulse normally, static "stuck"
+            indicator when frozen=true. The stuck indicator is a small
+            AlertTriangle on a flat warm-tinted surface — communicates
+            "interrupted" without suggesting active progress. */}
+        {tile.status === "pending" && !frozen && (
           <div
             className="absolute inset-0 bloom-warm animate-pulse"
             aria-hidden
           />
+        )}
+        {tile.status === "pending" && frozen && (
+          <>
+            <div className="absolute inset-0 bloom-warm opacity-40" aria-hidden />
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 px-4 text-center">
+              {/* Warm-tinted dot, NOT a destructive red — pairs with the
+                  iteration's "may have been interrupted" banner above
+                  to communicate "stalled, not broken." */}
+              <span
+                className="block h-2 w-2 rounded-full bg-text-mute/60"
+                aria-hidden
+              />
+              <span className="caption-display text-[11px] text-text-mute">
+                interrupted
+              </span>
+            </div>
+          </>
         )}
 
         {/* Done tile — image with blur-fade entrance. */}

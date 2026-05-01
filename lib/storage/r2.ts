@@ -22,6 +22,7 @@ import {
   DeleteObjectCommand,
   DeleteObjectsCommand,
   GetObjectCommand,
+  HeadObjectCommand,
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
@@ -106,6 +107,40 @@ export async function getObject(key: string): Promise<Buffer> {
   if (!resp.Body) throw new Error(`R2 getObject: empty body for ${key}`);
   const bytes = await resp.Body.transformToByteArray();
   return Buffer.from(bytes);
+}
+
+/**
+ * HEAD an R2 object — returns true if it exists, false on 404. Other
+ * S3 errors (auth, network, etc.) are re-thrown so callers can decide
+ * how to handle them (retry, fail loudly, etc.). Used by the stuck-
+ * iteration boot recovery path: the worker writes R2 BEFORE updating
+ * the DB, so an iteration whose tile rows are still `pending` may
+ * actually have completed-and-uploaded outputs in R2 from a worker
+ * that died after the upload but before the DB write. HEAD lets us
+ * detect that state without paying the GetObject bandwidth.
+ *
+ * R2 semantics: a missing key returns 404 (NoSuchKey or NotFound).
+ * Some SDK builds raise an error with `name === 'NotFound'`, others
+ * with `$metadata.httpStatusCode === 404`. We accept both shapes.
+ */
+export async function headObject(key: string): Promise<boolean> {
+  try {
+    await client().send(
+      new HeadObjectCommand({
+        Bucket: requireEnv("R2_BUCKET"),
+        Key: key,
+      }),
+    );
+    return true;
+  } catch (e) {
+    const name = (e as { name?: string }).name;
+    const status = (e as { $metadata?: { httpStatusCode?: number } })
+      .$metadata?.httpStatusCode;
+    if (name === "NotFound" || name === "NoSuchKey" || status === 404) {
+      return false;
+    }
+    throw e;
+  }
 }
 
 /**

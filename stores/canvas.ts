@@ -158,6 +158,16 @@ interface CanvasState {
    * Idempotent on already-removed tiles (no-op if the tile isn't found).
    */
   removeTile: (tileId: string) => void;
+  /**
+   * Remove an iteration row + all its tiles from the store. Used by the
+   * iteration-level delete flow ("Delete this generation" in the
+   * iteration's ActionMenu, including the stuck-state escape hatch).
+   * The server-side hard-delete (DELETE /api/iterations/:id) cascades
+   * tile rows + cleans up R2; this mutator does the optimistic
+   * store-side removal. Also closes the lightbox if it was pointing
+   * at any tile of the deleted iteration. Idempotent.
+   */
+  removeIteration: (iterationId: string) => void;
 
   // ---- input-bar settings ----
   modelTier: ModelTier;
@@ -346,6 +356,28 @@ export const useCanvas = create<CanvasState>((set) => ({
       const lightboxTileId = s.lightboxTileId === tileId ? null : s.lightboxTileId;
       const lightboxSnapshot =
         s.lightboxSnapshot && s.lightboxSnapshot.tileId === tileId
+          ? null
+          : s.lightboxSnapshot;
+      return {
+        iterations: nextIters,
+        lightboxTileId,
+        lightboxSnapshot,
+      };
+    }),
+  removeIteration: (iterationId) =>
+    set((s) => {
+      const target = s.iterations.find((it) => it.id === iterationId);
+      const nextIters = s.iterations.filter((it) => it.id !== iterationId);
+      // Close the lightbox if it was pointing at any tile of the deleted
+      // iteration — covers both by-id mode (lightboxTileId in iter.tiles)
+      // and snapshot mode (lightboxSnapshot.iterationId === id).
+      const targetTileIds = new Set(target?.tiles.map((t) => t.id) ?? []);
+      const lightboxTileId =
+        s.lightboxTileId !== null && targetTileIds.has(s.lightboxTileId)
+          ? null
+          : s.lightboxTileId;
+      const lightboxSnapshot =
+        s.lightboxSnapshot && s.lightboxSnapshot.iterationId === iterationId
           ? null
           : s.lightboxSnapshot;
       return {

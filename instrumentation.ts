@@ -64,12 +64,58 @@ export async function register(): Promise<void> {
 
   // 2) Boot sweep. Wrapped in try so a sweep failure doesn't crash the
   //    server — a missed sweep is recoverable; a missed migration isn't.
+  //
+  //    Sweep order matters:
+  //      a. Stuck-iteration recovery FIRST (R2 HEAD per pending tile,
+  //         reconnect or fail). Iterations that reconnect transition
+  //         out of pending → tile-stale fallback below has nothing to
+  //         do for them.
+  //      b. markStalePendingFailed as defense-in-depth — any tile that
+  //         was still pending after recovery (e.g., an R2 HEAD failed
+  //         transiently and skipped the tile) gets marked failed if
+  //         old enough. Iteration recovery already rolls iteration
+  //         status forward, so this is mainly belt-and-suspenders.
+  //      c. cleanupEmptyIterations — reaps now-orphan iteration rows
+  //         (mainly useful for legacy data; stuck-recovery doesn't
+  //         delete iterations, so this runs the existing cleanup).
+  //      d. recovery.jsonl scan — forensic logging only.
   try {
     const { cleanupEmptyIterations, markStalePendingFailed } = await import(
       "./lib/db/queries"
     );
+    const { recoverStuckIterations } = await import("./lib/stuckRecovery");
     const { scanRecovery } = await import("./lib/recovery");
 
+    // a. Stuck-iteration recovery. Per-iteration R2 HEAD checks for the
+    //    expected output + thumb keys; reconnect on hit, fail on miss.
+    //    Iteration status rolls forward to a terminal state regardless
+    //    of outcome — the user must always be able to reach a
+    //    deletable state for any iteration that survived a redeploy.
+    try {
+      const recovered = await recoverStuckIterations();
+      if (recovered.length > 0) {
+        // One log line per iteration so we can trace recovery in the
+        // wild from Railway logs.
+        for (const r of recovered) {
+          console.log(
+            `[boot] stuckRecovery iter=${r.iterationId} outcome=${r.outcome} ` +
+              `reconnected=${r.reconnectedTiles} failed=${r.failedTiles} ` +
+              `status=${r.iterationStatus}`,
+          );
+        }
+        console.log(
+          `[boot] stuckRecovery: processed ${recovered.length} iteration(s)`,
+        );
+      }
+    } catch (e) {
+      console.error(
+        "[boot] stuckRecovery failed (non-fatal):",
+        e instanceof Error ? e.message : e,
+      );
+    }
+
+    // b. Stale-tile fallback. Most tiles will already be terminal after
+    //    recovery; this catches anything the recovery sweep skipped.
     const stale = markStalePendingFailed(5 * 60_000);
     if (stale > 0) {
       console.warn(
@@ -77,11 +123,7 @@ export async function register(): Promise<void> {
       );
     }
 
-    // Reap legacy empty iterations. The /api/tiles/:id DELETE handler
-    // hard-deletes the iteration in the same transaction as the last
-    // tile soft-delete going forward, but pre-existing all-deleted
-    // iterations need a one-shot cleanup. Cheap (single SELECT NOT
-    // EXISTS + bounded DELETE), self-healing on every deploy.
+    // c. Reap legacy empty iterations. Self-healing on every deploy.
     const empties = cleanupEmptyIterations();
     if (empties > 0) {
       console.log(
@@ -89,6 +131,7 @@ export async function register(): Promise<void> {
       );
     }
 
+    // d. recovery.jsonl scan — forensic logging only.
     const scan = await scanRecovery();
     if (scan.parseErrors > 0) {
       console.warn(

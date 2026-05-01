@@ -31,6 +31,7 @@ import {
   useCanvas,
   type AspectRatioMode,
   type Iteration,
+  type IterationStatus,
   type ModelTier,
   type Resolution,
   type Tile,
@@ -92,11 +93,31 @@ export interface GenerateResult {
   idempotentReplay?: boolean;
 }
 
+export interface RecoverIterationResult {
+  iterationId: string;
+  outcome: "reconnected" | "partial" | "failed_no_tiles" | "skipped";
+  reconnectedTiles: number;
+  failedTiles: number;
+  iterationStatus: IterationStatus;
+}
+
 export interface UseIterationsResult {
   loading: boolean;
   error: string | null;
   generating: boolean;
   generate: () => Promise<GenerateResult | null>;
+  /** Hard-delete an iteration via DELETE /api/iterations/:id. Optimistic
+   *  store removal (drops iteration + closes lightbox if it was on
+   *  one of the iteration's tiles) before the network roundtrip; on
+   *  failure refetches the source's iterations to recover canonical
+   *  state and rethrows. */
+  deleteIteration: (iterationId: string) => Promise<void>;
+  /** Manually trigger recovery for a stuck iteration via POST
+   *  /api/iterations/:id/recover. Returns the recovery outcome so the
+   *  caller can refetch + show feedback. The hook itself refetches the
+   *  current source's iterations on a non-skipped outcome so the UI
+   *  picks up the new tile + iteration statuses. */
+  recoverIteration: (iterationId: string) => Promise<RecoverIterationResult>;
 }
 
 export function useIterations(): UseIterationsResult {
@@ -342,5 +363,93 @@ export function useIterations(): UseIterationsResult {
     setIterationStatus,
   ]);
 
-  return { loading, error, generating, generate };
+  // Refetch helper used by deleteIteration's failure-rollback and
+  // recoverIteration's success-refresh. We re-execute the source-switch
+  // effect's fetch (without the loading state churn) so the canvas
+  // store catches up to canonical server state. Bypasses the
+  // currentSourceId guard via direct call.
+  const refetchIterationsForCurrent = useCallback(async () => {
+    const sid = useCanvas.getState().currentSourceId;
+    if (!sid) return;
+    try {
+      const resp = await fetch(
+        `/api/iterations?sourceId=${encodeURIComponent(sid)}&limit=50`,
+      );
+      if (!resp.ok) return;
+      const data = (await resp.json()) as { iterations: IterationResponseRow[] };
+      useCanvas.getState().setIterations(data.iterations.map(rowToIteration));
+    } catch {
+      // best-effort refresh; let the next user navigation reconcile
+    }
+  }, []);
+
+  const deleteIteration = useCallback(
+    async (iterationId: string): Promise<void> => {
+      // Optimistic store removal — iteration leaves the stream
+      // immediately. Lightbox closes if it was on one of this
+      // iteration's tiles (handled in the store action).
+      const before = useCanvas.getState().iterations;
+      useCanvas.getState().removeIteration(iterationId);
+      try {
+        const resp = await fetch(
+          `/api/iterations/${encodeURIComponent(iterationId)}`,
+          { method: "DELETE" },
+        );
+        if (!resp.ok) {
+          const data = (await resp.json().catch(() => ({}))) as {
+            error?: string;
+            detail?: string;
+          };
+          throw new Error(
+            data.detail ?? data.error ?? `delete failed (${resp.status})`,
+          );
+        }
+      } catch (e) {
+        // Rollback: restore the iterations we removed optimistically
+        // and refetch canonical state.
+        useCanvas.getState().setIterations(before);
+        await refetchIterationsForCurrent();
+        throw e;
+      }
+    },
+    [refetchIterationsForCurrent],
+  );
+
+  const recoverIteration = useCallback(
+    async (iterationId: string): Promise<RecoverIterationResult> => {
+      const resp = await fetch(
+        `/api/iterations/${encodeURIComponent(iterationId)}/recover`,
+        { method: "POST" },
+      );
+      if (!resp.ok) {
+        const data = (await resp.json().catch(() => ({}))) as {
+          error?: string;
+          detail?: string;
+        };
+        throw new Error(
+          data.detail ?? data.error ?? `recover failed (${resp.status})`,
+        );
+      }
+      const result = (await resp.json()) as RecoverIterationResult;
+      // On any non-skipped outcome the server changed tile + iteration
+      // statuses; refetch so the UI picks up the new shape (tiles flip
+      // from pending to done/failed; iteration flips to terminal).
+      // Skipped means the iteration was already terminal — no refresh
+      // needed.
+      if (result.outcome !== "skipped") {
+        await refetchIterationsForCurrent();
+      }
+      return result;
+    },
+    [refetchIterationsForCurrent],
+  );
+
+  return {
+    loading,
+    error,
+    generating,
+    generate,
+    deleteIteration,
+    recoverIteration,
+  };
 }

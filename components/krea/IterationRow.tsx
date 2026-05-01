@@ -45,12 +45,26 @@
  *
  * Caption above the row (small, muted): "<time> · <tier> <res>" plus preset
  * chips if any were checked. Empty preset set just shows "(make beautiful)".
+ *
+ * Iteration-level controls (top-right of the heading area):
+ *   - "..." trigger → ActionMenu with "Delete this generation" (always
+ *     available regardless of status) and, on stuck iterations, a
+ *     "Try to recover" item.
+ *
+ * Stuck-state UI: after `STUCK_THRESHOLD_MS` (2 minutes) of an iteration
+ * remaining in pending/running status, the row swaps the normal caption
+ * for a "may have been interrupted" banner with inline Recover + Delete
+ * actions. Tiles are passed `frozen={true}` so their loading pulse stops
+ * — the static state communicates "wait isn't going to fix this."
  */
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { AlertTriangle, MoreHorizontal, RotateCw, Trash2 } from "lucide-react";
 
 import { Tile } from "./Tile";
+import { ActionMenu } from "./ActionMenu";
 import { useCanvas, type Iteration } from "@/stores/canvas";
+import { useIterations } from "@/hooks/useIterations";
 import { flipAspectRatio } from "@/lib/gemini/aspectRatio";
 
 const PRESET_LABEL: Record<string, string> = {
@@ -68,6 +82,15 @@ const TILE_WIDTH_STYLE: React.CSSProperties = {
   width: "clamp(218px, calc((100vw - 88px) / 3), 358px)",
 };
 
+/** Threshold after which an iteration in pending/running status is
+ *  considered "stuck or interrupted." 2 minutes is a generous bound:
+ *  Pro 1K typical generation is 10–15s/tile and we run them in parallel,
+ *  so a healthy 9-tile iteration completes well under 60s. Anything
+ *  past 2 minutes with no SSE event is almost certainly a worker that
+ *  died from a redeploy or transient crash, and the user deserves
+ *  affordances to recover or move on. */
+const STUCK_THRESHOLD_MS = 2 * 60_000;
+
 function formatTime(ms: number): string {
   return new Date(ms).toLocaleTimeString([], {
     hour: "numeric",
@@ -81,6 +104,7 @@ interface IterationRowProps {
 
 export function IterationRow({ iteration }: IterationRowProps) {
   const optimistic = iteration.id.startsWith("opt-");
+  const { deleteIteration, recoverIteration } = useIterations();
 
   // Tile containers must mirror the OUTPUT aspect ratio so thumbs aren't
   // center-cropped to square. AGENTS.md §3 originally pinned this to the
@@ -104,6 +128,112 @@ export function IterationRow({ iteration }: IterationRowProps) {
     return iteration.presets.map((p) => PRESET_LABEL[p]).join(" · ");
   }, [iteration.presets]);
 
+  // Stuck detection: pending/running iteration past STUCK_THRESHOLD_MS
+  // since createdAt. Timer-driven so the UI updates even when no SSE
+  // events fire (which is exactly the stuck case — no events means
+  // nothing's coming back). Cleared as soon as the iteration leaves
+  // pending/running OR the row unmounts.
+  const isPendingOrRunning =
+    iteration.status === "pending" || iteration.status === "running";
+  const [isStuck, setIsStuck] = useState(false);
+  useEffect(() => {
+    if (!isPendingOrRunning || optimistic) {
+      setIsStuck(false);
+      return;
+    }
+    const elapsed = Date.now() - iteration.createdAt;
+    if (elapsed >= STUCK_THRESHOLD_MS) {
+      setIsStuck(true);
+      return;
+    }
+    const remaining = STUCK_THRESHOLD_MS - elapsed;
+    const t = window.setTimeout(() => setIsStuck(true), remaining);
+    return () => window.clearTimeout(t);
+  }, [isPendingOrRunning, iteration.createdAt, optimistic]);
+
+  // Iteration-level ActionMenu state. Anchored to the "..." trigger.
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(
+    null,
+  );
+  const [busy, setBusy] = useState<"delete" | "recover" | null>(null);
+  const [bannerError, setBannerError] = useState<string | null>(null);
+
+  const openMenu = () => {
+    const rect = triggerRef.current?.getBoundingClientRect();
+    if (rect) {
+      // Anchor the menu under the trigger's bottom-right corner. Using
+      // `right: window.innerWidth - rect.right` keeps the menu hugging
+      // the right edge of the trigger (the items can extend leftward
+      // freely without overflowing the viewport). +4px gap.
+      setMenuPos({
+        top: rect.bottom + 4,
+        right: window.innerWidth - rect.right,
+      });
+    }
+    setMenuOpen(true);
+  };
+
+  const handleDelete = () => {
+    setMenuOpen(false);
+    // Hard-delete uses the same window.confirm guardrail pattern as
+    // tile / source deletes elsewhere. The user must always reach a
+    // deletable state — even an animating-pending iteration accepts
+    // the click (per the reliability spec).
+    const ok = window.confirm(
+      "Delete this generation?\nAll tiles in this run will be removed. This cannot be undone.",
+    );
+    if (!ok) return;
+    setBusy("delete");
+    setBannerError(null);
+    void deleteIteration(iteration.id)
+      .catch((err) => {
+        // Optimistic removal already rolled back inside the hook. Surface
+        // the error inline.
+        const message = err instanceof Error ? err.message : String(err);
+        setBannerError(`Couldn't delete: ${message}`);
+      })
+      .finally(() => setBusy(null));
+  };
+
+  const handleRecover = () => {
+    setMenuOpen(false);
+    setBusy("recover");
+    setBannerError(null);
+    void recoverIteration(iteration.id)
+      .then((result) => {
+        // Useful telemetry for the wild — the user's tap mirrors the
+        // boot sweep, and the outcome explains what happened. The
+        // result already carries `iterationId`; spread alone is fine.
+        console.info("[iteration] recover", result);
+        if (result.outcome === "failed_no_tiles") {
+          // Iteration is now `failed`. The refetch already pulled the
+          // new state; surface a hint that recovery couldn't save it.
+          setBannerError(
+            "Recovery couldn't find any completed tiles — marked failed. You can delete this generation.",
+          );
+        }
+      })
+      .catch((err) => {
+        const message = err instanceof Error ? err.message : String(err);
+        setBannerError(`Couldn't recover: ${message}`);
+      })
+      .finally(() => setBusy(null));
+  };
+
+  // Inline-banner buttons — duplicated from the menu items so they're
+  // discoverable in the stuck UI without making the user open the menu.
+  // Disabled during in-flight operations so a double-tap doesn't fire
+  // both paths.
+  const inlineRecoverDisabled = busy !== null;
+  const inlineDeleteDisabled = busy !== null;
+
+  // The optimistic placeholder shouldn't expose iteration-level
+  // actions (no DB row yet to delete/recover against). Keep the menu
+  // hidden until the swap to the canonical id lands.
+  const showActionMenu = !optimistic;
+
   return (
     <section className="flex flex-col gap-3">
       <div className="flex items-baseline justify-between gap-3 px-1">
@@ -114,34 +244,155 @@ export function IterationRow({ iteration }: IterationRowProps) {
           <span className="mx-2 text-text-mute/50">·</span>
           {formatTime(iteration.createdAt)}
         </span>
-        {iteration.status === "failed" && (
-          // Two paths land here:
-          //   - optimistic id (`opt-...`) → POST /api/iterate failed before the
-          //     worker ever ran. "couldn't submit" matches the UX.
-          //   - real iteration id with all tiles blocked/failed → the worker
-          //     ran but produced 0 successful tiles. Each tile renders its own
-          //     blocked/failed indicator inside, so the caption just needs to
-          //     say "the whole iteration failed, retry."
-          <span className="text-destructive text-xs">
-            {iteration.id.startsWith("opt-") ? "couldn’t submit" : "no tiles generated — try again"}
-          </span>
-        )}
+        <div className="flex items-center gap-2">
+          {iteration.status === "failed" && !isStuck && (
+            // Two paths land here:
+            //   - optimistic id (`opt-...`) → POST /api/iterate failed before the
+            //     worker ever ran. "couldn't submit" matches the UX.
+            //   - real iteration id with all tiles blocked/failed → the worker
+            //     ran but produced 0 successful tiles. Each tile renders its own
+            //     blocked/failed indicator inside, so the caption just needs to
+            //     say "the whole iteration failed, retry."
+            <span className="text-destructive text-xs">
+              {iteration.id.startsWith("opt-")
+                ? "couldn’t submit"
+                : "no tiles generated — try again"}
+            </span>
+          )}
+          {showActionMenu && (
+            <button
+              ref={triggerRef}
+              type="button"
+              onClick={openMenu}
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+              aria-label="Generation actions"
+              className={[
+                "flex h-8 w-8 items-center justify-center rounded-full",
+                "text-text-mute hover:text-foreground hover:bg-secondary",
+                "transition-colors no-callout",
+              ].join(" ")}
+            >
+              <MoreHorizontal className="h-4 w-4" strokeWidth={1.75} />
+            </button>
+          )}
+        </div>
       </div>
+
+      {/* Stuck banner. Replaces the normal pending caption when the
+          2-minute threshold fires. Inline Recover + Delete buttons —
+          the spec calls for "prominent" affordances, so they're
+          duplicated here even though the same actions are reachable
+          via the menu. */}
+      {isStuck && (
+        <div
+          role="alert"
+          className={[
+            "flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between",
+            "rounded-md border border-hairline/60 bg-secondary/40",
+            "px-3 py-2 mx-1",
+          ].join(" ")}
+        >
+          <div className="flex items-start gap-2 text-xs text-foreground/85">
+            <AlertTriangle
+              className="mt-0.5 h-4 w-4 shrink-0 text-text-mute"
+              strokeWidth={1.75}
+            />
+            <span>
+              This generation may have been interrupted. Try recovering or
+              delete.
+            </span>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              onClick={handleRecover}
+              disabled={inlineRecoverDisabled}
+              className={[
+                "inline-flex items-center gap-1.5 rounded-full",
+                "px-3 py-1.5 text-xs font-medium",
+                "border border-hairline/80",
+                "text-foreground hover:bg-background",
+                "transition-colors no-callout",
+                "disabled:opacity-50 disabled:cursor-wait",
+              ].join(" ")}
+            >
+              <RotateCw
+                className={[
+                  "h-3.5 w-3.5",
+                  busy === "recover" ? "animate-spin" : "",
+                ].join(" ")}
+                strokeWidth={1.75}
+              />
+              {busy === "recover" ? "Recovering…" : "Recover"}
+            </button>
+            <button
+              type="button"
+              onClick={handleDelete}
+              disabled={inlineDeleteDisabled}
+              className={[
+                "inline-flex items-center gap-1.5 rounded-full",
+                "px-3 py-1.5 text-xs font-medium",
+                "text-destructive hover:bg-destructive/10",
+                "transition-colors no-callout",
+                "disabled:opacity-50 disabled:cursor-wait",
+              ].join(" ")}
+            >
+              <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} />
+              {busy === "delete" ? "Deleting…" : "Delete"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {bannerError && (
+        <p className="px-1 text-xs text-destructive" role="alert">
+          {bannerError}
+        </p>
+      )}
+
       <div className="flex flex-wrap gap-3">
         {iteration.tiles.map((tile) => (
-          <div
-            key={tile.id}
-            className="flex-none"
-            style={TILE_WIDTH_STYLE}
-          >
+          <div key={tile.id} className="flex-none" style={TILE_WIDTH_STYLE}>
             <Tile
               tile={tile}
               aspectRatio={aspectRatio}
               optimistic={optimistic}
+              frozen={isStuck}
             />
           </div>
         ))}
       </div>
+
+      {menuOpen && menuPos && (
+        <ActionMenu
+          open={menuOpen}
+          onClose={() => setMenuOpen(false)}
+          position={{ top: menuPos.top, right: menuPos.right }}
+          ariaLabel="Generation actions"
+          items={[
+            ...(isStuck
+              ? [
+                  {
+                    id: "recover",
+                    label: busy === "recover" ? "Recovering…" : "Try to recover",
+                    icon: <RotateCw className="h-4 w-4" strokeWidth={1.75} />,
+                    disabled: busy !== null,
+                    onSelect: handleRecover,
+                  },
+                ]
+              : []),
+            {
+              id: "delete",
+              label: busy === "delete" ? "Deleting…" : "Delete this generation",
+              icon: <Trash2 className="h-4 w-4" strokeWidth={1.75} />,
+              destructive: true,
+              disabled: busy !== null,
+              onSelect: handleDelete,
+            },
+          ]}
+        />
+      )}
     </section>
   );
 }

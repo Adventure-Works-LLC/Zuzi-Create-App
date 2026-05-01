@@ -93,6 +93,16 @@ re-read this paragraph and the plan's reference docs first.
 > painting in her voice) is the operation she actually wants. **Don't add Composition
 > back without explicit user request.**
 
+> **Color is hidden from the UI.** After many iteration cycles `COLOR_PROMPT_BODY`
+> never found an operation Zuzi felt confident shipping with. Rather than delete the
+> work, the InputBar's preset picker (`components/krea/InputBar.tsx`) renders a
+> three-cell `VISIBLE_PRESETS` subset (ambiance, lighting, background); Color is
+> excluded. Everything else stays: `COLOR_PROMPT_BODY`, the dominator-ladder routing
+> in `lib/gemini/imagePrompts.ts buildPrompt`, the canary in
+> `scripts/check-prompts.ts` (still drift-protected), and `--presets color` in
+> `scripts/smoke.ts` for dev iteration. Re-enable by adding `'color'` back to
+> `VISIBLE_PRESETS` and bumping the grid back to four columns.
+
 #### Dominators vs composers (legacy / safety-net under exclusive UI)
 
 The four presets split into two architectural categories in `imagePrompts.ts`. Under

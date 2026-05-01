@@ -317,12 +317,19 @@ export function Tile({
           surface. Menu trigger LEFT, favorite star RIGHT — same left/right
           split as the prior overlay version, just relocated.
 
-          Height is reserved (h-8) on every tile regardless of status, so
-          mid-stream completions don't bounce the row baselines as tiles
-          fade in. A non-actionable tile renders a same-height empty
-          spacer with `aria-hidden`. */}
+          Sized for comfortable iPad thumb taps: 48×48 buttons (h-12 w-12,
+          50% larger than the previous 32×32 which Zuzi flagged as too
+          small to tap reliably) with 24×24 icons (h-6 w-6, also 50%
+          larger so the icon-to-button ratio stays at 50%). 48px is just
+          above Apple HIG 44×44, comfortable for thumb-tap on iPad
+          without misfires.
+
+          Height is reserved (h-12) on every tile regardless of status,
+          so mid-stream completions don't bounce the row baselines as
+          tiles fade in. A non-actionable tile renders a same-height
+          empty spacer with `aria-hidden`. */}
       <div
-        className="flex h-8 items-center justify-between px-1"
+        className="flex h-12 items-center justify-between px-1"
         aria-hidden={actionsAvailable ? undefined : true}
       >
         {actionsAvailable ? (
@@ -337,12 +344,12 @@ export function Tile({
               aria-expanded={menuOpen}
               aria-label="Tile actions"
               className={[
-                "flex h-8 w-8 items-center justify-center rounded-full",
+                "flex h-12 w-12 items-center justify-center rounded-full",
                 "transition-colors no-callout",
                 "text-text-mute hover:text-foreground hover:bg-secondary",
               ].join(" ")}
             >
-              <MoreHorizontal className="h-4 w-4" strokeWidth={1.75} />
+              <MoreHorizontal className="h-6 w-6" strokeWidth={1.75} />
             </span>
             {/* Favorite star — RIGHT. Active state uses --accent (warm
                 brass) so the star reads as "kept" without overpowering
@@ -354,7 +361,7 @@ export function Tile({
               aria-pressed={tile.isFavorite}
               aria-label={tile.isFavorite ? "Unfavorite" : "Favorite"}
               className={[
-                "flex h-8 w-8 items-center justify-center rounded-full",
+                "flex h-12 w-12 items-center justify-center rounded-full",
                 "transition-colors no-callout",
                 tile.isFavorite
                   ? "text-accent hover:bg-secondary"
@@ -363,7 +370,7 @@ export function Tile({
             >
               <Star
                 className={[
-                  "h-4 w-4",
+                  "h-6 w-6",
                   tile.isFavorite ? "fill-current" : "fill-none",
                 ].join(" ")}
                 strokeWidth={1.75}
@@ -373,7 +380,7 @@ export function Tile({
         ) : (
           // Hidden spacer — preserves row height for non-actionable tiles
           // so the iteration's tile-row baselines stay aligned mid-stream.
-          <span className="block h-8 w-full" aria-hidden />
+          <span className="block h-12 w-full" aria-hidden />
         )}
       </div>
     </div>

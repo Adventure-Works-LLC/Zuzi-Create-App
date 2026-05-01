@@ -99,6 +99,15 @@ export const tiles = sqliteTable(
     error_message: text("error_message"),
     is_favorite: integer("is_favorite").notNull().default(0),
     favorited_at: integer("favorited_at"),
+    /**
+     * Unix-ms timestamp of soft-delete, or NULL if active. All read paths
+     * filter `deleted_at IS NULL` so soft-deleted tiles disappear from the
+     * stream + favorites view without losing the row (debugging /
+     * potential undelete). Tiles are cheap to regenerate so there's no
+     * user-facing recovery flow — the column is purely for not having to
+     * reckon with the FK cascade implications of hard delete.
+     */
+    deleted_at: integer("deleted_at"),
     created_at: integer("created_at").notNull(),
     completed_at: integer("completed_at"),
   },
@@ -107,7 +116,13 @@ export const tiles = sqliteTable(
     index("idx_tiles_iter").on(t.iteration_id),
     index("idx_tiles_fav")
       .on(t.is_favorite, t.favorited_at)
-      .where(sql`is_favorite = 1`),
+      .where(sql`is_favorite = 1 AND deleted_at IS NULL`),
+    // Active-only index: most queries filter by deleted_at IS NULL +
+    // iteration_id; partial index keeps it tiny while covering the hot
+    // tile-stream-per-iteration read path.
+    index("idx_tiles_iter_active")
+      .on(t.iteration_id, t.idx)
+      .where(sql`deleted_at IS NULL`),
   ],
 );
 

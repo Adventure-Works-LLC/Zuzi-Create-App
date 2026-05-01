@@ -173,32 +173,93 @@ export function markStalePendingFailed(thresholdMs: number): number {
 
 // ---------- tiles ----------
 
+/**
+ * Active tiles for one iteration (excludes soft-deleted).
+ *
+ * `deleted_at IS NULL` filter is the default — soft-deleted tiles never
+ * surface in the stream, the favorites view, or the lightbox. Use
+ * `tilesForIncludingDeleted` (TODO: add when an admin / restore flow
+ * exists) for the rare case where a soft-deleted tile is the target.
+ */
 export function tilesFor(iterationId: string): Tile[] {
   return db()
     .select()
     .from(tiles)
-    .where(eq(tiles.iteration_id, iterationId))
+    .where(and(eq(tiles.iteration_id, iterationId), isNull(tiles.deleted_at)))
     .orderBy(tiles.idx)
     .all();
 }
 
 /**
- * Fetch tiles for a batch of iteration ids in one query — used by the iteration
- * list endpoint so it can return iterations with embedded tiles without an N+1
- * fetch. Empty input returns []. Returns rows in DB order; the caller groups
- * by `iteration_id` and orders by `idx` per iteration.
+ * Fetch active tiles for a batch of iteration ids in one query — used by the
+ * iteration list endpoint so it can return iterations with embedded tiles
+ * without an N+1 fetch. Empty input returns []. Returns rows in DB order; the
+ * caller groups by `iteration_id` and orders by `idx` per iteration.
+ *
+ * Soft-deleted tiles are excluded.
  */
 export function tilesForIterations(iterationIds: ReadonlyArray<string>): Tile[] {
   if (iterationIds.length === 0) return [];
   return db()
     .select()
     .from(tiles)
-    .where(inArray(tiles.iteration_id, iterationIds as string[]))
+    .where(
+      and(
+        inArray(tiles.iteration_id, iterationIds as string[]),
+        isNull(tiles.deleted_at),
+      ),
+    )
     .all();
 }
 
+/**
+ * Get a single tile by id, INCLUDING soft-deleted (raw row read).
+ *
+ * Most call sites care about active tiles only — for those check
+ * `tile.deleted_at === null` after the lookup. The image-bytes proxy and the
+ * favorite-toggle path use this raw form because they need to detect a
+ * just-deleted-by-another-tab race and 404 cleanly. The Lightbox view
+ * reconciliation also reads raw to handle the in-flight delete case.
+ */
 export function getTile(tileId: string): Tile | undefined {
   return db().select().from(tiles).where(eq(tiles.id, tileId)).get();
+}
+
+/**
+ * Soft-delete a tile by setting `deleted_at = now`. Returns true iff the row
+ * existed AND was active (not already soft-deleted). Idempotent on
+ * already-deleted rows: returns false without re-stamping the timestamp, so
+ * callers can distinguish "did the work" from "no-op" if they care.
+ */
+export function softDeleteTile(tileId: string): boolean {
+  const result = db()
+    .update(tiles)
+    .set({ deleted_at: Date.now() })
+    .where(and(eq(tiles.id, tileId), isNull(tiles.deleted_at)))
+    .run();
+  return result.changes > 0;
+}
+
+/**
+ * Count active tiles for an iteration. Used by the tile-delete API so it can
+ * tell the client "this was the last tile — the iteration row is now empty"
+ * (the client uses that signal to fade the iteration out of the stream).
+ *
+ * Soft-deleted tiles excluded by the WHERE clause; the active-only partial
+ * index `idx_tiles_iter_active` covers this read.
+ */
+export function countActiveTilesForIteration(iterationId: string): number {
+  const row = db()
+    .select({ count: count(tiles.id) })
+    .from(tiles)
+    .where(
+      and(
+        eq(tiles.iteration_id, iterationId),
+        isNull(tiles.deleted_at),
+      ),
+    )
+    .get();
+  return row?.count ?? 0;
 }
 
 export function updateTile(
@@ -263,7 +324,10 @@ export function listFavorites(opts: {
   before?: number;
 }): FavoriteRow[] {
   const limit = opts.limit ?? 50;
-  const conds = [eq(tiles.is_favorite, 1)];
+  // Soft-deleted tiles are excluded from the favorites view — delete trumps
+  // favorite. The new partial index `idx_tiles_fav` covers this filter
+  // directly so the query stays a single index scan.
+  const conds = [eq(tiles.is_favorite, 1), isNull(tiles.deleted_at)];
   if (typeof opts.before === "number") {
     conds.push(lt(tiles.favorited_at, opts.before));
   }

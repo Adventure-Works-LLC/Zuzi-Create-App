@@ -29,6 +29,13 @@
       "when": 1777638000000,
       "tag": "0003_rename_composition_to_ambiance",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1777659289298,
+      "tag": "0004_add_tile_deleted_at",
+      "breakpoints": true
     }
   ]
 }

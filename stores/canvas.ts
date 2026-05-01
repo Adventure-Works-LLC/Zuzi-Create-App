@@ -118,6 +118,14 @@ interface CanvasState {
     isFavorite: boolean,
     favoritedAt: number | null,
   ) => void;
+  /**
+   * Remove a tile from its iteration's `tiles[]` and, if that drops the
+   * iteration to zero tiles, remove the iteration row from `iterations[]`
+   * as well. Used by the Tile delete flow — server side soft-deletes via
+   * /api/tiles/:id; this mutator does the optimistic store-side removal.
+   * Idempotent on already-removed tiles (no-op if the tile isn't found).
+   */
+  removeTile: (tileId: string) => void;
 
   // ---- input-bar settings ----
   modelTier: ModelTier;
@@ -236,6 +244,33 @@ export const useCanvas = create<CanvasState>((set) => ({
           ? { ...s.lightboxSnapshot, isFavorite, favoritedAt }
           : s.lightboxSnapshot,
     })),
+  removeTile: (tileId) =>
+    set((s) => {
+      // Filter the tile out of whichever iteration owns it. If filtering
+      // leaves the iteration with zero tiles, drop the iteration too — the
+      // user's mental model is "delete the last tile of a generation and
+      // the whole generation goes away" (the row of N tiles in the stream
+      // is the unit they perceive). The DB iteration row stays around for
+      // backup / debugging; client-side removal is just visual.
+      const nextIters = s.iterations
+        .map((it) => {
+          const filtered = it.tiles.filter((t) => t.id !== tileId);
+          return filtered.length === it.tiles.length ? it : { ...it, tiles: filtered };
+        })
+        .filter((it) => it.tiles.length > 0);
+      // If the deleted tile was the open lightbox target, close it. The
+      // user shouldn't be left staring at a tile they just deleted.
+      const lightboxTileId = s.lightboxTileId === tileId ? null : s.lightboxTileId;
+      const lightboxSnapshot =
+        s.lightboxSnapshot && s.lightboxSnapshot.tileId === tileId
+          ? null
+          : s.lightboxSnapshot;
+      return {
+        iterations: nextIters,
+        lightboxTileId,
+        lightboxSnapshot,
+      };
+    }),
 
   // ---- input-bar settings ----
   modelTier: "pro",

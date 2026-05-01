@@ -17,11 +17,32 @@
  *      schema. Set `SKIP_MIGRATIONS=1` to bypass (tests, ad-hoc debugging
  *      against a known-current DB).
  *
- *   2. Boot sweep per AGENTS.md §5 Tier C item 13:
- *        - markStalePendingFailed(5min): any tile that's been `pending` for
- *          more than 5 minutes is from a previous process that died mid-
- *          flight. Mark it `failed` with `error_message='server_restart'`.
- *        - scanRecovery(): warn on parse errors / trailing-partial drops.
+ *   2. Boot sweep — four steps, ordered (longer comment inside the
+ *      register() block explains the dependencies):
+ *        a. recoverStuckIterations() — FIRST. Walks every iteration in
+ *           pending/running status; HEADs R2 for each pending tile's
+ *           output + thumb keys; reconnects (status='done') or fails
+ *           (status='failed', error_message='server_restart_recovered')
+ *           per tile; rolls iteration status forward to a terminal
+ *           state. Iterations whose HEADs returned a non-404 error are
+ *           DEFERRED — left in pending so a later boot can retry. This
+ *           is the load-bearing fix for "Railway redeploy mid-
+ *           generation leaves iterations stuck forever" — the previous
+ *           sweep only flipped tile status, not iteration status, and
+ *           the frontend reads iteration status to decide whether to
+ *           keep showing the loading animation.
+ *        b. markStalePendingFailed(5min) — fallback for any tile the
+ *           recovery sweep skipped (e.g., a deferred iteration whose
+ *           tiles are very old). Marks them `failed` with
+ *           `error_message='server_restart'` so the user can at least
+ *           see something terminal.
+ *        c. cleanupEmptyIterations() — reaps `done`/`failed` iteration
+ *           rows whose every tile is soft-deleted (legacy data + the
+ *           rare race where a worker writes zero tile rows).
+ *        d. scanRecovery() — forensic logging of recovery.jsonl. Warns
+ *           on parse errors / trailing-partial drops. The R2 HEAD
+ *           sweep is the source of truth for reconnection now;
+ *           recovery.jsonl is kept for debugging only.
  *
  * Native modules in scope (better-sqlite3, fs) — must NOT run on Edge. The
  * `NEXT_RUNTIME === 'nodejs'` check below is the standard Next 16 pattern

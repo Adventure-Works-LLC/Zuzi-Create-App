@@ -95,7 +95,18 @@ export interface GenerateResult {
 
 export interface RecoverIterationResult {
   iterationId: string;
-  outcome: "reconnected" | "partial" | "failed_no_tiles" | "skipped";
+  /**
+   * - reconnected     : every still-pending tile reconnected from R2
+   * - partial         : some reconnected, some confirmed missing
+   * - failed_no_tiles : no R2 bytes anywhere; iteration is now `failed`
+   * - skipped         : iteration was already in a terminal state
+   * - deferred        : R2 returned a non-404 error on at least one
+   *                     HEAD; recovery left the iteration in pending
+   *                     so the next boot (or another manual tap) can
+   *                     try again. The UI keeps the stuck banner
+   *                     visible — wait or retry.
+   */
+  outcome: "reconnected" | "partial" | "failed_no_tiles" | "skipped" | "deferred";
   reconnectedTiles: number;
   failedTiles: number;
   iterationStatus: IterationStatus;
@@ -431,12 +442,13 @@ export function useIterations(): UseIterationsResult {
         );
       }
       const result = (await resp.json()) as RecoverIterationResult;
-      // On any non-skipped outcome the server changed tile + iteration
-      // statuses; refetch so the UI picks up the new shape (tiles flip
-      // from pending to done/failed; iteration flips to terminal).
-      // Skipped means the iteration was already terminal — no refresh
-      // needed.
-      if (result.outcome !== "skipped") {
+      // Refetch the source's iterations only when the server actually
+      // mutated state. `skipped` (iteration was already terminal) and
+      // `deferred` (R2 erroring; recovery short-circuited without DB
+      // writes) both leave the DB unchanged — refetching would be
+      // pure noise. Other outcomes flip tile + iteration statuses
+      // server-side, so the UI needs the fresh shape.
+      if (result.outcome !== "skipped" && result.outcome !== "deferred") {
         await refetchIterationsForCurrent();
       }
       return result;

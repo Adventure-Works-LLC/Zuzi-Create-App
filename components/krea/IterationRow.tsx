@@ -213,6 +213,15 @@ export function IterationRow({ iteration }: IterationRowProps) {
           setBannerError(
             "Recovery couldn't find any completed tiles — marked failed. You can delete this generation.",
           );
+        } else if (result.outcome === "deferred") {
+          // R2 returned a non-404 error during recovery — auth blip,
+          // transient 5xx, network timeout. Iteration still pending;
+          // the stuck banner stays visible. Tell the user it was a
+          // storage hiccup so the next tap (or boot retry) makes
+          // sense rather than feeling like the button does nothing.
+          setBannerError(
+            "Storage check couldn't complete — try again in a moment, or delete if you'd rather move on.",
+          );
         }
       })
       .catch((err) => {

@@ -188,7 +188,7 @@ GENTLE, QUIETLY WARM`), forbid the wrong moods explicitly ("Not moody. Not
 dark. Not chiaroscuro."), then frame the reference as enhancement-of-mood
 not replacement-of-mood.
 
-**Cross-prompt consistency:** both Color v3 and Background v5 use the SAME
+**Cross-prompt consistency:** both Color v4 and Background v5 use the SAME
 canonical mood-anchor language — `PEACEFUL, GENTLE, and QUIETLY WARM` is a
 single shared string across both bodies. Future presets that touch color or
 atmosphere should reuse this exact string rather than reinventing the
@@ -203,8 +203,8 @@ refinement and accidentally change facial identity — even small hue/value
 shifts read as the model "deciding" the subject's complexion, which is
 identity-altering in a way no painter would accept. The fix: an "ABSOLUTE
 RULE" paragraph stating skin colors stay IDENTICAL to the input, separate
-from the broader color-refinement instructions. Color v3's load-bearing
-line:
+from the broader color-refinement instructions. Color v4's load-bearing
+line (carried forward verbatim from v3 when the rule was first locked):
 
   > ABSOLUTE RULE on skin tones: skin colors stay IDENTICAL to the input. Do
   > not shift skin hue, do not change skin warmth or coolness, do not

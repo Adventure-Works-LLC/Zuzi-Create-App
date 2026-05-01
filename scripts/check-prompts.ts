@@ -164,7 +164,7 @@ if (!bgLighting.startsWith("This painting needs its background developed and imp
   fail("[lighting,background]", "Background dominator early-return broken (combined with lighting)");
 }
 
-// Color (a dominator since v2; current lock is v3) must win over Lighting.
+// Color (a dominator since v2; current lock is v4) must win over Lighting.
 // This is the case the templated path used to handle; under the locked body,
 // Color's preserve list includes "lighting direction, and mood" so combining
 // the two would produce contradictory directives. Color wins; user runs two

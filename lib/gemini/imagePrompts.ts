@@ -14,11 +14,11 @@
  *   preset is checked, its body short-circuits the builder and any other
  *   checked presets are subsumed. This is intentional: dominator prompts
  *   include strong preserve-this-aspect language that contradicts a "vary X"
- *   composer (e.g. Color v3 keeps lighting direction identical, which
+ *   composer (e.g. Color v4 keeps lighting direction identical, which
  *   would clash with Lighting). If the user wants compound edits — e.g.
  *   refined colors AND new lighting — they run two passes: Color first,
  *   then Lighting on a favorited result.
- *     - Color v3 (locked) — see `COLOR_PROMPT_BODY`.
+ *     - Color v4 (locked) — see `COLOR_PROMPT_BODY`.
  *     - Ambiance v8 (locked) — see `AMBIANCE_PROMPT_BODY`.
  *     - Background v5 (locked) — see `BACKGROUND_PROMPT_BODY`.
  *
@@ -257,7 +257,7 @@ The output should look like a finished version of the input painting.`;
  * resolved. NOT replace the setting. Indoor stays indoor; outdoor stays
  * outdoor; existing motifs (polka dots, pattern, repeating shapes) are
  * preserved and developed, never removed. Mood anchored on the canonical
- * `PEACEFUL, GENTLE, and QUIETLY WARM` register matching Color v3.
+ * `PEACEFUL, GENTLE, and QUIETLY WARM` register matching Color v4.
  *
  * The structural shift v4 → v5 is significant: previous versions framed
  * Background as "swap setting in her style." v5 frames it as "read her
@@ -289,7 +289,7 @@ The output should look like a finished version of the input painting.`;
  *     Hard rules: indoor stays indoor, outdoor stays outdoor; motifs are
  *     preserved and developed, not removed. Mood register anchored on the
  *     canonical `PEACEFUL, GENTLE, and QUIETLY WARM` language shared with
- *     Color v3 — both prompts now use the same canonical mood-anchor for
+ *     Color v4 — both prompts now use the same canonical mood-anchor for
  *     consistency. AIRY DAYLIGHT animation reference (Howl's flower fields,
  *     Kiki's summer skies) replaces v4's broader atmospheric reference,
  *     pinning Pro to the bright-airy register that matches her source
@@ -301,7 +301,7 @@ The output should look like a finished version of the input painting.`;
  * touch structural elements of the input. The swap framing makes Pro
  * invent a replacement; the read-and-develop framing makes Pro identify
  * what the artist is doing and push it further. See lesson #8 in
- * `docs/PROMPT_LESSONS.md`. The mood-anchor pattern shared with Color v3
+ * `docs/PROMPT_LESSONS.md`. The mood-anchor pattern shared with Color v4
  * (lesson #7) is also applied here.
  *
  * Multi-paragraph body; the aspect-ratio sentence is appended as its own
@@ -366,7 +366,7 @@ const PRESERVE_LIST: ReadonlyArray<{ id: string; phrase: string }> = [
  * because changing lighting necessarily changes values). Ambiance and
  * Background entries are unused — both bypass the templated path. */
 const PRESET_REMOVES_FROM_PRESERVE: Record<Preset, ReadonlyArray<string>> = {
-  color: [], // unreachable — color has its own prompt body (v3 dominator)
+  color: [], // unreachable — color has its own prompt body (v4 dominator)
   ambiance: [], // unreachable — ambiance has its own prompt body
   lighting: ["lighting", "value"],
   background: [], // unreachable — background has its own prompt body

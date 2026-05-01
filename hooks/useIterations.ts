@@ -219,10 +219,15 @@ export function useIterations(): UseIterationsResult {
         idempotentReplay?: boolean;
         // On idempotent replay the server echoes the ORIGINAL row's values
         // (which may differ from this retry's body if the user changed
-        // count/presets between attempts). Client must reconcile so the
-        // optimistic skeleton matches what the worker is actually firing.
+        // count/presets/aspectRatioMode between attempts). Client must
+        // reconcile so the optimistic skeleton matches what the worker is
+        // actually firing — wrong aspectRatioMode = thumbs rendering with
+        // the wrong container shape (e.g., portrait skeleton on a flipped-
+        // landscape iteration), since the worker keys off the persisted
+        // aspect_ratio_mode regardless of body.
         count?: number;
         presets?: Preset[];
+        aspectRatioMode?: AspectRatioMode;
         error?: string;
         detail?: string;
         currentUsd?: number;
@@ -247,17 +252,25 @@ export function useIterations(): UseIterationsResult {
       const iterationId = data.iterationId;
       if (!iterationId) throw new Error("no_iterationId_in_response");
 
-      // Reconcile against echoed count/presets. On a fresh insert the server
-      // doesn't echo these (matches our request body). On an idempotent replay
-      // they reflect the ORIGINAL row's values; if the user's retry differed,
-      // we must rebuild the optimistic tiles to match the server's reality —
-      // otherwise the SSE stream emits the wrong number of tile events for our
-      // skeleton and the surplus placeholders hang in pending forever.
+      // Reconcile against echoed count/presets/aspectRatioMode. On a fresh
+      // insert the server doesn't echo these (matches our request body). On
+      // an idempotent replay they reflect the ORIGINAL row's values; if the
+      // user's retry differed, we must rebuild the optimistic skeleton to
+      // match the server's reality — otherwise the SSE stream emits the
+      // wrong number of tile events for our skeleton (surplus placeholders
+      // hang in pending forever) OR the IterationRow renders thumbs in the
+      // wrong aspect-ratio container (because the row's effective aspect is
+      // derived from `iteration.aspectRatioMode` and the worker is keying
+      // off the persisted column, not our body).
       const canonicalCount =
         typeof data.count === "number" && data.count > 0 ? data.count : count;
       const canonicalPresets = Array.isArray(data.presets)
         ? (data.presets as Preset[])
         : presets;
+      const canonicalAspectRatioMode: AspectRatioMode =
+        data.aspectRatioMode === "match" || data.aspectRatioMode === "flip"
+          ? data.aspectRatioMode
+          : aspectRatioMode;
 
       // Swap optimistic id → canonical id, and resize the tile array if the
       // echoed count differs. SSE will replace each tile's synthetic id with
@@ -270,6 +283,7 @@ export function useIterations(): UseIterationsResult {
                 id: iterationId,
                 tileCount: canonicalCount,
                 presets: canonicalPresets,
+                aspectRatioMode: canonicalAspectRatioMode,
                 tiles: Array.from({ length: canonicalCount }, (_, idx) => {
                   const existing = it.tiles[idx];
                   return existing

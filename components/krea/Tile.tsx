@@ -3,6 +3,13 @@
 /**
  * Tile — one generated tile in the stream.
  *
+ * Layout: vertical stack of (image button, action row). The action row
+ * holds the favorite star + "..." menu trigger; it sits BELOW the image
+ * rather than overlaying it. Earlier versions absolute-positioned both
+ * icons inside the image button (top-right + top-left); Zuzi found the
+ * overlay distracting against the painting surface, so the icons moved
+ * off the image entirely.
+ *
  * States the user can see:
  *   pending → soft warm pulse, no image (placeholder is the affordance)
  *   done    → image cross-fades in (4px blur → 0, 8px translate, 300ms ease-out)
@@ -10,15 +17,21 @@
  *   failed  → small dot + error tooltip on long-press
  *
  * Interactions:
- *   tap        → opens lightbox
- *   star icon  → toggles favorite (top-right, visible affordance — see
- *                  UX_INSPIRATION.md)
- *   "..." icon → opens ActionMenu with "Delete tile" (top-left). Deleting
- *                  is soft via /api/tiles/:id; the tile leaves the stream
- *                  immediately. Confirmation prompt only if the tile is
- *                  favorited (deleting a favorite deserves a "you sure?"
- *                  beat — non-favorites are zero-confirmation since tiles
- *                  are cheap to regenerate).
+ *   tap        → opens lightbox (image button)
+ *   star icon  → toggles favorite (action row, right side)
+ *   "..." icon → opens ActionMenu with "Delete tile" (action row, left
+ *                  side). Deleting is soft via /api/tiles/:id; the tile
+ *                  leaves the stream immediately. Confirmation prompt
+ *                  only if the tile is favorited (deleting a favorite
+ *                  deserves a "you sure?" beat — non-favorites are
+ *                  zero-confirmation since tiles are cheap to regenerate).
+ *
+ * The action row is rendered only for `status === 'done'` non-optimistic
+ * tiles. Pending / blocked / failed states keep the visible image area
+ * + an empty footprint where the action row would be — it's rendered as
+ * a hidden spacer so the row baselines stay aligned across an iteration
+ * mid-stream (otherwise the row's vertical alignment would shift as
+ * tiles complete). See render below.
  *
  * The thumbnail is fetched via useImageUrl with the tile's `thumbKey` (R2 key
  * for the 512px webp). The lightbox uses the full-resolution `outputKey`.
@@ -92,8 +105,12 @@ export function Tile({ tile, aspectRatio, optimistic = false }: TileProps) {
   };
 
   const onMenuButton = (e: React.MouseEvent) => {
-    // Stop the click from bubbling to the tile button (which would open the
-    // lightbox). Action-menu open IS the entire intent of this gesture.
+    // stopPropagation is defensive — kept after the icon moved off the
+    // image into the action row below, so a future layout shift back
+    // inside the button won't quietly start opening the lightbox under
+    // the menu open. Today the trigger is a sibling of the tile button,
+    // so this is a no-op; the comment exists so the safety belt stays
+    // intact across layout refactors.
     e.stopPropagation();
     if (optimistic || tile.id.startsWith("opt-")) return;
     // Capture viewport position of the trigger NOW so the menu renders
@@ -179,141 +196,155 @@ export function Tile({ tile, aspectRatio, optimistic = false }: TileProps) {
       });
   };
 
+  // Action row is shown only for done non-optimistic tiles. Pending /
+  // blocked / failed tiles still need the row's height to be reserved
+  // so an iteration mid-stream doesn't have its tiles bouncing baseline
+  // as completions land — `actionsAvailable` decides between rendering
+  // real controls or a same-height hidden spacer.
+  const actionsAvailable =
+    tile.status === "done" && !optimistic && !tile.id.startsWith("opt-");
+
   return (
     <>
-    <button
-      type="button"
-      onClick={onTap}
-      disabled={tile.status !== "done"}
-      style={{ aspectRatio: aspectRatio.replace(":", "/") }}
-      className={[
-        "group relative w-full overflow-hidden rounded-lg",
-        "bg-card",
-        tile.status === "done"
-          ? "ring-1 ring-hairline/70 hover:ring-hairline cursor-zoom-in"
-          : "ring-1 ring-hairline/40",
-        "transition-all duration-200",
-      ].join(" ")}
-      aria-label={
-        tile.status === "done"
-          ? "Open tile"
-          : tile.status === "blocked"
-            ? "Tile blocked by safety filter"
-            : tile.status === "failed"
-              ? "Tile failed"
-              : "Tile generating"
-      }
-    >
-      {/* Soft warm pulse for pending tiles. The "bloom-warm" class lives in
-          globals.css. */}
-      {tile.status === "pending" && (
-        <div
-          className="absolute inset-0 bloom-warm animate-pulse"
-          aria-hidden
-        />
-      )}
-
-      {/* Done tile — image with blur-fade entrance. */}
-      {tile.status === "done" && url && (
-        <img
-          src={url}
-          alt=""
-          loading="lazy"
-          decoding="async"
-          onLoad={() => setImageReady(true)}
-          className={[
-            "absolute inset-0 h-full w-full object-cover",
-            "transition-[opacity,filter,transform] duration-300 ease-out",
-            imageReady
-              ? "opacity-100 blur-0 translate-y-0"
-              : "opacity-0 blur-[4px] translate-y-2",
-          ].join(" ")}
-        />
-      )}
-
-      {/* Loading shimmer fallback while we resolve the signed URL */}
-      {tile.status === "done" && (loading || !url) && (
-        <div className="absolute inset-0 bloom-warm opacity-50" aria-hidden />
-      )}
-
-      {/* Blocked / failed — quiet quasi-error state. Never red error blocks. */}
-      {(tile.status === "blocked" || tile.status === "failed") && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-4 text-center">
-          {tile.status === "blocked" ? (
-            <ShieldOff className="h-6 w-6 text-text-mute" strokeWidth={1.5} />
-          ) : (
-            <span
-              className="block h-2 w-2 rounded-full bg-text-mute/60"
-              aria-hidden
-            />
-          )}
-          <span className="caption-display text-xs text-text-mute">
-            {tile.status === "blocked" ? "skipped" : "couldn't render"}
-          </span>
-        </div>
-      )}
-
-      {/* Favorite star — top-right corner. Visible only when the tile is done.
-          Slightly larger touch target than the icon to land on iPad finger. */}
-      {tile.status === "done" && !optimistic && !tile.id.startsWith("opt-") && (
-        <span
-          onClick={onFav}
-          role="button"
-          tabIndex={0}
-          aria-pressed={tile.isFavorite}
-          aria-label={tile.isFavorite ? "Unfavorite" : "Favorite"}
-          className={[
-            "absolute top-2 right-2 z-10",
-            "flex h-9 w-9 items-center justify-center rounded-full",
-            "transition-colors",
-            tile.isFavorite
-              ? "bg-background/70 text-accent"
-              : "bg-background/40 text-foreground/0 group-hover:text-foreground/70 hover:bg-background/70",
-            // On touch devices (no hover), keep the star visible when active.
-            "supports-[hover:none]:text-foreground/40",
-          ].join(" ")}
-        >
-          <Star
-            className={[
-              "h-4 w-4",
-              tile.isFavorite ? "fill-current" : "fill-none",
-            ].join(" ")}
-            strokeWidth={1.75}
+    <div className="flex w-full flex-col gap-1.5">
+      <button
+        type="button"
+        onClick={onTap}
+        disabled={tile.status !== "done"}
+        style={{ aspectRatio: aspectRatio.replace(":", "/") }}
+        className={[
+          "relative w-full overflow-hidden rounded-lg",
+          "bg-card",
+          tile.status === "done"
+            ? "ring-1 ring-hairline/70 hover:ring-hairline cursor-zoom-in"
+            : "ring-1 ring-hairline/40",
+          "transition-all duration-200",
+        ].join(" ")}
+        aria-label={
+          tile.status === "done"
+            ? "Open tile"
+            : tile.status === "blocked"
+              ? "Tile blocked by safety filter"
+              : tile.status === "failed"
+                ? "Tile failed"
+                : "Tile generating"
+        }
+      >
+        {/* Soft warm pulse for pending tiles. The "bloom-warm" class lives in
+            globals.css. */}
+        {tile.status === "pending" && (
+          <div
+            className="absolute inset-0 bloom-warm animate-pulse"
+            aria-hidden
           />
-        </span>
-      )}
+        )}
 
-      {/* Action menu trigger — top-LEFT corner. Top-right is favorite; we
-          deliberately split the corners so the two affordances don't fight
-          for the same touch zone on a 250–360px wide tile.
+        {/* Done tile — image with blur-fade entrance. */}
+        {tile.status === "done" && url && (
+          <img
+            src={url}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            onLoad={() => setImageReady(true)}
+            className={[
+              "absolute inset-0 h-full w-full object-cover",
+              "transition-[opacity,filter,transform] duration-300 ease-out",
+              imageReady
+                ? "opacity-100 blur-0 translate-y-0"
+                : "opacity-0 blur-[4px] translate-y-2",
+            ].join(" ")}
+          />
+        )}
 
-          A11y: span+role="button" mirrors the favorite-star pattern (HTML
-          doesn't allow nested <button> but a span with role works on
-          screen readers + handles keyboard via Enter/Space when focused).
-          Always visible on touch (always-on tint), fades in on hover for
-          desktop. The 36×36 tap target meets Apple HIG 44×44 once the
-          icon's 18px slop is included. */}
-      {tile.status === "done" && !optimistic && !tile.id.startsWith("opt-") && (
-        <span
-          ref={triggerRef}
-          onClick={onMenuButton}
-          role="button"
-          tabIndex={0}
-          aria-haspopup="menu"
-          aria-expanded={menuOpen}
-          aria-label="Tile actions"
-          className={[
-            "absolute top-2 left-2 z-10",
-            "flex h-9 w-9 items-center justify-center rounded-full",
-            "transition-colors",
-            "bg-background/40 text-foreground/0 group-hover:text-foreground/70 hover:bg-background/70",
-            "supports-[hover:none]:text-foreground/40 supports-[hover:none]:bg-background/60",
-          ].join(" ")}
-        >
-          <MoreHorizontal className="h-4 w-4" strokeWidth={1.75} />
-        </span>
-      )}
-    </button>
+        {/* Loading shimmer fallback while we resolve the signed URL */}
+        {tile.status === "done" && (loading || !url) && (
+          <div className="absolute inset-0 bloom-warm opacity-50" aria-hidden />
+        )}
+
+        {/* Blocked / failed — quiet quasi-error state. Never red error blocks. */}
+        {(tile.status === "blocked" || tile.status === "failed") && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-4 text-center">
+            {tile.status === "blocked" ? (
+              <ShieldOff className="h-6 w-6 text-text-mute" strokeWidth={1.5} />
+            ) : (
+              <span
+                className="block h-2 w-2 rounded-full bg-text-mute/60"
+                aria-hidden
+              />
+            )}
+            <span className="caption-display text-xs text-text-mute">
+              {tile.status === "blocked" ? "skipped" : "couldn't render"}
+            </span>
+          </div>
+        )}
+      </button>
+
+      {/* Action row — sits BELOW the image, no overlay onto the painting.
+          Per Zuzi's spec, the icons should never compete with the image
+          surface. Menu trigger LEFT, favorite star RIGHT — same left/right
+          split as the prior overlay version, just relocated.
+
+          Height is reserved (h-8) on every tile regardless of status, so
+          mid-stream completions don't bounce the row baselines as tiles
+          fade in. A non-actionable tile renders a same-height empty
+          spacer with `aria-hidden`. */}
+      <div
+        className="flex h-8 items-center justify-between px-1"
+        aria-hidden={actionsAvailable ? undefined : true}
+      >
+        {actionsAvailable ? (
+          <>
+            {/* Menu trigger — LEFT. */}
+            <span
+              ref={triggerRef}
+              onClick={onMenuButton}
+              role="button"
+              tabIndex={0}
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+              aria-label="Tile actions"
+              className={[
+                "flex h-8 w-8 items-center justify-center rounded-full",
+                "transition-colors no-callout",
+                "text-text-mute hover:text-foreground hover:bg-secondary",
+              ].join(" ")}
+            >
+              <MoreHorizontal className="h-4 w-4" strokeWidth={1.75} />
+            </span>
+            {/* Favorite star — RIGHT. Active state uses --accent (warm
+                brass) so the star reads as "kept" without overpowering
+                the row. */}
+            <span
+              onClick={onFav}
+              role="button"
+              tabIndex={0}
+              aria-pressed={tile.isFavorite}
+              aria-label={tile.isFavorite ? "Unfavorite" : "Favorite"}
+              className={[
+                "flex h-8 w-8 items-center justify-center rounded-full",
+                "transition-colors no-callout",
+                tile.isFavorite
+                  ? "text-accent hover:bg-secondary"
+                  : "text-text-mute hover:text-foreground hover:bg-secondary",
+              ].join(" ")}
+            >
+              <Star
+                className={[
+                  "h-4 w-4",
+                  tile.isFavorite ? "fill-current" : "fill-none",
+                ].join(" ")}
+                strokeWidth={1.75}
+              />
+            </span>
+          </>
+        ) : (
+          // Hidden spacer — preserves row height for non-actionable tiles
+          // so the iteration's tile-row baselines stay aligned mid-stream.
+          <span className="block h-8 w-full" aria-hidden />
+        )}
+      </div>
+    </div>
     {menuOpen && menuPos && (
       <ActionMenu
         open={menuOpen}

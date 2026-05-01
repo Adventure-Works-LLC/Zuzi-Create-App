@@ -17,11 +17,16 @@
  * Returns:
  *   - First write: { iterationId }
  *   - Idempotent replay (early short-circuit OR UNIQUE collision):
- *       { iterationId, idempotentReplay: true, count, presets }
- *     where `count` and `presets` reflect the ORIGINAL row's values, NOT the
- *     retry's body. The client reconciles its optimistic placeholder skeleton
- *     against these fields in `hooks/useIterations.ts` so a retry whose body
- *     differed renders the right number of tiles and the right preset chips.
+ *       { iterationId, idempotentReplay: true, count, presets, aspectRatioMode }
+ *     where `count`, `presets`, and `aspectRatioMode` reflect the ORIGINAL
+ *     row's values, NOT the retry's body. The client reconciles its
+ *     optimistic placeholder skeleton against these fields in
+ *     `hooks/useIterations.ts` so a retry whose body differed renders the
+ *     right number of tiles, the right preset chips, AND the right
+ *     effective aspect ratio (the SSE worker uses the original row's
+ *     aspect_ratio_mode regardless of what the retry body said, so the
+ *     client must follow suit or every tile thumb will render with the
+ *     wrong aspect-ratio container).
  *
  * Idempotency: iterations.request_id is UNIQUE. Concurrent retries with the same
  * requestId hit the constraint and we return the existing iteration's id.
@@ -52,7 +57,17 @@ import { costFor } from "@/lib/cost";
 
 export const runtime = "nodejs";
 
-const MONTHLY_USD_CAP = Number(process.env.MONTHLY_USD_CAP ?? "80");
+// Hard monthly cap on Gemini spend. Default $80; bumpable via env var.
+// NaN-guarded: a non-numeric env value (e.g. "" or "lots", easy to fat-finger
+// in the Railway dashboard) would otherwise produce NaN and silently disable
+// the cap entirely (any monthSoFar + projected > NaN === false). Coerce
+// through `Number.isFinite` and fall back to 80 on anything non-positive
+// or non-numeric. Zero is also treated as misconfigured — a literal 0 cap
+// would block every iteration; callers who want "off" can set a very large
+// number, but the safer default is the documented $80.
+const _capParsed = Number(process.env.MONTHLY_USD_CAP ?? "80");
+const MONTHLY_USD_CAP =
+  Number.isFinite(_capParsed) && _capParsed > 0 ? _capParsed : 80;
 
 async function isAuthed(): Promise<boolean> {
   try {
@@ -157,6 +172,12 @@ export async function POST(req: Request): Promise<Response> {
         idempotentReplay: true,
         count: existing.tile_count,
         presets: parseStoredPresets(existing.presets, existing.id),
+        // Echo the original row's aspect_ratio_mode so the client's
+        // optimistic skeleton uses the right effective aspect ratio when
+        // the retry body differed (e.g., user toggled Match/Flip between
+        // attempts). Worker keys off this column too — both sides have to
+        // agree or thumbs render in the wrong container shape.
+        aspectRatioMode: existing.aspect_ratio_mode,
       },
       { status: 200 },
     );
@@ -228,6 +249,11 @@ export async function POST(req: Request): Promise<Response> {
           idempotentReplay: true,
           count: reread.tile_count,
           presets: parseStoredPresets(reread.presets, reread.id),
+          // Same reconciliation rationale as the early-return branch
+          // above — see that comment. Both replay paths must echo the
+          // SAME field set or the client's reconcile is conditional on
+          // which branch fired.
+          aspectRatioMode: reread.aspect_ratio_mode,
         },
         { status: 200 },
       );

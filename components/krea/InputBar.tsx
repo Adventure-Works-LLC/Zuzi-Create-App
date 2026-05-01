@@ -485,6 +485,24 @@ export function InputBar() {
   );
 
   const onGenerate = async () => {
+    if (showPicker) {
+      // Picker-open snap-back. The user opened the picker (× on a checked
+      // cell) and tapped Generate without committing to a new preset; per
+      // spec, the Generate tap counts as an outside-click → restore
+      // Background as the canonical default and close the picker. NO
+      // generation fires this tap; the user can tap Generate again now
+      // that Background is selected to actually fire.
+      //
+      // Why this guard exists in addition to the document-level pointerdown
+      // listener: HTML `disabled` historically blocked pointerdown delivery
+      // on iPad Safari, defeating the outside-click dismiss path. The
+      // button now stays HTML-enabled during the transitional state and
+      // routes the click here instead. Doubled with the listener — both
+      // paths are idempotent.
+      setPreset("background");
+      setPickerOpen(false);
+      return;
+    }
     setGenerateError(null);
     const result = await generate();
     if (!result) {
@@ -636,21 +654,27 @@ export function InputBar() {
               <button
                 type="button"
                 onClick={() => void onGenerate()}
-                // Disabled during the picker-open transitional state too —
-                // the user must commit to a preset (pick one OR click
-                // outside to snap back to Background) before Generate
-                // fires. The document-level pointerdown listener handles
-                // the click-outside-to-Background dismissal even when this
-                // disabled button is the click target.
-                disabled={generating || uploading || showPicker}
+                // NOTE: deliberately HTML-enabled during showPicker — only
+                // disabled when the work pipe is actually busy. Disabling
+                // the HTML element during the transitional state blocks
+                // pointerdown delivery on iPad Safari, so the document-
+                // level outside-click dismiss path can't see the tap and
+                // the user lands in a dead zone. With the button live,
+                // `onGenerate` snaps Background back + closes the picker
+                // (no generation fires) — see the guard at the top of
+                // onGenerate. Visually still dimmed via opacity-70 to
+                // signal "not the canonical Generate state right now."
+                disabled={generating || uploading}
                 className={[
                   "inline-flex items-center gap-2 rounded-full",
                   "px-5 py-2 text-sm font-medium no-callout",
                   "bg-accent text-accent-foreground",
                   "transition-opacity",
-                  generating || uploading || showPicker
+                  generating || uploading
                     ? "opacity-60 cursor-wait"
-                    : "hover:opacity-90",
+                    : showPicker
+                      ? "opacity-70 hover:opacity-80"
+                      : "hover:opacity-90",
                 ].join(" ")}
               >
                 {generating ? (

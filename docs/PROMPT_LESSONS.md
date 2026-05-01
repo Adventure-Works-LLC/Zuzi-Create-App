@@ -267,6 +267,68 @@ develop/refine/deepen vocabulary throughout. This pattern likely applies
 to any future preset that affects compositional structure — not just
 Background.
 
+## 9. Active painterly posture beats passive refinement framing
+
+When a preset's operation is about pushing or improving (not preserving or
+transforming), Pro needs an active painterly posture to channel — not just a
+technical instruction. Structural correctness alone (anchored on her colors,
+skin exempt, mood preserved) gives Pro permission to change colors but no
+creative direction to push toward — the result is timid lateral shifts that
+feel lifeless. The fix: anchor the model in an active artist's posture, name
+the energy explicitly, and forbid the timid failure mode.
+
+The Color v3 → v4 iteration is the canonical example. v3 was structurally
+correct: anchored on HER existing palette ("refine and enrich, don't
+replace"), exempted skin tones, preserved her peaceful/gentle/warm mood. The
+guardrails worked — outputs no longer drifted skin or shifted mood toward
+moody/dramatic — but Pro made TIMID LATERAL color shifts that felt lifeless.
+The clothing went from a tentative pink to a slightly different tentative
+pink. The blue background found a slightly different blue. No real artistic
+intent. v4 keeps every v3 guardrail and adds an active posture layer.
+
+The fix language pattern, from Color v4:
+
+  > Imagine the artist sat back down at this painting an hour later, looked
+  > at it with fresh eyes, and decided to push the color further with more
+  > confidence and joy. She'd make bolder color choices. She'd find the
+  > painterly relationships her first pass didn't fully reach. She'd lean
+  > into the warmth and richness her work always wants.
+  >
+  > That's the operation: the same painting, after she pushed the color one
+  > more pass with confidence and joy.
+
+Three load-bearing moves come with this framing:
+
+  1. **Anchor in an active artist's posture, not a technical instruction.**
+     "Imagine the artist sat back down… and decided to push the color
+     further" channels a state of mind. "Refine and enrich her palette" is
+     just an instruction.
+  2. **Name the energy explicitly with non-technical vocabulary.** v4 uses
+     `with confidence and joy`, `Make the colors sing`, `confident pushed
+     choices`, `fully alive in her warm peaceful register`. These words
+     don't describe a technical operation — they describe a posture.
+     Pro picks up on the posture and channels it.
+  3. **Forbid the timid failure mode explicitly.** v4's Do-NOT clause
+     `Do NOT make timid lateral color changes that lack real artistic
+     intent — make confident pushed choices` calls out the exact v3
+     regression by name. Without this, Pro's risk-aversion default (don't
+     change too much, the user might not like big changes) wins.
+
+The cartoon-era reference is also reframed: in v3 it was a palette source
+("the color sensibility of 1980s and 1990s Saturday morning cartoons"); in
+v4 it's an energy/confidence anchor ("The animation reference is for ENERGY
+and CONFIDENCE in color choice — not for setting choice or rendering
+style"). Same words, different load-bearing role.
+
+**Rule:** for any preset where the operation is improvement-oriented
+(push, develop, resolve, enliven, deepen) rather than preservation-oriented
+(keep, exempt, hold) or transformation-oriented (swap, replace, recolor),
+the prompt must channel an active painterly posture. Imagine the artist
+returning to the work; name the energy in non-technical vocabulary; forbid
+the timid lateral failure mode by name. This pattern likely applies to any
+future preset where the goal is making the painting more alive within its
+existing register.
+
 ## How to use this doc
 
 When iterating a preset prompt:

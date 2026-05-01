@@ -42,21 +42,24 @@ const PRESET_LABEL: Record<Preset, string> = {
  *  Background, and Color all carry sublines because their operations don't
  *  read literally from the label:
  *    - Ambiance is "continue in her voice" (not just add atmosphere).
- *    - Background (v5) is now "develop her background ideas" — Pro reads
- *      the source's compositional intent (interior/outdoor, framing,
- *      motifs, rhythm) and DEVELOPS it rather than swapping the setting.
+ *    - Background (v5) is "develop her background ideas" — Pro reads the
+ *      source's compositional intent (interior/outdoor, framing, motifs,
+ *      rhythm) and DEVELOPS it rather than swapping the setting.
  *      Phrasing deliberately avoids "swap" / "replace" / "different
  *      setting" since v5 explicitly does not do those things.
- *    - Color (v3) is "enrich her existing palette, keep her mood" — NOT
- *      wholesale palette replacement, NOT a mood swap toward the cartoon
- *      reference's stereotypical brightness/moodiness, NOT a skin-tone
- *      shift. The literal "Color" label undersells what fires.
+ *    - Color (v4) is now "push her colors with confidence" — Pro
+ *      channels an active painterly posture (the artist on her second
+ *      pass with confidence and joy) rather than executing a passive
+ *      technical refinement. Phrasing deliberately avoids timid words
+ *      like "tune" / "refine" / "enrich" — those describe the v3
+ *      framing that produced lifeless lateral shifts. "Push" is the
+ *      load-bearing verb v4 was built around.
  *  Lighting reads literally so it gets no subline. Phrasing tracks the
- *  v8/v5/v3 prompt framings in `lib/gemini/imagePrompts.ts`. */
+ *  v8/v5/v4 prompt framings in `lib/gemini/imagePrompts.ts`. */
 const PRESET_SUBLINE: Partial<Record<Preset, string>> = {
   ambiance: "complete it in her voice",
   background: "develop her background ideas",
-  color: "enrich her palette, keep her mood",
+  color: "push her colors with confidence",
 };
 
 function PillToggle<T extends string>({

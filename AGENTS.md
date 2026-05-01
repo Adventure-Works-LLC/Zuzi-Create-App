@@ -70,7 +70,7 @@ plan's reference docs first.
 
 | Checkbox | What changes | What's preserved |
 |---|---|---|
-| **Color** | Tunes her existing palette toward 80s/90s cel-animation color richness — bumps saturation, deepens complementary play, adds painterly color depth. Skin tones exempt. | Skin tones (identical), the dominant color choices in her input (refined not replaced), her peaceful/gentle/warm mood, brushwork, marks, composition, level of finish, value structure, lighting direction |
+| **Color** | Develops her existing palette by pushing color choices with confidence and joy — bolder hues, richer saturations, more painterly complementary relationships, accent colors that sing. Channels 80s/90s cel-animation color confidence applied through her aesthetic register. Skin tones exempt. | Skin tones (identical), her peaceful/gentle/warm mood, brushwork, marks, line work, dry chalky restrained surface register, composition, framing, subject, level of finish, value structure, lighting direction, motifs (color of motifs may shift but motifs themselves preserved), her wonky gestural shape language |
 | **Ambiance** | Continues the painting in her voice — extends her own brushwork, marks, level of finish into the canvas; adds elements (a small object, a mark in negative space, atmospheric depth) painted in HER style | Existing developed passages (don't repaint), composition, palette family, subject identity, brushwork voice |
 | **Lighting** | Mood, shadows, light direction | Color palette, composition, brushwork, subject, background, level of finish |
 | **Background** | Reads the artist's compositional intent (interior/outdoor, framing devices, motifs, rhythm, color fields) and develops it — pushes her existing ideas further, refines them, makes them more atmospherically resolved. Indoor stays indoor; outdoor stays outdoor; existing motifs are preserved and developed. | Setting type (indoor/outdoor), her compositional ideas (framing, motifs, rhythm, color fields), foreground figure and subject, foreground brushwork, palette family, lighting direction, peaceful/warm mood, her dry chalky restrained mark register, her wonky gestural shape language |
@@ -100,15 +100,19 @@ The four presets split into two architectural categories in `imagePrompts.ts`:
         (polka dots, pattern, repeating shapes) are preserved and
         developed, never removed. Mood register anchored on the canonical
         "PEACEFUL, GENTLE, and QUIETLY WARM" language shared with Color
-        v3. Lesson #6 (construct-not-just-surface) and lesson #8 (read-
+        v4. Lesson #6 (construct-not-just-surface) and lesson #8 (read-
         and-develop beats swap-and-replace) both apply.
-      - **Color v3** — `COLOR_PROMPT_BODY` (locked, Krea-validated). Refines her
-        existing palette toward 80s/90s cel-animation color richness — anchors
-        on HER colors as the base (refinement, not replacement), exempts skin
-        tones from any shift (skin = identity in figurative work), and
-        explicitly preserves her peaceful/gentle/warm mood register so Pro
-        doesn't reach for the cartoon reference's stereotypical mood (see
-        lesson #7).
+      - **Color v4** — `COLOR_PROMPT_BODY` (locked, Krea-validated). Develops
+        her existing palette by PUSHING color choices with confidence and joy
+        — bolder hues, richer saturations, accent colors that sing. The
+        cartoon-era reference is framed as an energy/confidence anchor (not a
+        palette-source). Same Zuzi-essence guardrails as v3 (canonical mood,
+        skin exemption, dry chalky register, motif preservation) but with an
+        active painterly posture ("imagine the artist sat back down…")
+        replacing v3's passive refinement framing — v3 produced timid lateral
+        shifts; v4 produces confident pushed choices. Lesson #7 (mood-anchor
+        + skin-identity), lesson #8 (read-and-develop), and lesson #9
+        (active painterly posture beats passive refinement) all apply.
   - **Composers**: would participate in the templated "Reimagine X, preserve Y"
     path. Today only Lighting falls here, and only when checked alone — every
     combination involving Lighting + a dominator routes to the dominator. When
@@ -568,7 +572,7 @@ a no-env shell (§8.5) will catch violations.
   1. Renders all 16 preset combinations × 4 representative aspect ratios
      and asserts each produces a non-empty string with the literal aspect
      ratio interpolated into the canonical sentence.
-  2. Runs 13 canary substring checks against the locked prompt bodies —
+  2. Runs 16 canary substring checks against the locked prompt bodies —
      opening sentences and load-bearing anchors:
        - v0 freeform: `"Reimagine it with new colors"`
        - Ambiance v8: opens `"Continue this painting in the same style…"`
@@ -578,10 +582,13 @@ a no-env shell (§8.5) will catch violations.
          first"` + indoor/outdoor invariant `"Indoor stays indoor. Outdoor
          stays outdoor."` + motif-preservation anchor `"preserve those
          motifs as part of the composition"` + canonical mood anchor
-         `"PEACEFUL, GENTLE, and QUIETLY WARM"` (shared with Color v3)
-       - Color v3: opens `"Tune and refine the existing palette…"` +
-         contains the mood-register anchor `"PEACEFUL, GENTLE, and QUIETLY
-         WARM"` + contains the skin-identity anchor `"Skin is identity —
+         `"PEACEFUL, GENTLE, and QUIETLY WARM"` (shared with Color v4)
+       - Color v4: opens `"This painting's colors should be developed and
+         pushed…"` + active-posture anchor `"with confidence and joy"` +
+         active-push anchor `"Make the colors sing"` + anti-timid anchor
+         `"make confident pushed choices"` + canonical mood anchor
+         `"PEACEFUL, GENTLE, and QUIETLY WARM"` (same byte string as
+         Background v5) + skin-identity anchor `"Skin is identity —
          never touch it"`
   3. Verifies dominator routing — `['color','ambiance']` → Ambiance,
      `['lighting','background']` → Background, all-four → Ambiance.

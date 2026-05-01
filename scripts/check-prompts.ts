@@ -22,13 +22,16 @@
  *          indoor. Outdoor stays outdoor." + motif-preservation anchor
  *          "preserve those motifs as part of the composition" + canonical
  *          mood anchor "PEACEFUL, GENTLE, and QUIETLY WARM" (shared with
- *          Color v3)
- *        - Color v3: refine-not-replace opener "Tune and refine the
- *          existing palette…" + mood-register anchor "PEACEFUL, GENTLE,
- *          and QUIETLY WARM" + skin-identity anchor "Skin is identity —
- *          never touch it"
+ *          Color v4)
+ *        - Color v4: push-not-refine opener "This painting's colors
+ *          should be developed and pushed…" + active-posture anchor
+ *          "with confidence and joy" + active-push anchor "Make the
+ *          colors sing" + anti-timid anchor "make confident pushed
+ *          choices" + canonical mood anchor "PEACEFUL, GENTLE, and
+ *          QUIETLY WARM" (same byte string as Background v5) +
+ *          skin-identity anchor "Skin is identity — never touch it"
  *   4. Dominator routing — Ambiance, Background, and Color (a dominator
- *      since v2; current lock is v3) early-returns still fire when combined
+ *      since v2; current lock is v4) early-returns still fire when combined
  *      with other presets. The failure mode is someone reorders the
  *      resolution ladder and breaks dominance silently.
  *
@@ -127,18 +130,27 @@ if (!background.includes("preserve those motifs as part of the composition")) {
   fail("[background]", "Background v5 lost motif-preservation anchor — Pro may strip her decorative motifs (polka dots, pattern, etc.)");
 }
 if (!background.includes("PEACEFUL, GENTLE, and QUIETLY WARM")) {
-  fail("[background]", "Background v5 lost canonical mood-register anchor ('PEACEFUL, GENTLE, and QUIETLY WARM') shared with Color v3 — risk of mood drift (lesson #7)");
+  fail("[background]", "Background v5 lost canonical mood-register anchor ('PEACEFUL, GENTLE, and QUIETLY WARM') shared with Color v4 — risk of mood drift (lesson #7)");
 }
 
 const colorSolo = buildPrompt({ presets: ["color"], aspectRatio: "4:5" });
-if (!colorSolo.startsWith("This painting is shown as the input image. Tune and refine the existing palette")) {
-  fail("[color]", "Color v3 prompt regressed (refine-not-replace opener canary missing)");
+if (!colorSolo.startsWith("This painting's colors should be developed and pushed")) {
+  fail("[color]", "Color v4 prompt regressed (push-not-refine opener canary missing)");
+}
+if (!colorSolo.includes("with confidence and joy")) {
+  fail("[color]", "Color v4 lost active-painterly-posture anchor ('with confidence and joy') — risk of regressing to v3 timid lateral shifts (lesson #9)");
+}
+if (!colorSolo.includes("Make the colors sing")) {
+  fail("[color]", "Color v4 lost active-push anchor ('Make the colors sing') — risk of regressing to v3 lifeless refinement (lesson #9)");
+}
+if (!colorSolo.includes("make confident pushed choices")) {
+  fail("[color]", "Color v4 lost anti-timid anchor ('make confident pushed choices') — Pro will revert to timid lateral shifts without the explicit forbid (lesson #9)");
 }
 if (!colorSolo.includes("PEACEFUL, GENTLE, and QUIETLY WARM")) {
-  fail("[color]", "Color v3 lost mood-register anchor ('PEACEFUL, GENTLE, and QUIETLY WARM') — risk of cartoon-mood-override regression (lesson #7)");
+  fail("[color]", "Color v4 lost canonical mood-register anchor ('PEACEFUL, GENTLE, and QUIETLY WARM') shared with Background v5 — risk of cartoon-mood-override regression (lesson #7)");
 }
 if (!colorSolo.includes("Skin is identity — never touch it")) {
-  fail("[color]", "Color v3 lost skin-identity anchor ('Skin is identity — never touch it') — risk of skin-tone-shift regression (lesson #7)");
+  fail("[color]", "Color v4 lost skin-identity anchor ('Skin is identity — never touch it') — risk of skin-tone-shift regression (lesson #7)");
 }
 
 // --- 4: dominator routing must fire when combined with other presets ---
@@ -158,7 +170,7 @@ if (!bgLighting.startsWith("This painting needs its background developed and imp
 // the two would produce contradictory directives. Color wins; user runs two
 // passes for compound edits.
 const colorLighting = buildPrompt({ presets: ["color", "lighting"], aspectRatio: "4:5" });
-if (!colorLighting.startsWith("This painting is shown as the input image. Tune and refine the existing palette")) {
+if (!colorLighting.startsWith("This painting's colors should be developed and pushed")) {
   fail("[color,lighting]", "Color dominator early-return broken (combined with lighting); previously templated, now must dominate");
 }
 
@@ -183,5 +195,5 @@ if (failures.length > 0) {
 }
 
 console.log(
-  `[check-prompts] ok — ${totalRenders} prompt renders across ${combos.length} preset combos × ${RATIOS.length} aspect ratios + 13 canary checks all green.`,
+  `[check-prompts] ok — ${totalRenders} prompt renders across ${combos.length} preset combos × ${RATIOS.length} aspect ratios + 16 canary checks all green.`,
 );

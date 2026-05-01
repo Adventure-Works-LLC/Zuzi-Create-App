@@ -52,6 +52,17 @@ export const iterations = sqliteTable(
     resolution: text("resolution", { enum: ["1k", "4k"] })
       .notNull()
       .default("1k"),
+    /**
+     * Aspect-ratio mode: 'match' uses the source's aspect ratio (default,
+     * preserves the historical AGENTS.md §3 "output aspect == input aspect"
+     * invariant); 'flip' swaps W:H so portrait sources generate landscape
+     * outputs and vice versa (1:1 stays 1:1). Stored on the iteration so
+     * historical rows always render with the right effective aspect even
+     * after the flag changes.
+     */
+    aspect_ratio_mode: text("aspect_ratio_mode", { enum: ["match", "flip"] })
+      .notNull()
+      .default("match"),
     tile_count: integer("tile_count").notNull().default(3),
     /**
      * JSON array of selected preset strings: 'color' | 'ambiance' |

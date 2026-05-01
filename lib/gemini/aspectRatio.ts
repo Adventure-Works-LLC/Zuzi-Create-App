@@ -43,6 +43,36 @@ const CANDIDATES: Candidate[] = [
   { label: "21:9", ratio: 21 / 9 },
 ];
 
+/**
+ * Flip a "W:H" aspect-ratio label to "H:W". Used by the InputBar's
+ * "Aspect: Match | Flip" toggle: portrait sources generate landscape
+ * outputs and vice versa under flip mode. 1:1 stays 1:1.
+ *
+ * Input MUST already be a snapped supported ratio (one of
+ * `SUPPORTED_ASPECT_RATIOS`). The flipped result is also guaranteed to
+ * be in the supported set because the supported set is closed under W:H
+ * swap (every entry has its mirror — 4:5 ↔ 5:4, 9:16 ↔ 16:9, etc.).
+ *
+ * Edge case: 21:9 is in the supported set but 9:21 is NOT — Gemini
+ * doesn't accept that ratio. Calling flip on 21:9 returns 9:21 anyway
+ * and the Gemini call would 400; the caller is responsible for not
+ * generating against 21:9 sources in flip mode (current product
+ * doesn't support 21:9 source uploads, so this is theoretical).
+ */
+export function flipAspectRatio(ratio: string): string {
+  const m = ratio.match(/^(\d+):(\d+)$/);
+  if (!m) {
+    throw new Error(`flipAspectRatio: invalid ratio "${ratio}"`);
+  }
+  const w = m[1];
+  const h = m[2];
+  // 1:1 (and any other W==H ratio, though only 1:1 is in the supported
+  // set) is its own mirror. Returning early avoids a needless allocation
+  // and keeps the result string-identical to the input.
+  if (w === h) return ratio;
+  return `${h}:${w}`;
+}
+
 export function nearestSupportedAspectRatio(
   width: number,
   height: number,

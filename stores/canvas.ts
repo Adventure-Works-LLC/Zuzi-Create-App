@@ -52,6 +52,13 @@ export interface Tile {
 
 export type ModelTier = "flash" | "pro";
 export type Resolution = "1k" | "4k";
+/** Per-iteration aspect-ratio mode. 'match' uses the source's aspect ratio
+ *  (default; preserves AGENTS.md §3 "output aspect == input aspect"
+ *  invariant). 'flip' swaps W:H so portrait sources generate landscape
+ *  outputs and vice versa (1:1 stays 1:1). Stored on the iteration so
+ *  historical rows always render at their actual aspect even after the
+ *  flag changes. */
+export type AspectRatioMode = "match" | "flip";
 export type IterationStatus = "pending" | "running" | "done" | "failed";
 
 /** Free-floating tile + its iteration metadata, used when the lightbox is
@@ -65,10 +72,17 @@ export interface LightboxSnapshot {
   thumbKey: string | null;
   isFavorite: boolean;
   favoritedAt: number | null;
-  /** From `sources.aspect_ratio` of whichever source produced the tile —
-   *  used by the Lightbox to render at correct aspect, and by Use-as-source
-   *  if the user wants to fork from this favorite. */
+  /** From `sources.aspect_ratio` of whichever source produced the tile.
+   *  Combine with `aspectRatioMode` to get the TILE's effective aspect
+   *  (`mode === 'flip' ? flip(sourceAspectRatio) : sourceAspectRatio`).
+   *  The promote-from-tile path on Use-as-Source re-derives aspect from
+   *  the actual image bytes via sharp, so the flipped value here doesn't
+   *  need to be threaded into that flow — it just informs display. */
   sourceAspectRatio: string;
+  /** Iteration's aspect-ratio mode at generation time. Required so the
+   *  cross-source FavoritesPanel → Lightbox path knows whether to flip
+   *  `sourceAspectRatio` for display. */
+  aspectRatioMode: AspectRatioMode;
   modelTier: ModelTier;
   resolution: Resolution;
 }
@@ -78,6 +92,13 @@ export interface Iteration {
   sourceId: string;
   modelTier: ModelTier;
   resolution: Resolution;
+  /** Aspect-ratio mode at generation time. 'match' = source aspect,
+   *  'flip' = mirrored. IterationRow uses this to size each tile's
+   *  container correctly even when the iteration is older than the
+   *  source's current aspect ratio (sources don't change theirs, but
+   *  combinations of source + mode can produce tile aspects that
+   *  differ from the source). */
+  aspectRatioMode: AspectRatioMode;
   tileCount: number;
   presets: Preset[];
   status: IterationStatus;
@@ -130,10 +151,14 @@ interface CanvasState {
   // ---- input-bar settings ----
   modelTier: ModelTier;
   resolution: Resolution;
+  /** 'match' (default) keeps tile output at the source's aspect ratio;
+   *  'flip' swaps W:H. Toggled via the InputBar's "Aspect" pill. */
+  aspectRatioMode: AspectRatioMode;
   presets: Preset[];
   count: number;
   setModelTier: (tier: ModelTier) => void;
   setResolution: (resolution: Resolution) => void;
+  setAspectRatioMode: (mode: AspectRatioMode) => void;
   togglePreset: (preset: Preset) => void;
   /**
    * Set or clear the active preset. Mirrors the mutually-exclusive UI
@@ -286,10 +311,12 @@ export const useCanvas = create<CanvasState>((set) => ({
   // ---- input-bar settings ----
   modelTier: "pro",
   resolution: "1k",
+  aspectRatioMode: "match",
   presets: [],
   count: TILE_COUNT_DEFAULT,
   setModelTier: (modelTier) => set({ modelTier }),
   setResolution: (resolution) => set({ resolution }),
+  setAspectRatioMode: (aspectRatioMode) => set({ aspectRatioMode }),
   setPreset: (preset) =>
     set({ presets: preset === null ? [] : [preset] }),
   togglePreset: (preset) =>

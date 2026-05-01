@@ -56,6 +56,12 @@ export async function GET(req: Request): Promise<Response> {
         sourceId: r.source_id,
         sourceArchived: Boolean(r.source_archived),
         sourceAspectRatio: r.source_aspect_ratio,
+        // Combine with `sourceAspectRatio` to get the tile's effective
+        // aspect: `mode === 'flip' ? flip(sourceAspectRatio) :
+        // sourceAspectRatio`. Required for the FavoritesPanel thumbnail
+        // container + the LightboxSnapshot construction so flipped
+        // tiles render at their actual dimensions, not the source's.
+        aspectRatioMode: r.aspect_ratio_mode,
         iterationId: r.iteration_id,
         idx: r.idx,
         outputKey: r.output_image_key,

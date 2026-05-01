@@ -104,6 +104,7 @@ export async function POST(req: Request): Promise<Response> {
     sourceId?: unknown;
     modelTier?: unknown;
     resolution?: unknown;
+    aspectRatioMode?: unknown;
     count?: unknown;
     presets?: unknown;
   };
@@ -123,6 +124,12 @@ export async function POST(req: Request): Promise<Response> {
     body.resolution === "1k" || body.resolution === "4k"
       ? body.resolution
       : "1k";
+  // Default to 'match' on missing/invalid input — preserves the historical
+  // AGENTS.md §3 "output aspect == input aspect" invariant for any client
+  // that doesn't know about the new field. 'flip' is opt-in via the
+  // InputBar's Aspect toggle.
+  const aspectRatioMode =
+    body.aspectRatioMode === "flip" ? "flip" : "match";
 
   if (!requestId)
     return NextResponse.json({ error: "missing_requestId" }, { status: 400 });
@@ -190,6 +197,7 @@ export async function POST(req: Request): Promise<Response> {
         source_id: sourceId,
         model_tier: modelTier,
         resolution,
+        aspect_ratio_mode: aspectRatioMode,
         tile_count: count,
         presets: presetsJson,
         status: "pending",

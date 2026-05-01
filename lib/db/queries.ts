@@ -312,6 +312,12 @@ export interface FavoriteRow {
   created_at: number;
   model_tier: "flash" | "pro";
   resolution: "1k" | "4k";
+  /** From `iterations.aspect_ratio_mode`. Combine with `source_aspect_ratio`
+   *  to get the tile's effective aspect: `mode === 'flip' ? flip(src) : src`.
+   *  Clients that render the tile (FavoritesPanel thumbnail container,
+   *  Lightbox snapshot) need this to size the container correctly when the
+   *  tile was generated with flip mode. */
+  aspect_ratio_mode: "match" | "flip";
 }
 
 /**
@@ -345,6 +351,7 @@ export function listFavorites(opts: {
       created_at: tiles.created_at,
       model_tier: iterations.model_tier,
       resolution: iterations.resolution,
+      aspect_ratio_mode: iterations.aspect_ratio_mode,
     })
     .from(tiles)
     .innerJoin(iterations, eq(iterations.id, tiles.iteration_id))

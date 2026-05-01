@@ -20,6 +20,7 @@ import { Buffer } from "node:buffer";
 import sharp from "sharp";
 
 import { genai, IMAGE_MODEL_FLASH, IMAGE_MODEL_PRO } from "./client";
+import { flipAspectRatio } from "./aspectRatio";
 import { buildPrompt } from "./imagePrompts";
 import { callWithRetry } from "./callWithRetry";
 import { extractImageBytes } from "./extract";
@@ -212,7 +213,18 @@ export async function runIteration(iterationId: string): Promise<void> {
   const inputBase64 = inputBuffer.toString("base64");
   const modelId =
     iter.model_tier === "flash" ? IMAGE_MODEL_FLASH : IMAGE_MODEL_PRO;
-  const aspectRatio = source.aspect_ratio;
+  // Source aspect ratio is the one snapped at upload (one of the 10
+  // SUPPORTED_ASPECT_RATIOS values). Under flip mode, swap W:H so the
+  // generated tile renders at the mirrored aspect; 1:1 stays 1:1. The
+  // computed target ratio drives BOTH `imageConfig.aspectRatio` (so
+  // the actual image bytes are at the right dimensions) AND the prompt's
+  // `{aspectRatio}` interpolation (so Pro's preserve-the-aspect sentence
+  // matches what we asked for) — the two MUST agree per AGENTS.md §3
+  // "all three steps" invariant.
+  const aspectRatio =
+    iter.aspect_ratio_mode === "flip"
+      ? flipAspectRatio(source.aspect_ratio)
+      : source.aspect_ratio;
   // SDK expects "1K" | "2K" | "4K" (uppercase). DB column is "1k" | "4k".
   const imageSize = iter.resolution.toUpperCase();
   const presets = parseStoredPresets(iter.presets, iterationId);

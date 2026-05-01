@@ -19,13 +19,20 @@ import { useEffect, useState } from "react";
 import { Loader2, X } from "lucide-react";
 
 import { useImageUrl } from "@/hooks/useImageUrl";
-import { useCanvas } from "@/stores/canvas";
+import { useCanvas, type AspectRatioMode } from "@/stores/canvas";
+import { flipAspectRatio } from "@/lib/gemini/aspectRatio";
 
 interface FavoriteRow {
   tileId: string;
   sourceId: string;
   sourceArchived: boolean;
   sourceAspectRatio: string;
+  /** Iteration's aspect-ratio mode at generation time. Combine with
+   *  `sourceAspectRatio` to get the tile's effective aspect for display
+   *  (`mode === 'flip' ? flip(src) : src`). Optional in the response
+   *  shape so older clients viewing old data don't crash; the default
+   *  is 'match' which preserves prior behavior. */
+  aspectRatioMode?: AspectRatioMode;
   iterationId: string;
   idx: number;
   outputKey: string | null;
@@ -35,13 +42,26 @@ interface FavoriteRow {
   resolution: "1k" | "4k";
 }
 
+/** Effective aspect ratio for a favorite — flips if the iteration was
+ *  generated under flip mode. Centralised here so both the thumbnail
+ *  container and the LightboxSnapshot construction agree on the value. */
+function effectiveAspectRatio(fav: FavoriteRow): string {
+  return fav.aspectRatioMode === "flip"
+    ? flipAspectRatio(fav.sourceAspectRatio)
+    : fav.sourceAspectRatio;
+}
+
 function FavoriteThumb({ favorite }: { favorite: FavoriteRow }) {
   const { url } = useImageUrl(favorite.thumbKey);
-  // AGENTS.md §3: output aspect == input aspect. Mirror it on the container so
-  // tall paintings aren't center-cropped to square in the favorites grid.
+  // Mirror the OUTPUT aspect ratio on the container. Under 'match' mode
+  // that's the source aspect (preserves the historical AGENTS.md §3
+  // invariant); under 'flip' it's the mirrored aspect. Either way, the
+  // thumbnail container matches the actual tile dimensions so it doesn't
+  // center-crop to square.
+  const aspect = effectiveAspectRatio(favorite);
   return (
     <div
-      style={{ aspectRatio: favorite.sourceAspectRatio.replace(":", "/") }}
+      style={{ aspectRatio: aspect.replace(":", "/") }}
       className="relative w-full overflow-hidden rounded-md ring-1 ring-hairline/60"
     >
       {url ? (
@@ -193,6 +213,11 @@ export function FavoritesPanel() {
                       isFavorite: true,
                       favoritedAt: fav.favoritedAt,
                       sourceAspectRatio: fav.sourceAspectRatio,
+                      // Thread the iteration's aspect-mode through to the
+                      // lightbox snapshot so the snapshot path knows whether
+                      // the tile was flipped — relevant for any future
+                      // display logic that needs the effective tile aspect.
+                      aspectRatioMode: fav.aspectRatioMode ?? "match",
                       modelTier: fav.modelTier,
                       resolution: fav.resolution,
                     });

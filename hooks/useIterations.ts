@@ -29,6 +29,7 @@ import { ulid } from "ulid";
 
 import {
   useCanvas,
+  type AspectRatioMode,
   type Iteration,
   type ModelTier,
   type Resolution,
@@ -41,6 +42,7 @@ interface IterationResponseRow {
   sourceId: string;
   modelTier: ModelTier;
   resolution: Resolution;
+  aspectRatioMode: AspectRatioMode;
   tileCount: number;
   presets: Preset[];
   status: Iteration["status"];
@@ -66,6 +68,7 @@ function rowToIteration(r: IterationResponseRow): Iteration {
     sourceId: r.sourceId,
     modelTier: r.modelTier,
     resolution: r.resolution,
+    aspectRatioMode: r.aspectRatioMode ?? "match",
     tileCount: r.tileCount,
     presets: r.presets,
     status: r.status,
@@ -103,6 +106,7 @@ export function useIterations(): UseIterationsResult {
   const setIterationStatus = useCanvas((s) => s.setIterationStatus);
   const modelTier = useCanvas((s) => s.modelTier);
   const resolution = useCanvas((s) => s.resolution);
+  const aspectRatioMode = useCanvas((s) => s.aspectRatioMode);
   const presets = useCanvas((s) => s.presets);
   const count = useCanvas((s) => s.count);
 
@@ -169,6 +173,7 @@ export function useIterations(): UseIterationsResult {
       sourceId: currentSourceId,
       modelTier,
       resolution,
+      aspectRatioMode,
       tileCount: count,
       presets,
       status: "pending",
@@ -203,6 +208,7 @@ export function useIterations(): UseIterationsResult {
           sourceId: currentSourceId,
           modelTier,
           resolution,
+          aspectRatioMode,
           count,
           presets,
         }),
@@ -315,6 +321,7 @@ export function useIterations(): UseIterationsResult {
     currentSourceId,
     modelTier,
     resolution,
+    aspectRatioMode,
     presets,
     count,
     prependIteration,

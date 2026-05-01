@@ -304,6 +304,8 @@ export function InputBar() {
   const setResolution = useCanvas((s) => s.setResolution);
   const presets = useCanvas((s) => s.presets);
   const setPreset = useCanvas((s) => s.setPreset);
+  const aspectRatioMode = useCanvas((s) => s.aspectRatioMode);
+  const setAspectRatioMode = useCanvas((s) => s.setAspectRatioMode);
   const count = useCanvas((s) => s.count);
   const setCount = useCanvas((s) => s.setCount);
 
@@ -498,6 +500,20 @@ export function InputBar() {
                 ]}
                 onChange={setResolution}
                 ariaLabel="Resolution"
+              />
+              {/* Aspect-ratio mode. Default 'match' = source aspect (preserves
+                  the historical AGENTS.md §3 invariant). 'flip' swaps W:H so
+                  portrait sources generate landscape outputs and vice versa
+                  (1:1 stays 1:1). Self-documenting via the labels — Zuzi
+                  discovers what it does by trying it. */}
+              <PillToggle
+                value={aspectRatioMode}
+                options={[
+                  { value: "match", label: "Match" },
+                  { value: "flip", label: "Flip" },
+                ]}
+                onChange={setAspectRatioMode}
+                ariaLabel="Aspect"
               />
               <CountStepper count={count} setCount={setCount} />
               <span className="text-xs text-text-mute tabular-nums">

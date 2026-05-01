@@ -1,0 +1,15 @@
+-- Add iterations.aspect_ratio_mode for the new "Aspect: Match | Flip" toggle
+-- in the InputBar. 'match' (default, preserves the historical
+-- AGENTS.md §3 "output aspect == input aspect" invariant) uses the source's
+-- aspect ratio. 'flip' swaps W:H so portrait sources generate landscape
+-- outputs and vice versa (1:1 stays 1:1).
+--
+-- Stored per-iteration (not per-source) so historical rows always render
+-- with the right effective aspect even after a future column rename or a
+-- mid-flight UI flag change. The worker reads `aspect_ratio_mode`,
+-- computes the target ratio via `flipAspectRatio` from
+-- `lib/gemini/aspectRatio.ts`, and passes that to both
+-- `imageConfig.aspectRatio` AND the `{aspectRatio}` interpolation in the
+-- prompt body — both must agree so Pro renders at the right dimensions
+-- and the prompt's aspect sentence matches the actual output.
+ALTER TABLE `iterations` ADD `aspect_ratio_mode` text DEFAULT 'match' NOT NULL;

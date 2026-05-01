@@ -84,6 +84,7 @@ export async function GET(req: Request): Promise<Response> {
       sourceId: it.source_id,
       modelTier: it.model_tier,
       resolution: it.resolution,
+      aspectRatioMode: it.aspect_ratio_mode,
       tileCount: it.tile_count,
       presets: parseStoredPresets(it.presets),
       status: it.status,

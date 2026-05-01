@@ -51,6 +51,7 @@ import { useMemo } from "react";
 
 import { Tile } from "./Tile";
 import { useCanvas, type Iteration } from "@/stores/canvas";
+import { flipAspectRatio } from "@/lib/gemini/aspectRatio";
 
 const PRESET_LABEL: Record<string, string> = {
   color: "color",
@@ -81,13 +82,22 @@ interface IterationRowProps {
 export function IterationRow({ iteration }: IterationRowProps) {
   const optimistic = iteration.id.startsWith("opt-");
 
-  // AGENTS.md §3: output aspect == input aspect. Tile containers must mirror
-  // the source's aspectRatio so thumbs aren't center-cropped to square.
-  // Defensive fallback to 1:1 if the source isn't in the store yet.
+  // Tile containers must mirror the OUTPUT aspect ratio so thumbs aren't
+  // center-cropped to square. AGENTS.md §3 originally pinned this to the
+  // source's aspect ratio (output == input invariant); the InputBar's new
+  // "Aspect: Match | Flip" toggle introduces a per-iteration mode that
+  // mirrors W:H when set to 'flip'. Display aspect = source aspect under
+  // 'match', flipped source aspect under 'flip'. Defensive fallback to 1:1
+  // if the source isn't in the store yet (cross-source FavoritesPanel
+  // iterations from archived sources, etc.).
   const source = useCanvas((s) =>
     s.sources.find((src) => src.sourceId === iteration.sourceId),
   );
-  const aspectRatio = source?.aspectRatio ?? "1:1";
+  const sourceAspect = source?.aspectRatio ?? "1:1";
+  const aspectRatio =
+    iteration.aspectRatioMode === "flip"
+      ? flipAspectRatio(sourceAspect)
+      : sourceAspect;
 
   const presetLabel = useMemo(() => {
     if (iteration.presets.length === 0) return "make beautiful";

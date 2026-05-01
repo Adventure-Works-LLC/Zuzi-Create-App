@@ -153,6 +153,11 @@ if (!colorSolo.includes("Skin is identity — never touch it")) {
   fail("[color]", "Color v4 lost skin-identity anchor ('Skin is identity — never touch it') — risk of skin-tone-shift regression (lesson #7)");
 }
 
+const lightingSolo = buildPrompt({ presets: ["lighting"], aspectRatio: "4:5" });
+if (!lightingSolo.startsWith("This painting's lighting should be developed and pushed")) {
+  fail("[lighting]", "Lighting v1 prompt regressed (push-the-lighting opener canary missing)");
+}
+
 // --- 4: dominator routing must fire when combined with other presets ---
 const ambColor = buildPrompt({ presets: ["color", "ambiance"], aspectRatio: "4:5" });
 if (!ambColor.startsWith("This painting is the artist's work-in-progress.")) {
@@ -195,5 +200,5 @@ if (failures.length > 0) {
 }
 
 console.log(
-  `[check-prompts] ok — ${totalRenders} prompt renders across ${combos.length} preset combos × ${RATIOS.length} aspect ratios + 16 canary checks all green.`,
+  `[check-prompts] ok — ${totalRenders} prompt renders across ${combos.length} preset combos × ${RATIOS.length} aspect ratios + 17 canary checks all green.`,
 );

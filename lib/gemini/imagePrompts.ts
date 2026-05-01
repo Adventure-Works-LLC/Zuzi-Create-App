@@ -190,6 +190,38 @@ Do NOT shift skin. Do NOT darken the painting overall. Do NOT shift mood toward 
 The result should look like the same painting after the artist made one focused color pass with confidence and joy — bolder, richer, more painterly choices, fully alive in her warm peaceful register.`;
 
 // ---------------------------------------------------------------------------
+// LIGHTING — v1 locked.
+// ---------------------------------------------------------------------------
+
+const LIGHTING_PROMPT_BODY = `This painting's lighting should be developed and pushed — not preserved, not just refined. Imagine the artist sat back down at this painting an hour later, looked at it with fresh eyes, and decided to push the lighting further with more confidence and intention. She'd find more interesting light direction. She'd resolve the shadow areas with more atmospheric depth. She'd let the light shape the mood more deliberately. She'd lean into the warmth and quietness her work always wants.
+
+That's the operation: the same painting, after she pushed the lighting one more pass with confidence and intention.
+
+Read the source carefully first. What is the artist doing with light? Where is the light coming from — is it daylight, window light, ambient room light, soft overhead? What's the value relationship — gentle and even, or with more contrast? What mood is the lighting creating? What's she TRYING to achieve with the light?
+
+Your job is to identify her lighting intent and DEVELOP it — push the light direction more confidently, resolve shadow passages with more painterly depth, give the painting more atmospheric weight through light, make the lighting more intentional and beautiful. You have artistic license to make real lighting choices — shift the perceived light direction slightly if it serves the painting better, deepen shadows where atmosphere needs it, brighten light passages where they need to sing — as long as the choices feel like a confident painter's second pass.
+
+Channel the lighting sensibility of 1980s and 1990s hand-animated cel animation in their AIRY DAYLIGHT register — Howl's Moving Castle window light, Kiki's Delivery Service summer afternoon light, Totoro daylight forest light, Belle's library warm interior light. Painterly atmospheric light that feels considered and storytelling-rich, with gentle warmth in the highlights and considered painted depth in the shadows. The animation reference is for the QUALITY and CONFIDENCE of the lighting — not for setting choice or rendering style.
+
+CRITICAL on mood: this artist's work is PEACEFUL, GENTLE, and QUIETLY WARM. Her paintings have a calm daydream quality — soft warmth, airy light, gentle cheerfulness, contemplative ease. The pushed lighting must amplify that peaceful warmth, not introduce a different emotional register. Stronger light direction served by gentleness. Deeper shadows served by atmospheric warmth, not by drama. Pushed contrast served by calm, not by chiaroscuro tension. Not moody. Not dark. Not dramatic. Not gloomy. The lighting development makes the painting MORE alive within her warm peaceful register, not less.
+
+ABSOLUTE RULE on skin tones: skin colors stay IDENTICAL to the input. Do not shift skin hue, do not change skin warmth or coolness, do not redistribute skin values, do not darken skin. Faces, hands, exposed skin must look exactly as she painted them. Even when shifting lighting on the rest of the painting, skin tones are exempt. Skin is identity — never touch it.
+
+CRITICAL on palette: don't change her colors. The hues in the input stay the hues in the output. Only the VALUES (lightness/darkness within each color region) and the lighting QUALITY (warmth, depth, direction, atmospheric weight) shift. Her existing palette family stays intact — you're sculpting the light on her existing colors, not changing what colors are there.
+
+For everything else (clothing values, environmental atmosphere, shadow passages, ambient light areas): take real creative license with the lighting. Push light direction more confidently. Deepen shadow passages where atmosphere wants depth. Brighten light passages where they need to glow gently. Find painterly value relationships her first pass didn't reach. Make the lighting feel like a confident painter shaped it intentionally.
+
+Render everything entirely in HER style. Her exact brushwork, her exact marks, her exact level of finish, her exact line work. Dry media — chalky pastel, charcoal, colored pencil — RESTRAINED. Surface dry, granular, chalky. NOT wet oil paint. NOT painterly blended brushwork. NOT cel-animation finish. NOT smooth digital rendering. The pushed lighting must come through her dry chalky mark register — light and shadow built up through chalky pastel layering, not through rendered gradients.
+
+Her line work, marks, surface texture, motifs (polka dots, vertical strokes, decorative elements) all stay intact. Her palette stays intact. Only lighting/value choices shift — but they shift with confidence and intention, not timidly.
+
+Preserve EXACTLY: brushwork, mark-making, drawing style, composition, framing, subject, level of finish, color choices and palette family, skin tones, peaceful warm mood, dry chalky restrained surface register, her wonky gestural shape language, her existing motifs.
+
+Do NOT shift skin tones. Do NOT change her color choices or hue family. Do NOT darken the painting overall. Do NOT shift mood toward moody, gloomy, melancholic, dramatic, cold, grey, or shadowed. Do NOT introduce chiaroscuro or romantic-photography moodiness. Do NOT use AI-illustration finish or smooth her marks. Do NOT use rendered gradient lighting. Do NOT make the painting look digital, printed, or vector. Do NOT make timid lateral lighting changes that lack real artistic intent — make confident pushed choices. Do NOT abandon her motifs. Do NOT change subject, proportions, or rendering.
+
+The result should look like the same painting after the artist made one focused lighting pass with confidence and intention — more atmospheric depth, more considered light direction, more painterly value relationships, fully alive in her warm peaceful register.`;
+
+// ---------------------------------------------------------------------------
 // AMBIANCE — v8 locked.
 // ---------------------------------------------------------------------------
 
@@ -457,10 +489,20 @@ export function buildPrompt({ presets, aspectRatio }: BuildPromptArgs): string {
     return `${COLOR_PROMPT_BODY}\n\nMatch the input aspect ratio exactly (${aspectRatio}).`;
   }
 
-  // 5. Templated path — only reached for `['lighting']` solo today. Lighting
-  //    hasn't been Krea-iterated yet; when it is, port to a dedicated body
-  //    + early-return, same as the other three. The templated builder will
-  //    then have no callers and can be deleted.
+  // 5. Lighting — fourth dominator under the v1 lock. Order doesn't matter
+  //    for the mutually-exclusive UI (only one preset is ever sent), but
+  //    placing Lighting last in the ladder means legacy multi-preset rows
+  //    that combined Lighting with another dominator still route to that
+  //    higher-priority dominator (preserves prior routing behavior for
+  //    historical iterations in DB).
+  if (presets.includes("lighting")) {
+    return `${LIGHTING_PROMPT_BODY}\n\nMatch the input aspect ratio exactly (${aspectRatio}).`;
+  }
+
+  // 6. Templated path — now unreachable under the current preset set
+  //    (every preset has a locked body + early-return above). Kept in
+  //    place as legacy / safety-net code in case a new composer preset
+  //    is ever added; collapsing to a 4-way switch is a future cleanup.
   //
   //    Project to a deduped, stably-ordered array of valid presets. The
   //    filter ensures that a malformed input (already validated upstream,

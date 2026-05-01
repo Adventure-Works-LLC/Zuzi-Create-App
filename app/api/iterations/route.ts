@@ -77,33 +77,46 @@ export async function GET(req: Request): Promise<Response> {
     tilesByIter.set(t.iteration_id, arr);
   }
 
-  const iterations = iterRows.map((it) => {
-    const ts = (tilesByIter.get(it.id) ?? []).slice().sort((a, b) => a.idx - b.idx);
-    return {
-      id: it.id,
-      sourceId: it.source_id,
-      modelTier: it.model_tier,
-      resolution: it.resolution,
-      aspectRatioMode: it.aspect_ratio_mode,
-      tileCount: it.tile_count,
-      presets: parseStoredPresets(it.presets),
-      status: it.status,
-      createdAt: it.created_at,
-      completedAt: it.completed_at,
-      tiles: ts.map((t) => ({
-        id: t.id,
-        idx: t.idx,
-        status: t.status,
-        outputKey: t.output_image_key,
-        thumbKey: t.thumb_image_key,
-        errorMessage: t.error_message,
-        isFavorite: t.is_favorite === 1,
-        favoritedAt: t.favorited_at,
-        createdAt: t.created_at,
-        completedAt: t.completed_at,
-      })),
-    };
-  });
+  const iterations = iterRows
+    .map((it) => {
+      const ts = (tilesByIter.get(it.id) ?? []).slice().sort((a, b) => a.idx - b.idx);
+      return {
+        id: it.id,
+        sourceId: it.source_id,
+        modelTier: it.model_tier,
+        resolution: it.resolution,
+        aspectRatioMode: it.aspect_ratio_mode,
+        tileCount: it.tile_count,
+        presets: parseStoredPresets(it.presets),
+        status: it.status,
+        createdAt: it.created_at,
+        completedAt: it.completed_at,
+        tiles: ts.map((t) => ({
+          id: t.id,
+          idx: t.idx,
+          status: t.status,
+          outputKey: t.output_image_key,
+          thumbKey: t.thumb_image_key,
+          errorMessage: t.error_message,
+          isFavorite: t.is_favorite === 1,
+          favoritedAt: t.favorited_at,
+          createdAt: t.created_at,
+          completedAt: t.completed_at,
+        })),
+      };
+    })
+    // Drop iterations whose tiles[] is empty (all soft-deleted, or never
+    // had any). Belt-and-suspenders for the per-delete cleanup in
+    // /api/tiles/:id — handles legacy data where every tile of an
+    // iteration was soft-deleted before the cleanup path existed, AND
+    // iterations whose worker never produced any tile rows (rare,
+    // worker race). The IterationRow component renders a header + tile
+    // grid; with `tiles: []` the header renders alone, which the user
+    // sees as a phantom row. Filtering here removes it from the read
+    // path. The boot-time sweep (instrumentation.ts) reaps the DB rows
+    // on the next deploy so the filter doesn't carry indefinite
+    // overhead.
+    .filter((it) => it.tiles.length > 0);
 
   return NextResponse.json({ iterations }, { status: 200 });
 }

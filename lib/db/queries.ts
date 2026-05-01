@@ -336,6 +336,102 @@ export function countActiveTilesForIteration(iterationId: string): number {
   return row?.count ?? 0;
 }
 
+/**
+ * Set `usage_log.iteration_id = NULL` for rows referencing this single
+ * iteration. Same rationale as `nullifyUsageLogForSource` but scoped to
+ * one iteration — used by the empty-iteration cleanup path triggered
+ * when a user soft-deletes the last active tile of an iteration.
+ *
+ * Preserves the cost record (cap math still sees the spend) while
+ * breaking the FK link so the iteration row can be hard-deleted.
+ */
+export function nullifyUsageLogForIteration(iterationId: string): void {
+  db()
+    .update(usage_log)
+    .set({ iteration_id: null })
+    .where(eq(usage_log.iteration_id, iterationId))
+    .run();
+}
+
+/**
+ * Hard-delete an iteration row. Returns true iff the row existed.
+ * CASCADE on `tiles.iteration_id` removes the corresponding tile rows
+ * (including soft-deleted ones — the FK doesn't care about deleted_at).
+ *
+ * Caller must have already cleared any usage_log references via
+ * `nullifyUsageLogForIteration` — the FK has no ON DELETE clause so
+ * leaving usage_log rows pointing at this iteration would fail the
+ * delete (RESTRICT is the SQLite default).
+ *
+ * Used by the empty-iteration cleanup path; wrapped at the API layer
+ * in a transaction with the usage_log nullify so the whole operation
+ * is atomic.
+ */
+export function hardDeleteIteration(iterationId: string): boolean {
+  const result = db()
+    .delete(iterations)
+    .where(eq(iterations.id, iterationId))
+    .run();
+  return result.changes > 0;
+}
+
+/**
+ * Boot-sweep cleanup: hard-delete every iteration row that has zero
+ * active tiles. Used by `instrumentation.ts` to reap legacy empty
+ * iterations on each deploy — handles iterations whose every tile was
+ * soft-deleted before the per-delete cleanup path existed (the
+ * /api/tiles/:id route's transaction adds the cleanup going forward,
+ * but pre-existing all-deleted iterations would otherwise linger).
+ *
+ * Excludes iterations whose status is still `pending` or `running` —
+ * those may be mid-stream from a worker that hasn't materialized any
+ * tile rows yet (rare race, but real). Only sweep `done` and `failed`
+ * iterations.
+ *
+ * Returns the number of iterations reaped. Wrapped in a single
+ * transaction so the whole sweep is atomic.
+ */
+export function cleanupEmptyIterations(): number {
+  // Find iteration ids that have zero active tiles AND are in a
+  // terminal status. Subquery: NOT EXISTS (SELECT 1 FROM tiles WHERE
+  // iteration_id = ? AND deleted_at IS NULL).
+  const empties = db()
+    .select({ id: iterations.id })
+    .from(iterations)
+    .where(
+      and(
+        or(eq(iterations.status, "done"), eq(iterations.status, "failed")),
+        sql`NOT EXISTS (
+          SELECT 1 FROM ${tiles}
+           WHERE ${tiles.iteration_id} = ${iterations.id}
+             AND ${tiles.deleted_at} IS NULL
+        )`,
+      ),
+    )
+    .all();
+  if (empties.length === 0) return 0;
+  const ids = empties.map((e) => e.id);
+  let count = 0;
+  db().transaction((tx) => {
+    // Nullify usage_log refs first (RESTRICT default would block the
+    // DELETE otherwise — same rationale as the per-iteration cleanup
+    // helper).
+    tx.update(usage_log)
+      .set({ iteration_id: null })
+      .where(inArray(usage_log.iteration_id, ids))
+      .run();
+    // Hard-delete the iterations. CASCADE removes the tile rows
+    // (including soft-deleted ones — they were already excluded from
+    // read paths via deleted_at IS NOT NULL).
+    const result = tx
+      .delete(iterations)
+      .where(inArray(iterations.id, ids))
+      .run();
+    count = result.changes;
+  });
+  return count;
+}
+
 export function updateTile(
   iterationId: string,
   idx: number,

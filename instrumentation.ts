@@ -65,13 +65,27 @@ export async function register(): Promise<void> {
   // 2) Boot sweep. Wrapped in try so a sweep failure doesn't crash the
   //    server — a missed sweep is recoverable; a missed migration isn't.
   try {
-    const { markStalePendingFailed } = await import("./lib/db/queries");
+    const { cleanupEmptyIterations, markStalePendingFailed } = await import(
+      "./lib/db/queries"
+    );
     const { scanRecovery } = await import("./lib/recovery");
 
     const stale = markStalePendingFailed(5 * 60_000);
     if (stale > 0) {
       console.warn(
         `[boot] markStalePendingFailed: ${stale} tile(s) marked failed (server_restart)`,
+      );
+    }
+
+    // Reap legacy empty iterations. The /api/tiles/:id DELETE handler
+    // hard-deletes the iteration in the same transaction as the last
+    // tile soft-delete going forward, but pre-existing all-deleted
+    // iterations need a one-shot cleanup. Cheap (single SELECT NOT
+    // EXISTS + bounded DELETE), self-healing on every deploy.
+    const empties = cleanupEmptyIterations();
+    if (empties > 0) {
+      console.log(
+        `[boot] cleanupEmptyIterations: reaped ${empties} iteration row(s) with zero active tiles`,
       );
     }
 

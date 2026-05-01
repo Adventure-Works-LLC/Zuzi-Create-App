@@ -1,24 +1,35 @@
 /**
- * DELETE /api/tiles/:id — soft-delete a tile.
+ * DELETE /api/tiles/:id — soft-delete a tile, with empty-iteration cleanup.
  *
  * Sets `tiles.deleted_at = now` so all read paths (stream, favorites,
  * lightbox) drop the tile immediately. Idempotent: re-deleting a row that's
  * already soft-deleted returns 200 with `{ alreadyDeleted: true }` instead
  * of failing.
  *
+ * EMPTY ITERATION CLEANUP: After the soft-delete lands, if the iteration
+ * has zero remaining active tiles, hard-delete the iteration row in the
+ * SAME transaction. CASCADE on `tiles.iteration_id` removes the soft-
+ * deleted tile rows. `usage_log.iteration_id` is nullified first (the FK
+ * has no ON DELETE clause; preserves the cost record, breaks the link).
+ * This prevents orphan iteration rows from accumulating in the DB once
+ * a user has deleted every tile of an iteration.
+ *
  * Returns:
  *   {
  *     id: string,                   // the tile id
  *     iterationId: string,          // for the client to update store state
- *     activeTileCountForIteration: number  // 0 means the iteration's stream
- *                                          // row should fade out next
+ *     activeTileCountForIteration: number  // 0 means the iteration was
+ *                                          // hard-deleted in this request
+ *     iterationDeleted: boolean,    // true iff cleanup ran
+ *     alreadyDeleted: boolean,
  *   }
  *
  * Tiles are cheap to regenerate (re-Generate with the same presets) so this
  * is one-tier — there's no user-facing recovery flow. The `deleted_at`
- * column exists primarily so we don't have to reckon with FK-cascade
- * implications of a hard delete on a still-referenced row, AND so a future
- * periodic cleanup job can sweep aging soft-deleted tiles + their R2 keys.
+ * column on tiles still exists for the in-flight delete window: between
+ * soft-delete and the (possibly never-firing) iteration cleanup, the tile
+ * is `deleted_at IS NOT NULL` and excluded from read paths via the
+ * existing partial indexes.
  *
  * Auth required. runtime = 'nodejs' for better-sqlite3.
  */
@@ -26,9 +37,12 @@
 import { NextResponse } from "next/server";
 
 import { getSession } from "@/lib/auth/session";
+import { db } from "@/lib/db/client";
 import {
   countActiveTilesForIteration,
   getTile,
+  hardDeleteIteration,
+  nullifyUsageLogForIteration,
   softDeleteTile,
 } from "@/lib/db/queries";
 
@@ -77,21 +91,44 @@ export async function DELETE(
     );
   }
 
-  const didChange = softDeleteTile(id);
-  // Recompute the active-tile count AFTER the delete so the client knows if
-  // this was the last tile of its iteration. If it was, the client fades the
-  // iteration's row out of the stream (the iteration row itself stays in DB
-  // for backup / debugging; a future cleanup job can hard-delete iterations
-  // whose tile count has been zero for >N days).
-  const activeTileCountForIteration = countActiveTilesForIteration(
-    tile.iteration_id,
-  );
+  // Atomic block: soft-delete the tile, count remaining active tiles, and
+  // (if zero) hard-delete the iteration row + nullify usage_log refs in
+  // ONE transaction. Either the delete succeeds end-to-end or it rolls
+  // back — no half-deleted iteration with stale usage_log references.
+  let didChange = false;
+  let activeTileCountForIteration = 0;
+  let iterationDeleted = false;
+  try {
+    db().transaction(() => {
+      didChange = softDeleteTile(id);
+      activeTileCountForIteration = countActiveTilesForIteration(
+        tile.iteration_id,
+      );
+      if (activeTileCountForIteration === 0) {
+        // Zero active tiles remain — clean up the now-empty iteration row.
+        // Order matters: nullify usage_log FK first (RESTRICT default
+        // would otherwise block the DELETE), then hard-delete the
+        // iteration (CASCADE removes the soft-deleted tile rows).
+        nullifyUsageLogForIteration(tile.iteration_id);
+        iterationDeleted = hardDeleteIteration(tile.iteration_id);
+      }
+    });
+  } catch (e) {
+    return NextResponse.json(
+      {
+        error: "delete_failed",
+        detail: e instanceof Error ? e.message : String(e),
+      },
+      { status: 500 },
+    );
+  }
 
   return NextResponse.json(
     {
       id,
       iterationId: tile.iteration_id,
       activeTileCountForIteration,
+      iterationDeleted,
       alreadyDeleted: !didChange,
     },
     { status: 200 },

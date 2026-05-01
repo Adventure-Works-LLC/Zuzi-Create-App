@@ -160,6 +160,13 @@ interface CanvasState {
   // ---- favorites panel ----
   favoritesOpen: boolean;
   setFavoritesOpen: (open: boolean) => void;
+
+  // ---- hidden (archived) sources panel ----
+  // Slide-in drawer (mirrors FavoritesPanel) that lists sources with
+  // archived_at != null. Each row exposes Unhide (restore) + Delete-
+  // forever buttons. Opened from a small icon in the SourceStrip header.
+  hiddenSourcesOpen: boolean;
+  setHiddenSourcesOpen: (open: boolean) => void;
 }
 
 export const useCanvas = create<CanvasState>((set) => ({
@@ -307,6 +314,10 @@ export const useCanvas = create<CanvasState>((set) => ({
   // ---- favorites panel ----
   favoritesOpen: false,
   setFavoritesOpen: (open) => set({ favoritesOpen: open }),
+
+  // ---- hidden sources panel ----
+  hiddenSourcesOpen: false,
+  setHiddenSourcesOpen: (open) => set({ hiddenSourcesOpen: open }),
 }));
 
 /** When the source list changes, decide what currentSourceId should be. Keeps

@@ -95,21 +95,21 @@ export async function GET(
         );
       };
 
-      // Heartbeat: SSE comment lines (`:` prefix) every 15s. Browsers ignore
-      // them but Cloudflare/Railway intermediates see them as activity and
-      // won't kill the connection during long silences (Pro 4K runs +
-      // callWithRetry's 1+3 attempt chain at 2s/5s/12s backoff can produce
-      // ~25s+ silences between bus events). 15s is well under the typical
-      // 30s idle-kill threshold of edge intermediaries. Cleared in
-      // closeStream so the timer never outlives the connection.
-      const heartbeat: ReturnType<typeof setInterval> = setInterval(() => {
-        enqueue(":\n\n");
-      }, 15000);
+      // Heartbeat declared as `let` so the closeStream closure (declared
+      // BEFORE the timer is started — see below) can reference it via
+      // module-scope. The actual setInterval call is deferred until AFTER
+      // the synchronous replay loop completes; firing the first tick
+      // before replay finishes would interleave heartbeat bytes with
+      // replay events and (theoretically) confuse the client encoder if
+      // replay ever became async/slow. Today replay is synchronous
+      // SQLite + enqueue (microseconds), but matching the spec
+      // ordering keeps the contract clean.
+      let heartbeat: ReturnType<typeof setInterval> | null = null;
 
       const closeStream = () => {
         if (closed) return;
         closed = true;
-        clearInterval(heartbeat);
+        if (heartbeat !== null) clearInterval(heartbeat);
         unsubscribe();
         try {
           controller.close();
@@ -154,6 +154,21 @@ export async function GET(
           `[stream ${iterationId}] DB replay failed:`,
           e instanceof Error ? e.message : e,
         );
+      }
+
+      // 4) Start the heartbeat AFTER the replay loop. SSE comment lines
+      // (`:` prefix) every 15s. Browsers ignore them but Cloudflare /
+      // Railway intermediates see them as activity and won't kill the
+      // connection during long silences (Pro 4K runs + callWithRetry's
+      // 1+3 attempt chain at 2s/5s/12s backoff can produce ~25s+ silences
+      // between bus events). 15s is well under the typical 30s idle-kill
+      // threshold of edge intermediaries. Cleared in closeStream so the
+      // timer never outlives the connection. Skipped entirely if
+      // closeStream already ran (replay short-circuit above).
+      if (!closed) {
+        heartbeat = setInterval(() => {
+          enqueue(":\n\n");
+        }, 15000);
       }
 
       // Cleanup if the client disconnects.

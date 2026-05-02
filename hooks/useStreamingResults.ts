@@ -57,11 +57,6 @@ export function useStreamingResults(): void {
 
   // Track which iteration ids we've already attached an EventSource for.
   const attachedRef = useRef<Map<string, EventSource>>(new Map());
-  // Bumped to force the reconcile effect below to re-run after a
-  // visibilitychange-forced close, so dropped connections are reopened
-  // on the very next render rather than waiting for the next iterations
-  // store update (which may never come — iterations are stable mid-run).
-  const reconnectTickRef = useRef(0);
 
   useEffect(() => {
     const attached = attachedRef.current;
@@ -126,8 +121,6 @@ export function useStreamingResults(): void {
         attached.delete(id);
       }
     }
-    // reconnectTickRef bump triggers a re-run after visibilitychange-forced
-    // close so the loop above re-opens ESes for the same wantedIds set.
   }, [iterations, updateTile, setIterationStatus]);
 
   // visibilitychange-forced reconnect. iOS Safari can leave EventSource in
@@ -140,18 +133,13 @@ export function useStreamingResults(): void {
       if (typeof document === "undefined") return;
       if (document.visibilityState !== "visible") return;
       const attached = attachedRef.current;
-      // Close every ES and clear the attached map. The reconcile effect
-      // above re-opens streams for whatever iterations are still pending
-      // — we trigger that re-run by bumping reconnectTickRef and forcing
-      // the canvas store's iterations reference to be re-read on next
-      // render. Because the dependency array of the reconcile effect is
-      // [iterations, updateTile, setIterationStatus], a state change in
-      // the store would trigger it; but iterations may be referentially
-      // stable mid-run, so we directly call the open-loop logic here by
-      // touching the same map and relying on React's microtask flush —
-      // simplest path: clear attached, then schedule a setState-equivalent
-      // via the store. Subscribe to iterations once to read the current
-      // pending ids and re-open immediately.
+      // Close every ES and clear the attached map, then re-open inline
+      // for currently-pending iterations using the latest store
+      // snapshot. We do the reopen INLINE rather than nudging the
+      // reconcile effect via state because iterations is often
+      // referentially stable mid-run — a re-render isn't guaranteed,
+      // and we don't want a dropped tab to wait for the next SSE event
+      // (which may never arrive on the dead connection) before noticing.
       for (const es of attached.values()) {
         try {
           es.close();
@@ -160,13 +148,6 @@ export function useStreamingResults(): void {
         }
       }
       attached.clear();
-      reconnectTickRef.current += 1;
-
-      // Re-open ESes for currently-pending iterations using the latest
-      // store snapshot. We read the store directly (rather than waiting
-      // for React to re-run the reconcile effect) because the iterations
-      // reference is often stable mid-run and a re-render isn't
-      // guaranteed; this guarantees reopen within the same tick.
       const current = useCanvas.getState().iterations;
       const wantedIds = current
         .filter(

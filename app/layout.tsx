@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Inter, Fraunces } from "next/font/google";
 import "./globals.css";
 import { PwaRegister } from "@/components/PwaRegister";
+import { RootErrorBoundary } from "@/components/RootErrorBoundary";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -101,7 +102,13 @@ export default function RootLayout({
       className={`${inter.variable} ${fraunces.variable} antialiased`}
     >
       <body className="font-sans min-h-svh">
-        {children}
+        {/* RootErrorBoundary wraps children so any throw during render or
+            in a useEffect surfaces a recoverable UI instead of crashing
+            the React root and triggering iPad Safari's "This page
+            couldn't load" white screen. PwaRegister stays OUTSIDE the
+            boundary so the SW + reset-and-reload affordance keep working
+            even if children threw. */}
+        <RootErrorBoundary>{children}</RootErrorBoundary>
         <PwaRegister />
       </body>
     </html>

@@ -7,6 +7,7 @@
  *   - Use as Source (uploads the rendered tile back as a new source row,
  *     making it the current source for the next generate)
  *   - Share (Web Share API → save to camera roll / AirDrop / Messages)
+ *   - Compare (toggles the Compare-with-Original split layout)
  *   - Favorite (heart toggle)
  *   - Close
  *
@@ -18,10 +19,18 @@
  * generate runs against THAT tile. The flow re-uploads the tile bytes via
  * /api/sources so the new source has its own row + id (no implicit
  * "tile-as-source" coupling in the schema).
+ *
+ * Compare mode: shows the original painting alongside the generated tile so
+ * Zuzi can A/B them at full size. Splits horizontally on landscape iPad,
+ * stacks vertically on portrait so each image gets the full inner width
+ * (~800px) — two portrait paintings side-by-side at 834px viewport leaves
+ * each image too small to see brushwork. Toggle persists per-tile until the
+ * lightbox closes or the user switches to another tile (then resets to
+ * single-view, which is the right default for "open a tile to look at it").
  */
 
 import { useEffect, useRef, useState } from "react";
-import { Loader2, Star, Share2, X, ArrowUpFromLine } from "lucide-react";
+import { Loader2, Star, Share2, X, ArrowUpFromLine, Columns2 } from "lucide-react";
 
 import { useCanvas } from "@/stores/canvas";
 import { useImageUrl } from "@/hooks/useImageUrl";
@@ -38,6 +47,12 @@ interface LightboxView {
   idx: number;
   outputKey: string | null;
   isFavorite: boolean;
+  /** R2 key for the source painting that produced this tile, or null if
+   *  the source isn't reachable from current state (e.g. the by-id path
+   *  during an in-flight source archive). Used by Compare mode to render
+   *  the original alongside the generated tile. Null is the "no compare"
+   *  signal — the Compare button stays hidden in that defensive case. */
+  sourceInputKey: string | null;
 }
 
 export function Lightbox() {
@@ -53,6 +68,13 @@ export function Lightbox() {
   // We pull setFavoritesOpen here so the success path can close it.
   const setFavoritesOpen = useCanvas((s) => s.setFavoritesOpen);
   const iterations = useCanvas((s) => s.iterations);
+  // For the by-id path (Tile.tsx → walk iterations[]) we resolve the
+  // source's R2 key by iteration.sourceId → sources[]. The snapshot path
+  // (FavoritesPanel) ships sourceInputKey on the snapshot itself because
+  // archived sources aren't loaded into sources[] and a store lookup
+  // would miss. sources[] is short (3-10 active items) so this selector
+  // is essentially free; the lightbox re-renders on store changes anyway.
+  const sources = useCanvas((s) => s.sources);
 
   const isOpen = lightboxTileId !== null || lightboxSnapshot !== null;
 
@@ -75,18 +97,32 @@ export function Lightbox() {
         idx: lightboxSnapshot.idx,
         outputKey: lightboxSnapshot.outputKey,
         isFavorite: lightboxSnapshot.isFavorite,
+        // Snapshot already carries the source's R2 key — populated by
+        // FavoritesPanel from the server-side join. No store fallback
+        // needed; the snapshot path is self-contained.
+        sourceInputKey: lightboxSnapshot.sourceInputKey,
       };
     }
     if (lightboxTileId !== null) {
       for (const it of iterations) {
         const t = it.tiles.find((x) => x.id === lightboxTileId);
         if (t) {
+          // Resolve sourceInputKey from the canvas store. For the by-id
+          // path the iteration is in iterations[] (current source's
+          // stream), and the source must be in sources[] to be the
+          // current source — so this lookup almost always hits. The
+          // null fallback handles the edge case of an in-flight source
+          // archive where iterations[] still has rows but sources[]
+          // already filtered the source out (the lightbox stays usable
+          // for single-view; Compare button hides defensively).
+          const src = sources.find((s) => s.sourceId === it.sourceId);
           return {
             tileId: t.id,
             iterationId: it.id,
             idx: t.idx,
             outputKey: t.outputKey,
             isFavorite: t.isFavorite,
+            sourceInputKey: src?.inputKey ?? null,
           };
         }
       }
@@ -96,10 +132,21 @@ export function Lightbox() {
 
   const fullKey = view?.outputKey ?? null;
   const { url } = useImageUrl(fullKey);
+  // Source key for Compare-with-Original mode. useImageUrl no-ops cleanly
+  // when the key is null (returns { url: null }), so threading the same
+  // hook here is safe even when there's no source to compare against
+  // (defensive fallback case described on the LightboxView interface).
+  const sourceKey = view?.sourceInputKey ?? null;
+  const { url: sourceUrl } = useImageUrl(sourceKey);
   const { toggle } = useFavorites();
   const { canShare } = useShare();
   const { promoteFromTile } = useSources();
   const [busyAction, setBusyAction] = useState<"share" | "use" | null>(null);
+  /** Compare-with-Original split layout toggle. Off by default — most
+   *  lightbox opens are "tap a tile to look at it", and forcing the user
+   *  to dismiss a split view they didn't ask for would be hostile. Resets
+   *  on tile switch and on close (see effects below). */
+  const [compareOpen, setCompareOpen] = useState(false);
   /** Visible error string for whichever action just failed. Cleared on the
    *  next attempt or close. Replaces the prior swallowed-to-console.warn
    *  pattern that hid Use-as-Source breakage entirely. */
@@ -135,12 +182,13 @@ export function Lightbox() {
     new Map(),
   );
 
-  /** Close clears both state slots and any inline error. Either mode can
-   *  have been the opener. */
+  /** Close clears both state slots, any inline error, and Compare mode.
+   *  Either mode can have been the opener. */
   const closeLightbox = () => {
     setLightboxTile(null);
     setLightboxSnapshot(null);
     setActionError(null);
+    setCompareOpen(false);
   };
 
   // Esc-to-close.
@@ -154,6 +202,22 @@ export function Lightbox() {
     // closeLightbox is stable per-render; Esc handler doesn't depend on view content.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
+
+  // Reset Compare mode when the open tile changes — switching tiles inside
+  // an open lightbox (e.g. via removeIteration redirecting; or a future
+  // swipe-between-tiles flow) should land on the default single view, not
+  // inherit the previous tile's split state. Keyed on view?.tileId so the
+  // change fires exactly when a new tile is the target. Also auto-collapse
+  // if sourceInputKey becomes null mid-view (defensive against an
+  // in-flight source archive).
+  useEffect(() => {
+    setCompareOpen(false);
+  }, [view?.tileId]);
+  useEffect(() => {
+    if (view && view.sourceInputKey === null && compareOpen) {
+      setCompareOpen(false);
+    }
+  }, [view, compareOpen]);
 
   // Reset Share state whenever the open tile (R2 key) changes. The actual
   // pre-fetch is INTENT-DRIVEN now (fired from the Share button's
@@ -504,23 +568,92 @@ export function Lightbox() {
           below the visible viewport and the user can't reach Save / Use as
           source / Favorite / Close. With `min-h-0` the flex item respects its
           flex-basis so `max-h-full` on the <img> resolves against the bounded
-          area and the toolbar stays anchored at the bottom. */}
-      <div
-        className="flex min-h-0 flex-1 items-center justify-center p-6"
-        onClick={(e) => {
-          if (e.target === e.currentTarget) closeLightbox();
-        }}
-      >
-        {url ? (
-          <img
-            src={url}
-            alt=""
-            className="max-h-full max-w-full rounded-md object-contain"
-          />
-        ) : (
-          <Loader2 className="h-8 w-8 text-text-mute animate-spin" />
-        )}
-      </div>
+          area and the toolbar stays anchored at the bottom.
+
+          In Compare mode the single <img> swap to a flex split: rows in
+          landscape, columns in portrait. Two portrait paintings (Zuzi's
+          typical 4:5) side-by-side at iPad portrait (834x1194) leaves each
+          image only ~390px wide — too small to see brushwork; stacking
+          gives each ~800px. Each half independently letterboxes its image
+          via object-contain, which handles the 'flip' case (source 4:5
+          portrait, generated 5:4 landscape) gracefully — neither side
+          crops to the other's aspect. */}
+      {!compareOpen ? (
+        <div
+          className="flex min-h-0 flex-1 items-center justify-center p-6"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) closeLightbox();
+          }}
+        >
+          {url ? (
+            <img
+              src={url}
+              alt=""
+              className="max-h-full max-w-full rounded-md object-contain"
+            />
+          ) : (
+            <Loader2 className="h-8 w-8 text-text-mute animate-spin" />
+          )}
+        </div>
+      ) : (
+        <div
+          className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 p-6 landscape:flex-row"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) closeLightbox();
+          }}
+        >
+          {/* Original (left in landscape, top in portrait). When the
+              source key is null — the defensive case where the by-id
+              path can't resolve the source — render a soft warm
+              placeholder rather than a broken slot, so the layout still
+              reads as a deliberate two-up. */}
+          <div
+            className="flex min-h-0 min-w-0 flex-1 flex-col items-center justify-center gap-2"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) closeLightbox();
+            }}
+          >
+            {sourceKey && sourceUrl ? (
+              <img
+                src={sourceUrl}
+                alt=""
+                className="max-h-full max-w-full rounded-md object-contain"
+              />
+            ) : sourceKey ? (
+              <Loader2 className="h-8 w-8 text-text-mute animate-spin" />
+            ) : (
+              <div className="bloom-warm flex h-32 w-32 items-center justify-center rounded-md">
+                <span className="caption-display text-xs italic text-text-mute">
+                  original unavailable
+                </span>
+              </div>
+            )}
+            <span className="caption-display text-xs text-text-mute/80">
+              Original
+            </span>
+          </div>
+          {/* Generated (right in landscape, bottom in portrait). */}
+          <div
+            className="flex min-h-0 min-w-0 flex-1 flex-col items-center justify-center gap-2"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) closeLightbox();
+            }}
+          >
+            {url ? (
+              <img
+                src={url}
+                alt=""
+                className="max-h-full max-w-full rounded-md object-contain"
+              />
+            ) : (
+              <Loader2 className="h-8 w-8 text-text-mute animate-spin" />
+            )}
+            <span className="caption-display text-xs text-text-mute/80">
+              Generated
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* Inline error banner — surfaces failures from Use-as-Source / Share
           that previously got swallowed to console.warn. `shrink-0` keeps it
@@ -591,6 +724,29 @@ export function Lightbox() {
               <Share2 className="h-4 w-4" strokeWidth={1.5} />
             )}
             Share
+          </button>
+        )}
+        {/* Compare-with-Original toggle. Sits between Share and Favorite —
+            same group of "secondary" actions before Close. Hidden when
+            sourceInputKey is null (defensive — shouldn't happen for the
+            snapshot path, can happen briefly during an in-flight source
+            archive on the by-id path). Active state mirrors the Favorite-
+            active treatment so the lit-up appearance is consistent across
+            the toolbar. */}
+        {view.sourceInputKey !== null && (
+          <button
+            type="button"
+            onClick={() => setCompareOpen((v) => !v)}
+            aria-pressed={compareOpen}
+            className={[
+              "inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm transition-colors no-callout",
+              compareOpen
+                ? "border-[#C9A878]/50 bg-[#C9A878]/15 text-[#E0BE8C]"
+                : "border-white/20 bg-white/5 text-white hover:bg-white/10",
+            ].join(" ")}
+          >
+            <Columns2 className="h-4 w-4" strokeWidth={1.5} />
+            {compareOpen ? "Original" : "Compare"}
           </button>
         )}
         <button

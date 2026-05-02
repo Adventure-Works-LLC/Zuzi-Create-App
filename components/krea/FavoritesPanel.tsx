@@ -27,6 +27,11 @@ interface FavoriteRow {
   sourceId: string;
   sourceArchived: boolean;
   sourceAspectRatio: string;
+  /** R2 key for the original painting that produced this tile. Threaded
+   *  through to the LightboxSnapshot so Compare-with-Original mode can
+   *  render the source alongside the generated tile without an extra
+   *  /api/sources roundtrip. */
+  sourceInputKey: string;
   /** Iteration's aspect-ratio mode at generation time. Combine with
    *  `sourceAspectRatio` to get the tile's effective aspect for display
    *  (`mode === 'flip' ? flip(src) : src`). Optional in the response
@@ -220,6 +225,12 @@ export function FavoritesPanel() {
                       isFavorite: true,
                       favoritedAt: fav.favoritedAt,
                       sourceAspectRatio: fav.sourceAspectRatio,
+                      // Original painting's R2 key — needed by the
+                      // Lightbox's Compare-with-Original mode. Server-side
+                      // join populates this for every favorite, including
+                      // those from archived sources whose iterations[]
+                      // never loaded into the canvas store.
+                      sourceInputKey: fav.sourceInputKey,
                       // Thread the iteration's aspect-mode through to the
                       // lightbox snapshot so the snapshot path knows whether
                       // the tile was flipped — relevant for any future

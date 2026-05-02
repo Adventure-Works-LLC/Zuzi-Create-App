@@ -56,6 +56,12 @@ export async function GET(req: Request): Promise<Response> {
         sourceId: r.source_id,
         sourceArchived: Boolean(r.source_archived),
         sourceAspectRatio: r.source_aspect_ratio,
+        // Original painting's R2 key — threaded through so the
+        // Lightbox's Compare-with-Original mode can render the source
+        // alongside the generated tile. Server-side join means we
+        // never need a /api/sources/:id call from the client even
+        // when the favorite is from an archived source.
+        sourceInputKey: r.source_input_key,
         // Combine with `sourceAspectRatio` to get the tile's effective
         // aspect: `mode === 'flip' ? flip(sourceAspectRatio) :
         // sourceAspectRatio`. Required for the FavoritesPanel thumbnail

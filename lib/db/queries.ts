@@ -533,6 +533,11 @@ export interface FavoriteRow {
   source_id: string;
   source_archived: boolean;
   source_aspect_ratio: string;
+  /** From `sources.input_image_key`. The original painting's R2 key.
+   *  Threaded through to the cross-source Lightbox snapshot so the
+   *  Compare-with-Original mode can render the source alongside the
+   *  generated tile without an extra /api/sources/:id roundtrip. */
+  source_input_key: string;
   iteration_id: string;
   idx: number;
   output_image_key: string | null;
@@ -572,6 +577,7 @@ export function listFavorites(opts: {
       source_id: sources.id,
       source_archived: sql<boolean>`${sources.archived_at} IS NOT NULL`,
       source_aspect_ratio: sources.aspect_ratio,
+      source_input_key: sources.input_image_key,
       iteration_id: iterations.id,
       idx: tiles.idx,
       output_image_key: tiles.output_image_key,

@@ -79,6 +79,12 @@ export interface LightboxSnapshot {
    *  the actual image bytes via sharp, so the flipped value here doesn't
    *  need to be threaded into that flow — it just informs display. */
   sourceAspectRatio: string;
+  /** R2 key for the source painting that produced this tile. Threaded
+   *  through from /api/favorites so the Lightbox's Compare-with-Original
+   *  mode can render the source alongside the generated tile without
+   *  walking back through `useCanvas.sources` (which won't contain the
+   *  source if it's archived and never loaded). */
+  sourceInputKey: string;
   /** Iteration's aspect-ratio mode at generation time. Required so the
    *  cross-source FavoritesPanel → Lightbox path knows whether to flip
    *  `sourceAspectRatio` for display. */

@@ -12,20 +12,36 @@
  * tile is never obscured under the sticky bar.
  *
  * Subscription model (perf-critical — see also IterationRow + Tile):
- *   TileStream subscribes ONLY to the iteration ids in render order plus a
- *   per-iteration tuple of (id, sourceAspectRatio, aspectRatioMode). Both
- *   selectors use `useShallow` so a new iterations[] array reference from
- *   `updateTile` (which fires once per SSE tile event) does NOT re-render
- *   TileStream as long as ids + sources haven't changed. IterationRow then
- *   subscribes to its own iteration object internally and only re-renders
- *   when that single iteration's reference changes (i.e. when one of ITS
- *   tiles updates). Net effect: an SSE event for tile N reconciles only
- *   the IterationRow that owns it, not the whole stream.
+ *   TileStream subscribes to TWO primitive-string slices, both
+ *   `useShallow`-stable:
+ *     1. `iterationIds` — the ids in render order. New iterations
+ *         added/removed/reordered changes this; tile-level updates do NOT.
+ *     2. `iterationAspectShape` — a flat `[id, sourceId, mode]` tuple per
+ *         iteration. Captures the inputs to display-aspect resolution
+ *         without leaking object identity into the selector result.
+ *   Plus the `sources` array directly (rare to change — only on
+ *   archive/upload/delete).
  *
- *   Source aspect-ratio lookup is hoisted here (rather than each IterationRow
- *   doing `sources.find(...)`) so the find runs once per render across all
- *   rows instead of once per row, and so IterationRow doesn't need to
- *   subscribe to sources[] at all.
+ *   Why all-primitives in the selectors: React 19 is strict about
+ *   `useSyncExternalStore` snapshot stability — `getSnapshot` MUST return
+ *   the same reference when nothing meaningful changed, OR React loops
+ *   until it bails with error #185 ("Maximum update depth exceeded").
+ *   `useShallow` provides that stability by doing element-by-element
+ *   `Object.is` on the returned array. That works for primitive elements
+ *   (strings, numbers) but FAILS for object elements like
+ *   `{id, aspectRatio}` because `Object.is(freshObj, freshObj)` is always
+ *   `false`. An earlier version of this file returned an array of
+ *   `{id, aspectRatio}` descriptors and shipped to production with that
+ *   exact loop crashing iPad Safari + Chrome. Don't do that — keep the
+ *   selector value flat-primitive.
+ *
+ *   The display-aspect-ratio computation now happens in a `useMemo`
+ *   downstream of the stable selectors (NOT inside the selector), so each
+ *   render still passes a fresh `aspectRatio` string to IterationRow but
+ *   the computation only re-runs when one of its primitive deps actually
+ *   changed. IterationRow itself subscribes to its own iteration object
+ *   internally and only re-renders when that single iteration's reference
+ *   changes (i.e. when one of ITS tiles updates).
  */
 
 import { useEffect, useMemo, useRef } from "react";
@@ -47,29 +63,51 @@ interface IterationDescriptor {
 export function TileStream() {
   useStreamingResults();
 
-  // Pull the minimal tuple per iteration that drives layout/identity.
-  // useShallow makes this re-render only when the array of tuples
-  // shallow-changes — i.e. iteration added/removed/reordered, source aspect
-  // ratio for an iteration's source changed, or aspectRatioMode changed.
-  // Tile-only updates leave this slice referentially stable.
-  const descriptors = useCanvas(
-    useShallow((s) => {
-      // Build a one-shot map for source lookup so we're O(N+M) per slice
-      // instead of O(N*M).
-      const sourceAspectById = new Map<string, string>();
-      for (const src of s.sources) {
-        sourceAspectById.set(src.sourceId, src.aspectRatio);
-      }
-      return s.iterations.map<IterationDescriptor>((it) => {
-        const sourceAspect = sourceAspectById.get(it.sourceId) ?? "1:1";
-        const aspectRatio =
-          it.aspectRatioMode === "flip"
-            ? flipAspectRatio(sourceAspect)
-            : sourceAspect;
-        return { id: it.id, aspectRatio };
-      });
-    }),
+  // Slice 1: iteration ids in render order. Primitive strings — useShallow
+  // shallow-compares them with Object.is and gives a stable reference when
+  // nothing structural changed. Re-renders only when iterations are
+  // added/removed/reordered.
+  const iterationIds = useCanvas(
+    useShallow((s) => s.iterations.map((it) => it.id)),
   );
+
+  // Slice 2: flat tuple per iteration capturing the inputs to display-
+  // aspect resolution: `[id, sourceId, mode]`. Same rationale as #1 — flat
+  // primitives so useShallow can stably memoize. Re-renders only when an
+  // iteration's source or aspect-mode changes.
+  const iterationAspectShape = useCanvas(
+    useShallow((s) =>
+      s.iterations.flatMap((it) => [it.id, it.sourceId, it.aspectRatioMode]),
+    ),
+  );
+
+  // Slice 3: sources are short (3-10 active). Subscribing to the array is
+  // cheap; sources rarely change (only on archive/upload/delete).
+  const sources = useCanvas((s) => s.sources);
+
+  // Compute the descriptors HERE, outside the zustand selector. Inputs are
+  // the three stable slices above; useMemo's dep array uses them as
+  // primitives + the sources array reference. Output is a fresh array
+  // each time inputs change — fine, because this isn't a getSnapshot
+  // result, just a derived render value.
+  const descriptors = useMemo<IterationDescriptor[]>(() => {
+    const sourceAspectById = new Map<string, string>();
+    for (const src of sources) {
+      sourceAspectById.set(src.sourceId, src.aspectRatio);
+    }
+    const out: IterationDescriptor[] = [];
+    for (let i = 0; i < iterationIds.length; i++) {
+      const id = iterationIds[i];
+      // iterationAspectShape is [id, sourceId, mode, id, sourceId, mode, ...]
+      const sourceId = iterationAspectShape[i * 3 + 1];
+      const mode = iterationAspectShape[i * 3 + 2] as "match" | "flip";
+      const sourceAspect = sourceAspectById.get(sourceId) ?? "1:1";
+      const aspectRatio =
+        mode === "flip" ? flipAspectRatio(sourceAspect) : sourceAspect;
+      out.push({ id, aspectRatio });
+    }
+    return out;
+  }, [iterationIds, iterationAspectShape, sources]);
 
   const newestId = descriptors[0]?.id;
   const containerRef = useRef<HTMLDivElement>(null);

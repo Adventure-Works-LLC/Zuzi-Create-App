@@ -20,7 +20,7 @@
  * "tile-as-source" coupling in the schema).
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Loader2, Star, Share2, X, ArrowUpFromLine } from "lucide-react";
 
 import { useCanvas } from "@/stores/canvas";
@@ -104,14 +104,36 @@ export function Lightbox() {
    *  next attempt or close. Replaces the prior swallowed-to-console.warn
    *  pattern that hid Use-as-Source breakage entirely. */
   const [actionError, setActionError] = useState<string | null>(null);
-  /** Pre-fetched image bytes for the Share path. Loaded as soon as `url`
-   *  resolves so that when the user clicks Share we can construct the File
-   *  + call navigator.share() synchronously from the click event — which
-   *  is what iOS Safari requires (any `await` between user gesture and
-   *  navigator.share kills the gesture chain and iOS rejects the share).
-   *  Resets to null when the open tile changes. */
+  /** Pre-fetched image bytes for the Share path. Loaded on the user's FIRST
+   *  intent-to-share signal (Share button onPointerDown/onTouchStart, both
+   *  of which fire before onClick and are still inside the iOS user-gesture
+   *  chain) so that when the click handler runs we can construct the File
+   *  + call navigator.share() synchronously — which is what iOS Safari
+   *  requires (any `await` between user gesture and navigator.share kills
+   *  the gesture chain and iOS rejects the share).
+   *
+   *  Why intent-driven instead of mount-driven: most lightbox opens are
+   *  "tap to look closer, close" without sharing. Pre-fetching on every
+   *  open pulled 150KB–2MB through the Next/Railway server even when the
+   *  user never shared. The pointer/touch-down hook fires ~50–150ms before
+   *  the click resolves, which is enough headroom on iPad to have the
+   *  Blob ready by the time the click handler runs in the common case.
+   *
+   *  In-component cache via the `shareBlobCacheRef` keyed on the R2 key:
+   *  a second tap on Share within the same lightbox open (e.g., the user
+   *  cancels the first share sheet then taps again) reuses the in-memory
+   *  Blob without re-hitting the proxy. The cache lives only as long as
+   *  the component is mounted and is keyed by `fullKey` so switching
+   *  tiles invalidates correctly. */
   const [shareBlob, setShareBlob] = useState<Blob | null>(null);
   const [shareBlobError, setShareBlobError] = useState<string | null>(null);
+  const [sharePrefetching, setSharePrefetching] = useState(false);
+  /** Per-key in-flight + completed Blob cache. Keyed on R2 key (fullKey)
+   *  so switching to a different tile in the same lightbox open won't
+   *  return a stale Blob. Cleared on unmount via the cleanup effect below. */
+  const shareBlobCacheRef = useRef<Map<string, Blob | Promise<Blob>>>(
+    new Map(),
+  );
 
   /** Close clears both state slots and any inline error. Either mode can
    *  have been the opener. */
@@ -133,46 +155,76 @@ export function Lightbox() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
-  // Pre-fetch the image bytes as soon as the open tile's R2 key resolves.
+  // Reset Share state whenever the open tile (R2 key) changes. The actual
+  // pre-fetch is INTENT-DRIVEN now (fired from the Share button's
+  // onPointerDown/onTouchStart) rather than mount-driven, so this effect
+  // is just a clean-slate on key change — no network call here.
   //
-  // Two reasons we do this on lightbox-open instead of inside the click
-  // handler:
+  // History: previous versions kicked the pre-fetch immediately on every
+  // lightbox-open via a `useEffect[fullKey]`. That pulled 150KB–2MB
+  // through the Next/Railway server every "tap to look closer, close"
+  // — by far the most common interaction. Moving the trigger to the
+  // user's intent-to-share signal eliminates the wasted bandwidth in
+  // the no-share case while preserving iOS gesture-chain compatibility
+  // (pointer/touch-down fires before click and is still inside the
+  // gesture chain — see startSharePrefetch below).
   //
+  // The proxy still handles two concerns and the rest of the file's
+  // assumptions are unchanged:
   //   (a) iOS Safari rejects navigator.share() if it isn't called
-  //       synchronously inside the user-gesture click handler — any `await`
-  //       between click and share kills the gesture. Loading the Blob now
-  //       means the click handler can construct the File + call navigator.
-  //       share() with no awaits in between.
-  //
-  //   (b) The fetch routes through our same-origin /api/image-bytes proxy
-  //       endpoint, NOT through the R2 signed URL directly. R2 doesn't
-  //       return CORS headers by default, so a direct cross-origin
-  //       fetch("https://...r2.cloudflarestorage.com/...") fails with
-  //       "TypeError: Load failed" on iPad PWA — the same byte stream that
-  //       <img src="..."> renders fine, because img loads don't enforce
-  //       CORS but fetch() does. Routing through our server makes this a
-  //       same-origin request and CORS is moot.
-  //
-  // We key on `fullKey` (the R2 object key itself) rather than `url` (the
-  // signed URL) so the pre-fetch is decoupled from useImageUrl's signed-URL
-  // lifecycle. The signed URL is still used for the <img> render; the
-  // proxy is used for the bytes that need to end up as a File in JS.
+  //       synchronously inside the user-gesture click handler — any
+  //       `await` between click and share kills the gesture chain.
+  //       Pre-fetching on pointer-down means the Blob is in memory by
+  //       the time the click handler runs.
+  //   (b) The fetch routes through our same-origin /api/image-bytes
+  //       proxy, NOT the R2 signed URL directly. R2 doesn't return CORS
+  //       headers by default, so a direct cross-origin fetch fails with
+  //       "TypeError: Load failed" on iPad PWA — the proxy makes the
+  //       request same-origin so CORS is moot.
   useEffect(() => {
-    if (!fullKey) {
-      setShareBlob(null);
-      setShareBlobError(null);
-      return;
-    }
-    let cancelled = false;
     setShareBlob(null);
     setShareBlobError(null);
-    const proxyUrl = `/api/image-bytes?key=${encodeURIComponent(fullKey)}`;
-    console.info("[lightbox] share: pre-fetch start", { proxyUrl });
+    setSharePrefetching(false);
+    // Drop any prior cache entries — switching tiles must not return the
+    // previous tile's Blob to a Share click. The Map itself is reused
+    // across renders (the ref is stable); only its entries are cleared.
+    shareBlobCacheRef.current.clear();
+  }, [fullKey]);
+
+  /** Intent-driven Share prefetch. Called from the Share button's
+   *  onPointerDown / onTouchStart (both fire before onClick and stay
+   *  inside the iOS user-gesture chain), and idempotent within a single
+   *  lightbox open via an in-component Map keyed on `fullKey`:
+   *
+   *    - First call: kicks off the proxy fetch, stores the in-flight
+   *      Promise in the cache, sets sharePrefetching=true so the button
+   *      can show progress if the user lingers.
+   *    - Subsequent calls (same key): no-op if the Blob is already
+   *      resolved; await the existing in-flight Promise otherwise.
+   *
+   *  The Blob lands in `shareBlob` state so onShare can construct the
+   *  File synchronously from the click handler. Errors land in
+   *  `shareBlobError` and surface through onShare's existing path. */
+  const startSharePrefetch = (key: string) => {
+    const cache = shareBlobCacheRef.current;
+    const existing = cache.get(key);
+    if (existing) {
+      // Already resolved: nothing to do — shareBlob state already set.
+      if (existing instanceof Blob) return;
+      // In-flight: don't re-trigger the network or reset the state.
+      return;
+    }
+
+    const proxyUrl = `/api/image-bytes?key=${encodeURIComponent(key)}`;
+    console.info("[lightbox] share: pre-fetch start (intent)", { proxyUrl });
+    setSharePrefetching(true);
+    setShareBlobError(null);
+
     // `cache: "no-store"` is belt-and-suspenders — the SW skips /api/* per
     // scripts/sw-template.js, and the endpoint sets Cache-Control: no-store
-    // — but explicit hint here means anyone reading the call-site knows the
-    // intent without chasing through the proxy + SW config.
-    fetch(proxyUrl, { cache: "no-store" })
+    // — but explicit hint here means anyone reading the call-site knows
+    // the intent without chasing through the proxy + SW config.
+    const inflight = fetch(proxyUrl, { cache: "no-store" })
       .then((resp) => {
         if (!resp.ok) {
           throw new Error(
@@ -182,15 +234,21 @@ export function Lightbox() {
         return resp.blob();
       })
       .then((blob) => {
-        if (cancelled) return;
-        console.info("[lightbox] share: pre-fetch ok", {
-          size: blob.size,
-          type: blob.type,
-        });
-        setShareBlob(blob);
+        // Stale-key guard: while the pre-fetch was in flight, the user
+        // may have switched tiles (the reset effect above cleared the
+        // cache and shareBlob state). Ignore the result if so.
+        if (cache.get(key) === inflight) cache.set(key, blob);
+        if (fullKey === key) {
+          console.info("[lightbox] share: pre-fetch ok", {
+            size: blob.size,
+            type: blob.type,
+          });
+          setShareBlob(blob);
+          setSharePrefetching(false);
+        }
+        return blob;
       })
       .catch((e) => {
-        if (cancelled) return;
         // Surface as much diagnostic detail as possible. The previous bug
         // class (CORS) showed up as `TypeError: Load failed` with no other
         // signal; logging name + message + error helps future failures
@@ -204,12 +262,18 @@ export function Lightbox() {
           message,
           error: e,
         });
-        setShareBlobError(`${errName}: ${message}`);
+        // Clear the cache entry so a retry (second tap) can re-fetch
+        // instead of re-using a rejected promise.
+        if (cache.get(key) === inflight) cache.delete(key);
+        if (fullKey === key) {
+          setShareBlobError(`${errName}: ${message}`);
+          setSharePrefetching(false);
+        }
+        throw e;
       });
-    return () => {
-      cancelled = true;
-    };
-  }, [fullKey]);
+
+    cache.set(key, inflight);
+  };
 
   if (!view) return null;
 
@@ -227,23 +291,38 @@ export function Lightbox() {
    * triggered exactly that rejection. The catch fell through to a hidden
    * download link with no surfacing — silent failure.
    *
-   * v2: we pre-fetch the blob in a useEffect when the signed URL resolves
-   * (above), so by the time the user clicks Share the blob is in memory.
-   * The click handler is then synchronous up to and including navigator.
-   * share(); the .then/.catch on the returned promise are fine because
-   * they run after iOS has already accepted the gesture.
+   * v2: we pre-fetch the blob on the user's intent-to-share signal —
+   * Share button onPointerDown / onTouchStart, both of which fire BEFORE
+   * onClick and stay inside the iOS user-gesture chain — so by the time
+   * the click handler runs the blob is usually in memory. The click
+   * handler is then synchronous up to and including navigator.share();
+   * the .then/.catch on the returned promise are fine because they run
+   * after iOS has already accepted the gesture.
+   *
+   * Why intent-driven instead of mount-driven: most lightbox opens are
+   * "tap to look closer, close" without any share. Pre-fetching on every
+   * open burned 150KB–2MB of Railway egress per look. Pointer/touch-down
+   * runs ~50–150ms before the click resolves, which is enough headroom
+   * on iPad to have the Blob ready in the common case.
    */
   const onShare = () => {
     if (!view) return;
     console.info("[lightbox] share: clicked", {
       tileId: view.tileId,
       hasBlob: !!shareBlob,
+      sharePrefetching,
       shareBlobError,
     });
 
     // Pre-fetch hasn't completed (or failed). Surface a useful message
-    // instead of dropping the click.
+    // instead of dropping the click. Common case here: the user clicked
+    // Share so quickly that pointer-down's fetch is still in flight —
+    // tapping again ~200ms later usually finds the Blob ready.
     if (!shareBlob) {
+      // Best-effort: ensure the prefetch is at least started, in case the
+      // click somehow arrived without a preceding pointer-down (rare on
+      // touch devices but possible with assistive tech / keyboard).
+      if (fullKey) startSharePrefetch(fullKey);
       const msg = shareBlobError
         ? `Couldn't prepare share — ${shareBlobError}. Tap Share again or close + reopen.`
         : "Image still loading — tap Share again in a moment.";
@@ -487,11 +566,26 @@ export function Lightbox() {
             // ANY await onto the gesture path between this click and
             // navigator.share() does. The body of onShare itself is
             // sync-up-to-and-including navigator.share().
+            //
+            // onPointerDown + onTouchStart fire before onClick and are
+            // both inside the iOS user-gesture chain. We use them to kick
+            // off the proxy fetch as early as possible so the Blob is
+            // typically ready by the time onClick runs. Both are wired
+            // because onPointerDown isn't reliable on every iPad webview
+            // (some PWA contexts only fire touch events). startSharePrefetch
+            // is idempotent + cached on fullKey so two events firing for
+            // one tap is just a no-op.
+            onPointerDown={() => {
+              if (fullKey && !shareBlob) startSharePrefetch(fullKey);
+            }}
+            onTouchStart={() => {
+              if (fullKey && !shareBlob) startSharePrefetch(fullKey);
+            }}
             onClick={onShare}
             disabled={busyAction !== null}
             className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/5 px-4 py-2 text-sm text-white hover:bg-white/10 transition-colors disabled:opacity-50 no-callout"
           >
-            {busyAction === "share" ? (
+            {busyAction === "share" || sharePrefetching ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
               <Share2 className="h-4 w-4" strokeWidth={1.5} />

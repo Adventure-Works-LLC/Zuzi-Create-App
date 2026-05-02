@@ -194,9 +194,16 @@
     0 22px 60px -28px rgba(0, 0, 0, 0.55);
 }
 
-/* Soft radial bloom behind hero copy, used in the empty-state placeholder. */
+/* Soft radial bloom behind hero copy, used in the empty-state placeholder.
+   The pulse animation (Tile.tsx pending state) is opacity-only — already
+   GPU-friendly — but the radial-gradient background can re-rasterize each
+   frame on iPad mini. Forcing a compositor layer (will-change + a no-op
+   3D transform) keeps the gradient on its own GPU layer so the pulse
+   animates as a pure opacity tween instead of triggering a paint. */
 .bloom-warm {
   background:
     radial-gradient(ellipse at 50% 38%, rgba(201, 168, 120, 0.10) 0%, transparent 55%),
     radial-gradient(ellipse at 50% 90%, rgba(184, 92, 74, 0.06) 0%, transparent 60%);
+  will-change: opacity;
+  transform: translateZ(0);
 }

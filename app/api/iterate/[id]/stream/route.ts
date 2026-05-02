@@ -95,9 +95,21 @@ export async function GET(
         );
       };
 
+      // Heartbeat: SSE comment lines (`:` prefix) every 15s. Browsers ignore
+      // them but Cloudflare/Railway intermediates see them as activity and
+      // won't kill the connection during long silences (Pro 4K runs +
+      // callWithRetry's 1+3 attempt chain at 2s/5s/12s backoff can produce
+      // ~25s+ silences between bus events). 15s is well under the typical
+      // 30s idle-kill threshold of edge intermediaries. Cleared in
+      // closeStream so the timer never outlives the connection.
+      const heartbeat: ReturnType<typeof setInterval> = setInterval(() => {
+        enqueue(":\n\n");
+      }, 15000);
+
       const closeStream = () => {
         if (closed) return;
         closed = true;
+        clearInterval(heartbeat);
         unsubscribe();
         try {
           controller.close();

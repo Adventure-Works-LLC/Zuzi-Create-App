@@ -37,7 +37,7 @@
  * for the 512px webp). The lightbox uses the full-resolution `outputKey`.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { MoreHorizontal, ShieldOff, Star, Trash2 } from "lucide-react";
 
 import { useImageUrl } from "@/hooks/useImageUrl";
@@ -64,7 +64,7 @@ interface TileProps {
   frozen?: boolean;
 }
 
-export function Tile({
+export const Tile = memo(function Tile({
   tile,
   aspectRatio,
   optimistic = false,
@@ -86,12 +86,21 @@ export function Tile({
   // exact anchor without any document-scroll math.
   const triggerRef = useRef<HTMLSpanElement>(null);
 
-  // Reset blur-fade when the URL or status changes.
+  // Reset image-ready state when the URL or status changes.
   useEffect(() => {
     if (tile.status !== "done" || !url) {
       setImageReady(false);
     }
   }, [url, tile.status]);
+
+  // Memoize the inline style — `aspectRatio.replace(":", "/")` was
+  // rebuilding a new object every render, which forces React to diff the
+  // attribute on the underlying DOM node even when the value didn't
+  // change. Stable reference = identity-equal in reconciliation.
+  const aspectStyle = useMemo(
+    () => ({ aspectRatio: aspectRatio.replace(":", "/") }),
+    [aspectRatio],
+  );
 
   const onTap = () => {
     if (tile.status === "done") setLightboxTile(tile.id);
@@ -224,7 +233,7 @@ export function Tile({
         type="button"
         onClick={onTap}
         disabled={tile.status !== "done"}
-        style={{ aspectRatio: aspectRatio.replace(":", "/") }}
+        style={aspectStyle}
         className={[
           "relative w-full overflow-hidden rounded-lg",
           "bg-card",
@@ -271,7 +280,12 @@ export function Tile({
           </>
         )}
 
-        {/* Done tile — image with blur-fade entrance. */}
+        {/* Done tile — image with opacity + translate entrance. We
+            previously animated `filter: blur(4px) → blur(0)` but iPad
+            Safari runs `filter: blur()` on the CPU and the per-frame
+            re-rasterize stuttered the simultaneous fade-in of multiple
+            tiles in a 9-tile burst. Opacity + transform are GPU-friendly
+            and produce visually similar entrance feel without the cost. */}
         {tile.status === "done" && url && (
           <img
             src={url}
@@ -281,10 +295,10 @@ export function Tile({
             onLoad={() => setImageReady(true)}
             className={[
               "absolute inset-0 h-full w-full object-cover",
-              "transition-[opacity,filter,transform] duration-300 ease-out",
+              "transition-[opacity,transform] duration-300 ease-out",
               imageReady
-                ? "opacity-100 blur-0 translate-y-0"
-                : "opacity-0 blur-[4px] translate-y-2",
+                ? "opacity-100 translate-y-0"
+                : "opacity-0 translate-y-2",
             ].join(" ")}
           />
         )}
@@ -404,4 +418,4 @@ export function Tile({
     )}
     </>
   );
-}
+});

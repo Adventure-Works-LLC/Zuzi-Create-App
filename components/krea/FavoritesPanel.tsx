@@ -15,7 +15,7 @@
  * just makes the cross-source favorites visible.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Loader2, X } from "lucide-react";
 
 import { useImageUrl } from "@/hooks/useImageUrl";
@@ -59,9 +59,16 @@ function FavoriteThumb({ favorite }: { favorite: FavoriteRow }) {
   // thumbnail container matches the actual tile dimensions so it doesn't
   // center-crop to square.
   const aspect = effectiveAspectRatio(favorite);
+  // Memoize the inline style so a fresh object literal isn't created on
+  // every render — avoids spurious diffs when the panel re-renders during
+  // open/close transitions or while scrolling the favorites grid.
+  const aspectStyle = useMemo(
+    () => ({ aspectRatio: aspect.replace(":", "/") }),
+    [aspect],
+  );
   return (
     <div
-      style={{ aspectRatio: aspect.replace(":", "/") }}
+      style={aspectStyle}
       className="relative w-full overflow-hidden rounded-md ring-1 ring-hairline/60"
     >
       {url ? (
@@ -144,7 +151,7 @@ export function FavoritesPanel() {
         if (e.target === e.currentTarget) setOpen(false);
       }}
     >
-      <div className="flex-1 bg-black/40 backdrop-blur-sm" />
+      <div className="flex-1 bg-black/40" />
       <aside
         className={[
           "h-dvh w-full max-w-[520px] shrink-0",

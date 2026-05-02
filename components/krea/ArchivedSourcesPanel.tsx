@@ -27,7 +27,7 @@
  * is already focused on the row). On success, the row leaves the list.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ArchiveRestore, Loader2, Trash2, X } from "lucide-react";
 
 import { useImageUrl } from "@/hooks/useImageUrl";
@@ -74,6 +74,13 @@ function ArchivedSourceRowCard({
   const { url } = useImageUrl(row.inputKey);
   const [busy, setBusy] = useState<"unarchive" | "delete" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Memoize the inline style so a fresh object literal isn't created on
+  // every render — avoids spurious diffs when the row re-renders during
+  // unarchive/delete state transitions or during list updates.
+  const aspectStyle = useMemo(
+    () => ({ aspectRatio: row.aspectRatio.replace(":", "/") }),
+    [row.aspectRatio],
+  );
 
   const handleUnarchive = async () => {
     if (busy) return;
@@ -111,7 +118,7 @@ function ArchivedSourceRowCard({
   return (
     <li className="flex items-center gap-3 rounded-md border border-hairline/50 bg-card p-3">
       <div
-        style={{ aspectRatio: row.aspectRatio.replace(":", "/") }}
+        style={aspectStyle}
         className="relative h-16 w-16 shrink-0 overflow-hidden rounded-md ring-1 ring-hairline/60"
       >
         {url ? (
@@ -248,7 +255,7 @@ export function ArchivedSourcesPanel() {
         if (e.target === e.currentTarget) setOpen(false);
       }}
     >
-      <div className="flex-1 bg-black/40 backdrop-blur-sm" />
+      <div className="flex-1 bg-black/40" />
       <aside
         className={[
           "h-dvh w-full max-w-[520px] shrink-0",

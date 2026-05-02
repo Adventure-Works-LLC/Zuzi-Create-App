@@ -58,14 +58,13 @@
  * — the static state communicates "wait isn't going to fix this."
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, MoreHorizontal, RotateCw, Trash2 } from "lucide-react";
 
 import { Tile } from "./Tile";
 import { ActionMenu } from "./ActionMenu";
-import { useCanvas, type Iteration } from "@/stores/canvas";
+import { useCanvas } from "@/stores/canvas";
 import { useIterations } from "@/hooks/useIterations";
-import { flipAspectRatio } from "@/lib/gemini/aspectRatio";
 
 const PRESET_LABEL: Record<string, string> = {
   color: "color",
@@ -99,34 +98,42 @@ function formatTime(ms: number): string {
 }
 
 interface IterationRowProps {
-  iteration: Iteration;
+  /** Iteration id; the row subscribes to its own iteration object via a
+   *  selector that returns a stable reference for unrelated iterations.
+   *  This means an SSE tile event for a different iteration's tile does
+   *  NOT re-render this row. See TileStream.tsx file header. */
+  iterationId: string;
+  /** Pre-resolved display aspect ratio in "W:H" form, hoisted into
+   *  TileStream so we don't subscribe to sources[] from every row. */
+  aspectRatio: string;
 }
 
-export function IterationRow({ iteration }: IterationRowProps) {
-  const optimistic = iteration.id.startsWith("opt-");
+export const IterationRow = memo(function IterationRow({
+  iterationId,
+  aspectRatio,
+}: IterationRowProps) {
+  // Subscribe to JUST this iteration object. Zustand returns the same
+  // reference for unrelated iterations across mutations, so this row only
+  // re-renders when its own iteration's reference changes (the tile that
+  // updated belongs to this row, or status / tiles[] reshuffled). Unrelated
+  // SSE tile events leave this selector's output referentially equal and
+  // the subscribed component skips render entirely.
+  const iteration = useCanvas((s) =>
+    s.iterations.find((i) => i.id === iterationId),
+  );
   const { deleteIteration, recoverIteration } = useIterations();
 
-  // Tile containers must mirror the OUTPUT aspect ratio so thumbs aren't
-  // center-cropped to square. AGENTS.md §3 originally pinned this to the
-  // source's aspect ratio (output == input invariant); the InputBar's new
-  // "Aspect: Match | Flip" toggle introduces a per-iteration mode that
-  // mirrors W:H when set to 'flip'. Display aspect = source aspect under
-  // 'match', flipped source aspect under 'flip'. Defensive fallback to 1:1
-  // if the source isn't in the store yet (cross-source FavoritesPanel
-  // iterations from archived sources, etc.).
-  const source = useCanvas((s) =>
-    s.sources.find((src) => src.sourceId === iteration.sourceId),
-  );
-  const sourceAspect = source?.aspectRatio ?? "1:1";
-  const aspectRatio =
-    iteration.aspectRatioMode === "flip"
-      ? flipAspectRatio(sourceAspect)
-      : sourceAspect;
+  // Hooks below MUST be called unconditionally (rules of hooks) — declare
+  // them before the early return. Iteration-derived values use safe
+  // defaults when iteration is undefined; the early return after the hook
+  // block prevents any of those default-derived values from rendering.
+  const optimistic = iteration?.id.startsWith("opt-") ?? false;
 
+  const presets = iteration?.presets;
   const presetLabel = useMemo(() => {
-    if (iteration.presets.length === 0) return "make beautiful";
-    return iteration.presets.map((p) => PRESET_LABEL[p]).join(" · ");
-  }, [iteration.presets]);
+    if (!presets || presets.length === 0) return "make beautiful";
+    return presets.map((p) => PRESET_LABEL[p]).join(" · ");
+  }, [presets]);
 
   // Stuck detection: pending/running iteration past STUCK_THRESHOLD_MS
   // since createdAt. Timer-driven so the UI updates even when no SSE
@@ -134,14 +141,15 @@ export function IterationRow({ iteration }: IterationRowProps) {
   // nothing's coming back). Cleared as soon as the iteration leaves
   // pending/running OR the row unmounts.
   const isPendingOrRunning =
-    iteration.status === "pending" || iteration.status === "running";
+    iteration?.status === "pending" || iteration?.status === "running";
+  const createdAt = iteration?.createdAt ?? 0;
   const [isStuck, setIsStuck] = useState(false);
   useEffect(() => {
     if (!isPendingOrRunning || optimistic) {
       setIsStuck(false);
       return;
     }
-    const elapsed = Date.now() - iteration.createdAt;
+    const elapsed = Date.now() - createdAt;
     if (elapsed >= STUCK_THRESHOLD_MS) {
       setIsStuck(true);
       return;
@@ -149,7 +157,7 @@ export function IterationRow({ iteration }: IterationRowProps) {
     const remaining = STUCK_THRESHOLD_MS - elapsed;
     const t = window.setTimeout(() => setIsStuck(true), remaining);
     return () => window.clearTimeout(t);
-  }, [isPendingOrRunning, iteration.createdAt, optimistic]);
+  }, [isPendingOrRunning, createdAt, optimistic]);
 
   // Iteration-level ActionMenu state. Anchored to the "..." trigger.
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -187,7 +195,7 @@ export function IterationRow({ iteration }: IterationRowProps) {
     if (!ok) return;
     setBusy("delete");
     setBannerError(null);
-    void deleteIteration(iteration.id)
+    void deleteIteration(iterationId)
       .catch((err) => {
         // Optimistic removal already rolled back inside the hook. Surface
         // the error inline.
@@ -201,7 +209,7 @@ export function IterationRow({ iteration }: IterationRowProps) {
     setMenuOpen(false);
     setBusy("recover");
     setBannerError(null);
-    void recoverIteration(iteration.id)
+    void recoverIteration(iterationId)
       .then((result) => {
         // Useful telemetry for the wild — the user's tap mirrors the
         // boot sweep, and the outcome explains what happened. The
@@ -243,6 +251,11 @@ export function IterationRow({ iteration }: IterationRowProps) {
   // hidden until the swap to the canonical id lands.
   const showActionMenu = !optimistic;
 
+  // Iteration disappeared from the store between the parent's selector
+  // run and ours (e.g. removeIteration ran in a microtask). Render
+  // nothing — the parent will rebuild without us on next tick.
+  if (!iteration) return null;
+
   return (
     <section className="flex flex-col gap-3">
       <div className="flex items-baseline justify-between gap-3 px-1">
@@ -277,12 +290,15 @@ export function IterationRow({ iteration }: IterationRowProps) {
               aria-expanded={menuOpen}
               aria-label="Generation actions"
               className={[
-                "flex h-8 w-8 items-center justify-center rounded-full",
+                // 44×44 = Apple HIG minimum tap target. Earlier 32×32
+                // was below HIG and matched neither the per-tile star
+                // (h-12 w-12) nor the "..." (h-12 w-12) treatment.
+                "flex h-11 w-11 items-center justify-center rounded-full",
                 "text-text-mute hover:text-foreground hover:bg-secondary",
                 "transition-colors no-callout",
               ].join(" ")}
             >
-              <MoreHorizontal className="h-4 w-4" strokeWidth={1.75} />
+              <MoreHorizontal className="h-5 w-5" strokeWidth={1.75} />
             </button>
           )}
         </div>
@@ -404,4 +420,4 @@ export function IterationRow({ iteration }: IterationRowProps) {
       )}
     </section>
   );
-}
+});

@@ -178,128 +178,173 @@ async function runOneTile(
 }
 
 export async function runIteration(iterationId: string): Promise<void> {
-  const iter = getIteration(iterationId);
-  if (!iter) {
-    console.error(`[runIteration] iteration not found: ${iterationId}`);
-    return;
-  }
-  if (iter.status === "done" || iter.status === "failed") {
-    // Idempotent replay — nothing to do.
-    return;
-  }
-
-  const source = getSource(iter.source_id);
-  if (!source) {
-    console.error(
-      `[runIteration ${iterationId}] source not found: ${iter.source_id}`,
-    );
-    updateIterationStatus(iterationId, "failed", Date.now());
-    bus.emit(iterationId, { type: "done" });
-    return;
-  }
-
-  let inputBuffer: Buffer;
+  // Wrap the entire orchestration in try/finally so `bus.emit({ type: 'done' })`
+  // ALWAYS runs — even if the worker throws on a DB error in tilesFor() /
+  // updateIterationStatus(), or any other unhandled exception in the
+  // orchestration code itself. Without this, an SSE client subscribed to the
+  // bus hangs until the 2-min stuck-banner timer fires.
+  //
+  // The per-tile try/catch in runOneTile() handles individual tile failures
+  // and writes their status to the DB; this outer guard is purely the
+  // catch-all for an exception in the surrounding orchestration. On such an
+  // exception, we mark the iteration `failed` (so the UI shows truth) and
+  // re-raise the error message into the upstream `.catch` log in
+  // `app/api/iterate/route.ts`.
+  let unhandledError: unknown = null;
   try {
-    inputBuffer = await getObject(source.input_image_key);
-  } catch (e) {
-    console.error(
-      `[runIteration ${iterationId}] r2.getObject failed:`,
-      e instanceof Error ? e.message : e,
-    );
-    updateIterationStatus(iterationId, "failed", Date.now());
-    bus.emit(iterationId, { type: "done" });
-    return;
-  }
-  const inputBase64 = inputBuffer.toString("base64");
-  const modelId =
-    iter.model_tier === "flash" ? IMAGE_MODEL_FLASH : IMAGE_MODEL_PRO;
-  // Source aspect ratio is the one snapped at upload (one of the 10
-  // SUPPORTED_ASPECT_RATIOS values). Under flip mode, swap W:H so the
-  // generated tile renders at the mirrored aspect; 1:1 stays 1:1. The
-  // computed target ratio drives BOTH `imageConfig.aspectRatio` (so
-  // the actual image bytes are at the right dimensions) AND the prompt's
-  // `{aspectRatio}` interpolation (so Pro's preserve-the-aspect sentence
-  // matches what we asked for) — the two MUST agree per AGENTS.md §3
-  // "all three steps" invariant.
-  const aspectRatio =
-    iter.aspect_ratio_mode === "flip"
-      ? flipAspectRatio(source.aspect_ratio)
-      : source.aspect_ratio;
-  // SDK expects "1K" | "2K" | "4K" (uppercase). DB column is "1k" | "4k".
-  const imageSize = iter.resolution.toUpperCase();
-  const presets = parseStoredPresets(iter.presets, iterationId);
-  const promptText = buildPrompt({ presets, aspectRatio });
-
-  // TEMP DEBUG (remove after Ambiance v8 deploy verification): on any iteration
-  // that includes 'ambiance', log the Railway commit SHA + the rendered prompt
-  // head so we can confirm production is sending v8 ("Continue this painting...")
-  // and not a stale v1 ("Look at this painting and identify..."). Tagged with
-  // [AMBIANCE_DEBUG] for grep in Railway runtime logs.
-  if (presets.includes("ambiance")) {
-    const sha = (process.env.RAILWAY_GIT_COMMIT_SHA ?? "unknown").slice(0, 12);
-    console.log(
-      `[AMBIANCE_DEBUG ${iterationId}] sha=${sha} presets=${JSON.stringify(presets)} prompt[0..200]=${JSON.stringify(promptText.slice(0, 200))}`,
-    );
-  }
-
-  // Recovery rehydration — only matters for boot-time replays where the iteration row
-  // already exists with pending tiles. Map by `(iter_id, idx)` is keyed for O(1) lookup.
-  const { byIterIdx } = await scanRecovery();
-  const tileRows = tilesFor(iterationId);
-  const recoveryHits = new Map<number, { r2_key: string; thumb_key?: string }>();
-  for (const t of tileRows) {
-    if (t.status === "pending") {
-      const hit = byIterIdx.get(`${iterationId}:${t.idx}`);
-      if (hit) recoveryHits.set(t.idx, { r2_key: hit.r2_key, thumb_key: hit.thumb_key });
+    const iter = getIteration(iterationId);
+    if (!iter) {
+      console.error(`[runIteration] iteration not found: ${iterationId}`);
+      return;
     }
-  }
+    if (iter.status === "done" || iter.status === "failed") {
+      // Idempotent replay — nothing to do.
+      return;
+    }
 
-  updateIterationStatus(iterationId, "running");
-  bus.emit(iterationId, { type: "started" });
+    const source = getSource(iter.source_id);
+    if (!source) {
+      console.error(
+        `[runIteration ${iterationId}] source not found: ${iter.source_id}`,
+      );
+      updateIterationStatus(iterationId, "failed", Date.now());
+      return;
+    }
 
-  const results = await Promise.all(
-    tileRows.map((t) =>
-      runOneTile(
-        iterationId,
-        t.id,
-        t.idx,
-        inputBase64,
-        modelId,
-        aspectRatio,
-        imageSize,
-        promptText,
-        recoveryHits.get(t.idx),
-      ).catch((e): TileRunResult => {
-        // Defensive: runOneTile already swallows its own errors. This is for the
-        // truly unexpected (e.g., the catch handler itself throwing).
-        console.error(
-          `[runIteration ${iterationId}] unhandled in tile ${t.idx}:`,
-          e,
-        );
-        return { idx: t.idx, ok: false };
-      }),
-    ),
-  );
+    let inputBuffer: Buffer;
+    try {
+      inputBuffer = await getObject(source.input_image_key);
+    } catch (e) {
+      console.error(
+        `[runIteration ${iterationId}] r2.getObject failed:`,
+        e instanceof Error ? e.message : e,
+      );
+      updateIterationStatus(iterationId, "failed", Date.now());
+      return;
+    }
+    const inputBase64 = inputBuffer.toString("base64");
+    const modelId =
+      iter.model_tier === "flash" ? IMAGE_MODEL_FLASH : IMAGE_MODEL_PRO;
+    // Source aspect ratio is the one snapped at upload (one of the 10
+    // SUPPORTED_ASPECT_RATIOS values). Under flip mode, swap W:H so the
+    // generated tile renders at the mirrored aspect; 1:1 stays 1:1. The
+    // computed target ratio drives BOTH `imageConfig.aspectRatio` (so
+    // the actual image bytes are at the right dimensions) AND the prompt's
+    // `{aspectRatio}` interpolation (so Pro's preserve-the-aspect sentence
+    // matches what we asked for) — the two MUST agree per AGENTS.md §3
+    // "all three steps" invariant.
+    const aspectRatio =
+      iter.aspect_ratio_mode === "flip"
+        ? flipAspectRatio(source.aspect_ratio)
+        : source.aspect_ratio;
+    // SDK expects "1K" | "2K" | "4K" (uppercase). DB column is "1k" | "4k".
+    const imageSize = iter.resolution.toUpperCase();
+    const presets = parseStoredPresets(iter.presets, iterationId);
+    const promptText = buildPrompt({ presets, aspectRatio });
 
-  const successfulCount = results.filter((r) => r.ok).length;
-  // Iteration status reflects truth: at least one successful tile = done;
-  // zero successful (every tile blocked or failed) = the iteration as a
-  // whole failed. Previously this was unconditionally "done" which made
-  // fully-failed iterations look successful in the UI — confusing both for
-  // Zuzi (no error indication) and for the worker's idempotent-replay
-  // path (which checks `iter.status === "failed"` to bail early; that
-  // check could never fire for worker-failed iterations).
-  const finalStatus = successfulCount > 0 ? "done" : "failed";
-  updateIterationStatus(iterationId, finalStatus, Date.now());
-  if (successfulCount > 0) {
-    insertUsageLog(
-      iterationId,
-      costForCompletedIteration(
-        iter.model_tier,
-        iter.resolution,
-        successfulCount,
+    // TEMP DEBUG (remove after Ambiance v8 deploy verification): on any iteration
+    // that includes 'ambiance', log the Railway commit SHA + the rendered prompt
+    // head so we can confirm production is sending v8 ("Continue this painting...")
+    // and not a stale v1 ("Look at this painting and identify..."). Tagged with
+    // [AMBIANCE_DEBUG] for grep in Railway runtime logs.
+    if (presets.includes("ambiance")) {
+      const sha = (process.env.RAILWAY_GIT_COMMIT_SHA ?? "unknown").slice(0, 12);
+      console.log(
+        `[AMBIANCE_DEBUG ${iterationId}] sha=${sha} presets=${JSON.stringify(presets)} prompt[0..200]=${JSON.stringify(promptText.slice(0, 200))}`,
+      );
+    }
+
+    // Recovery rehydration — only matters for boot-time replays where the iteration row
+    // already exists with pending tiles. Map by `(iter_id, idx)` is keyed for O(1) lookup.
+    const { byIterIdx } = await scanRecovery();
+    const tileRows = tilesFor(iterationId);
+    const recoveryHits = new Map<number, { r2_key: string; thumb_key?: string }>();
+    for (const t of tileRows) {
+      if (t.status === "pending") {
+        const hit = byIterIdx.get(`${iterationId}:${t.idx}`);
+        if (hit) recoveryHits.set(t.idx, { r2_key: hit.r2_key, thumb_key: hit.thumb_key });
+      }
+    }
+
+    updateIterationStatus(iterationId, "running");
+    bus.emit(iterationId, { type: "started" });
+
+    const results = await Promise.all(
+      tileRows.map((t) =>
+        runOneTile(
+          iterationId,
+          t.id,
+          t.idx,
+          inputBase64,
+          modelId,
+          aspectRatio,
+          imageSize,
+          promptText,
+          recoveryHits.get(t.idx),
+        ).catch((e): TileRunResult => {
+          // Defensive: runOneTile already swallows its own errors. This is for the
+          // truly unexpected (e.g., the catch handler itself throwing).
+          console.error(
+            `[runIteration ${iterationId}] unhandled in tile ${t.idx}:`,
+            e,
+          );
+          return { idx: t.idx, ok: false };
+        }),
       ),
     );
+
+    const successfulCount = results.filter((r) => r.ok).length;
+    // Iteration status reflects truth: at least one successful tile = done;
+    // zero successful (every tile blocked or failed) = the iteration as a
+    // whole failed. Previously this was unconditionally "done" which made
+    // fully-failed iterations look successful in the UI — confusing both for
+    // Zuzi (no error indication) and for the worker's idempotent-replay
+    // path (which checks `iter.status === "failed"` to bail early; that
+    // check could never fire for worker-failed iterations).
+    const finalStatus = successfulCount > 0 ? "done" : "failed";
+    updateIterationStatus(iterationId, finalStatus, Date.now());
+    if (successfulCount > 0) {
+      insertUsageLog(
+        iterationId,
+        costForCompletedIteration(
+          iter.model_tier,
+          iter.resolution,
+          successfulCount,
+        ),
+      );
+    }
+  } catch (e) {
+    // Catch-all for orchestration code (DB errors in tilesFor / updateIterationStatus,
+    // unexpected throws inside Promise.all, etc.). Per-tile failures are already
+    // handled inside runOneTile and don't reach here. Try to mark the iteration
+    // failed so the UI doesn't show a permanently-pending row; swallow any
+    // secondary error from that update so the `done` emit in finally still fires.
+    unhandledError = e;
+    console.error(
+      `[runIteration ${iterationId}] unhandled orchestration error:`,
+      e instanceof Error ? e.message : e,
+    );
+    try {
+      updateIterationStatus(iterationId, "failed", Date.now());
+    } catch (innerErr) {
+      console.error(
+        `[runIteration ${iterationId}] failed to mark iteration failed in cleanup:`,
+        innerErr instanceof Error ? innerErr.message : innerErr,
+      );
+    }
+  } finally {
+    // ALWAYS emit done. SSE clients subscribed to the bus hang otherwise.
+    // The route's `.catch` log above will show the unhandled error message
+    // if there was one — but the `done` emit here happens regardless so the
+    // client can close cleanly and the user isn't stuck behind a 2-min
+    // stuck-banner.
+    bus.emit(iterationId, { type: "done" });
   }
-  bus.emit(iterationId, { type: "done" });
+  // Re-raise so the upstream `.catch` in app/api/iterate/route.ts gets the
+  // informative log message it expects (`[runIteration ${id}] unhandled:`).
+  if (unhandledError) {
+    throw unhandledError instanceof Error
+      ? unhandledError
+      : new Error(String(unhandledError));
+  }
 }

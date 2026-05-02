@@ -76,5 +76,20 @@ export async function GET(req: Request): Promise<Response> {
   }
 
   const expiresAt = Date.now() + TTL_SECONDS * 1000;
-  return NextResponse.json({ url: signed, expiresAt }, { status: 200 });
+  // Cache-Control: private, max-age=3000
+  //   - 3000s = 50 minutes, which is 10 minutes shy of the 1-hour signed URL
+  //     TTL — the browser refreshes before the URL would 403, eliminating
+  //     the cold-start re-sign storm where every visible thumb hits this
+  //     route on PWA cold-start.
+  //   - private prevents any intermediary (Railway edge, ISP cache, etc.)
+  //     from serving the response across users. Single-user app today, but
+  //     defense-in-depth matters because URLs are bearer-style for the TTL
+  //     window (see AGENTS.md §7 "Threat model — signed URLs").
+  return NextResponse.json(
+    { url: signed, expiresAt },
+    {
+      status: 200,
+      headers: { "Cache-Control": "private, max-age=3000" },
+    },
+  );
 }

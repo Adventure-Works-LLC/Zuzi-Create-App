@@ -322,12 +322,22 @@ export const useCanvas = create<CanvasState>((set) => ({
     })),
   setTileFavorite: (tileId, isFavorite, favoritedAt) =>
     set((s) => ({
-      iterations: s.iterations.map((it) => ({
-        ...it,
-        tiles: it.tiles.map((t) =>
-          t.id === tileId ? { ...t, isFavorite, favoritedAt } : t,
-        ),
-      })),
+      // Scope the rebuild to ONLY the iteration that owns this tile —
+      // unchanged iterations keep their object reference so memoized
+      // IterationRow children short-circuit re-render. Walking every
+      // iteration × tile to flip one tile rebuilt every iteration row's
+      // reference, which combined with TileStream's whole-array selector
+      // re-rendered every mounted IterationRow on every favorite toggle.
+      iterations: s.iterations.map((it) =>
+        it.tiles.some((t) => t.id === tileId)
+          ? {
+              ...it,
+              tiles: it.tiles.map((t) =>
+                t.id === tileId ? { ...t, isFavorite, favoritedAt } : t,
+              ),
+            }
+          : it,
+      ),
       // Mirror the toggle into the lightbox snapshot if it's the same tile.
       // For cross-source favorites (snapshot mode), iterations[] doesn't
       // contain this tile, so the array map above is a no-op and the heart

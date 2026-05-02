@@ -33,7 +33,12 @@ function getEmitter(iterId: string): EventEmitter {
   let em = emitters.get(iterId);
   if (!em) {
     em = new EventEmitter();
-    em.setMaxListeners(50); // headroom for multiple SSE connections per iteration
+    // 10 is enough headroom for the realistic worst case (1 SSE subscriber per
+    // iteration, with at most a handful of in-flight iterations per tab + one
+    // shared in-process worker). Anything past 10 is almost certainly a leak;
+    // letting Node's MaxListenersExceededWarning fire surfaces it quickly
+    // instead of the previous value of 50 silently absorbing it.
+    em.setMaxListeners(10);
     emitters.set(iterId, em);
   }
   return em;
@@ -44,7 +49,17 @@ export function emit(iterId: string, ev: IterEvent): void {
   // After "done", drop the emitter so memory doesn't grow unboundedly. Late-arriving
   // subscribers will fall back to the DB replay path.
   if (ev.type === "done") {
-    // Defer disposal so subscribers attached during the same tick still receive it.
+    // Disposal is deferred via queueMicrotask as a small optimization that
+    // shrinks the window in which a subscriber attaching in the same tick as
+    // the `done` emit still gets a live emitter to listen on. It is NOT what
+    // makes correctness hold — the actual safety net for late subscribers
+    // lives in the SSE route at `app/api/iterate/[id]/stream/route.ts`: after
+    // calling `bus.subscribe(...)`, that handler queries the DB and checks
+    // `iter.status === 'done' || 'failed'` to send `done` and close out
+    // immediately for iterations that already finished. So even if disposal
+    // happened synchronously here, the DB-replay branch would catch the case
+    // where a subscriber arrived too late to hear the live emit. The
+    // microtask defer just trims the window in which that path needs to fire.
     queueMicrotask(() => {
       const em = emitters.get(iterId);
       if (em) {

@@ -85,26 +85,23 @@ const PRESET_LABEL: Record<Preset, string> = {
 };
 
 /**
- * UI-visible preset subset. Color is intentionally absent — see
- * AGENTS.md §4 ("Color hidden from UI"). The full PRESETS array
- * remains exported from `lib/db/schema.ts`, the COLOR_PROMPT_BODY +
- * its routing in `lib/gemini/imagePrompts.ts buildPrompt` remain in
- * place, and the build-time canary in `scripts/check-prompts.ts`
- * still validates the Color prompt against drift. This subset only
- * governs what the InputBar's checkbox grid renders — Color hasn't
- * found its operation across many iteration cycles, so we hide it
- * from Zuzi while preserving every line of work for future
- * revisitation.
+ * UI-visible preset subset. Color AND Ambiance are intentionally
+ * absent — see AGENTS.md §4 ("Color and Ambiance hidden from UI").
+ * The full PRESETS array remains exported from `lib/db/schema.ts`,
+ * both COLOR_PROMPT_BODY + AMBIANCE_PROMPT_BODY + their dominator-
+ * ladder routing in `lib/gemini/imagePrompts.ts buildPrompt` remain
+ * in place, and the build-time canaries in
+ * `scripts/check-prompts.ts` still validate both prompts against
+ * drift. This subset only governs what the InputBar's checkbox
+ * grid renders — neither Color nor Ambiance found their reliable
+ * operation across many iteration cycles, so we hide them from
+ * Zuzi while preserving every line of work for future revisitation.
  *
- * Order matches the original PRESETS minus 'color' (ambiance,
- * lighting, background). Background stays last because it's also
+ * Order matches the original PRESETS order minus the hidden ones
+ * (lighting, background). Background stays last because it's also
  * the always-on default — no need to shuffle on its account.
  */
-const VISIBLE_PRESETS: ReadonlyArray<Preset> = [
-  "ambiance",
-  "lighting",
-  "background",
-];
+const VISIBLE_PRESETS: ReadonlyArray<Preset> = ["lighting", "background"];
 
 /** Optional one-line subline rendered under the checkbox label. Ambiance,
  *  Background, and Color all carry sublines because their operations don't
@@ -404,11 +401,11 @@ export function InputBar() {
     (presets[0] as Preset | undefined) ?? null;
   /** True when the store's selection corresponds to one of the
    *  cells the picker actually renders. False when the store holds
-   *  null OR a hidden preset (currently just 'color' — see
-   *  VISIBLE_PRESETS). The hidden-preset case is defensive: the UI
-   *  no longer sets 'color', but a future re-enable, a stale store
-   *  hand-off, or a smoke-script-driven dev session could still
-   *  land 'color' in the store, and we want the picker to look
+   *  null OR a hidden preset (currently 'color' or 'ambiance' —
+   *  see VISIBLE_PRESETS). The hidden-preset case is defensive: the
+   *  UI no longer sets either, but a future re-enable, a stale
+   *  store hand-off, or a smoke-script-driven dev session could
+   *  still land one in the store, and we want the picker to look
    *  legitimately empty (not stuck-with-no-checked-cell) so the
    *  outside-click snap-back can restore Background. */
   const isSelectedVisible =
@@ -586,21 +583,24 @@ export function InputBar() {
         )}
 
         {/* Top row — mutually-exclusive preset picker.
-            Renders the VISIBLE_PRESETS subset (currently 3: ambiance,
-            lighting, background — Color is hidden, see the constant's
-            doc above). Grid is 2-col on phone (3 items wrap as 2+1),
-            3-col on tablet (one tidy row). Default state
-            (showPicker=false): one cell selected and visible with `×`
-            cancel; the other two transition to opacity-0 + translateY-2
-            over 150ms but stay in their grid columns so the selected
-            one's position doesn't shift. Transitional state
-            (showPicker=true): all visible cells visible and unchecked.
-            Picking a cell → that becomes selected, transitional ends.
-            Outside-click → Background snaps back, transitional ends
-            (handled by the document listener above). Renders only
-            when a source exists. */}
+            Renders the VISIBLE_PRESETS subset (currently 2: lighting,
+            background — Color and Ambiance are hidden, see the
+            constant's doc above). Grid is `grid-cols-2` at every
+            viewport — two cells side-by-side fit comfortably from
+            phone (~375px) up through iPad Pro 12.9 portrait, and
+            stacking them would waste vertical real estate above
+            the bottom row. Default state (showPicker=false): one
+            cell selected and visible with `×` cancel; the other
+            transitions to opacity-0 + translateY-2 over 150ms but
+            stays in its grid column so the selected one's position
+            doesn't shift. Transitional state (showPicker=true):
+            both cells visible and unchecked. Picking a cell → that
+            becomes selected, transitional ends. Outside-click →
+            Background snaps back, transitional ends (handled by
+            the document listener above). Renders only when a
+            source exists. */}
         {!isEmpty && (
-          <div ref={presetCellsRef} className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+          <div ref={presetCellsRef} className="grid grid-cols-2 gap-2">
             {VISIBLE_PRESETS.map((p) => (
               <PresetCheckbox
                 key={p}

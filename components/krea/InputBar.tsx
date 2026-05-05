@@ -25,7 +25,8 @@
  *   resolution       '1k'                  cheaper / faster — 4K is opt-in
  *   aspectRatioMode  'match'               preserve source aspect — flip is opt-in
  *   count            TILE_COUNT_DEFAULT    3 — fits the layout cleanly
- *   presets          ['background']        Background is the always-on default
+ *   presets          ['avery']             Avery is the always-on default (was
+ *                                          'background' before the Avery v1 lock)
  *
  * `modelTier`, `resolution`, and `count` are sticky within a session
  * (deliberately — they reflect the user's working-tier preference, not
@@ -99,11 +100,11 @@ const PRESET_LABEL: Record<Preset, string> = {
  * iteration cycles, so we hide them from Zuzi while preserving
  * every line of work for future revisitation.
  *
- * Order: Avery (newest, painter-reference), Lighting, Background.
- * Background stays last because it's also the always-on default —
- * no need to shuffle it. Avery slots in first so the new option is
- * discoverable on the left edge of the grid where Zuzi's reading
- * scan starts.
+ * Order: Avery (always-on default), Lighting, Background. Avery sits
+ * first so the cell the eye lands on first is also the one that's
+ * pre-selected — the visual default and the canonical default agree.
+ * (Pre-Avery the default was Background, and Background sat last as
+ * a "default = rightmost" pattern; that pattern is gone now.)
  */
 const VISIBLE_PRESETS: ReadonlyArray<Preset> = [
   "avery",
@@ -395,21 +396,21 @@ export function InputBar() {
   /**
    * Picker-open transitional state — see the docstring at top of file.
    * UI-local: the canvas store always holds a non-empty `presets` array
-   * (canonical default ['background']); this flag toggles a visual
-   * "all four cells unselected" state without modifying the store.
+   * (canonical default ['avery']); this flag toggles a visual "all
+   * visible cells unselected" state without modifying the store.
    * Resolved by either picking a cell (→ setPreset(p)) or clicking
-   * outside the cells container (→ setPreset('background')). Both
-   * paths set pickerOpen back to false.
+   * outside the cells container (→ setPreset('avery')). Both paths
+   * set pickerOpen back to false.
    */
   const [pickerOpen, setPickerOpen] = useState(false);
 
   // Mutually-exclusive UI: derive a single selection from the store's
-  // presets array. The canonical default is ['background'] (never
-  // empty), so `selectedPreset` is normally always a Preset. The
-  // `?? null` fallback covers the transient edge case where legacy
-  // data or a future bug produces an empty array — the picker treats
-  // that the same as transitional (all visible) and the dismiss path
-  // snaps back to Background, restoring the invariant.
+  // presets array. The canonical default is ['avery'] (never empty),
+  // so `selectedPreset` is normally always a Preset. The `?? null`
+  // fallback covers the transient edge case where legacy data or a
+  // future bug produces an empty array — the picker treats that the
+  // same as transitional (all visible) and the dismiss path snaps
+  // back to Avery, restoring the invariant.
   const selectedPreset: Preset | null =
     (presets[0] as Preset | undefined) ?? null;
   /** True when the store's selection corresponds to one of the
@@ -443,11 +444,11 @@ export function InputBar() {
       const cells = presetCellsRef.current;
       if (!cells) return;
       if (cells.contains(e.target as Node)) return;
-      // Outside click → snap Background back + close picker. Always
-      // Background, never the previously-selected preset, per spec:
-      // dismissal restores the always-on default rather than the user's
-      // last selection (which they explicitly tapped × on).
-      setPreset("background");
+      // Outside click → snap Avery back + close picker. Always Avery,
+      // never the previously-selected preset, per spec: dismissal
+      // restores the always-on default rather than the user's last
+      // selection (which they explicitly tapped × on).
+      setPreset("avery");
       setPickerOpen(false);
     };
     document.addEventListener("pointerdown", onOutside);
@@ -531,10 +532,10 @@ export function InputBar() {
     if (showPicker) {
       // Picker-open snap-back. The user opened the picker (× on a checked
       // cell) and tapped Generate without committing to a new preset; per
-      // spec, the Generate tap counts as an outside-click → restore
-      // Background as the canonical default and close the picker. NO
-      // generation fires this tap; the user can tap Generate again now
-      // that Background is selected to actually fire.
+      // spec, the Generate tap counts as an outside-click → restore Avery
+      // as the canonical default and close the picker. NO generation
+      // fires this tap; the user can tap Generate again now that Avery
+      // is selected to actually fire.
       //
       // Why this guard exists in addition to the document-level pointerdown
       // listener: HTML `disabled` historically blocked pointerdown delivery
@@ -542,7 +543,7 @@ export function InputBar() {
       // button now stays HTML-enabled during the transitional state and
       // routes the click here instead. Doubled with the listener — both
       // paths are idempotent.
-      setPreset("background");
+      setPreset("avery");
       setPickerOpen(false);
       return;
     }

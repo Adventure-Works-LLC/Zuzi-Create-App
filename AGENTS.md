@@ -120,6 +120,15 @@ re-read this paragraph and the plan's reference docs first.
 > change. Build canary (`scripts/check-prompts.ts`) locks the lowercase
 > `"do this like a milton avery"` prefix so any future re-cap or paraphrase
 > fails the build.
+>
+> **Avery is also the always-on preset default** (replaces Background, which
+> held the slot before Avery shipped). The canvas store initialises `presets`
+> to `["avery"]`; `addSource` and `setCurrentSource`'s context-shift resets
+> snap back to `["avery"]`; the picker's outside-click dismiss + the Generate-
+> while-transitional snap-back both call `setPreset("avery")`. The
+> mutually-exclusive UI invariant ("the user can never persistently land in a
+> no-selection state") still holds — the snap-back target is just Avery
+> instead of Background now.
 
 #### Dominators vs composers (legacy / safety-net under exclusive UI)
 

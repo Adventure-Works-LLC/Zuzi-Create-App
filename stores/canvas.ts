@@ -257,11 +257,11 @@ export const useCanvas = create<CanvasState>((set) => ({
       // New source = empty stream until the first generate fires.
       iterations: [],
       // Context shift — restore canonical input defaults so the new
-      // painting starts from the always-on baseline (Background preset,
+      // painting starts from the always-on baseline (Avery preset,
       // Match aspect). Sticky settings like modelTier / resolution / count
       // intentionally carry over since they reflect the user's working
       // tier preference, not painting-specific state.
-      presets: ["background"],
+      presets: ["avery"],
       aspectRatioMode: "match",
     })),
   setCurrentSource: (sourceId) =>
@@ -274,7 +274,7 @@ export const useCanvas = create<CanvasState>((set) => ({
         // On an actual switch, restore the canonical input defaults — same
         // rationale as `addSource`. A no-op call (sourceId already current)
         // doesn't reset.
-        presets: isSwitch ? ["background"] : s.presets,
+        presets: isSwitch ? ["avery"] : s.presets,
         aspectRatioMode: isSwitch ? "match" : s.aspectRatioMode,
       };
     }),
@@ -407,13 +407,15 @@ export const useCanvas = create<CanvasState>((set) => ({
   modelTier: "pro",
   resolution: "1k",
   aspectRatioMode: "match",
-  // Background is the always-on preset default. The UI never sends an
+  // Avery is the always-on preset default (was 'background' in the
+  // original 4-preset world; switched when Avery v1 shipped and Zuzi
+  // started using it as her primary direction). The UI never sends an
   // empty preset array to /api/iterate — buildPrompt's empty-presets
   // branch stays as a defensive fallback for legacy data + smoke
   // testing, but the canonical UI state is always exactly one preset.
   // See InputBar.tsx for the picker-open transitional behavior that
-  // visually shows all four cells while preserving this invariant.
-  presets: ["background"],
+  // visually shows all visible cells while preserving this invariant.
+  presets: ["avery"],
   count: TILE_COUNT_DEFAULT,
   setModelTier: (modelTier) => set({ modelTier }),
   setResolution: (resolution) => set({ resolution }),

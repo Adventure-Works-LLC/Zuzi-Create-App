@@ -21,14 +21,19 @@
  *     - Color v4 (locked) — see `COLOR_PROMPT_BODY`.
  *     - Ambiance v8 (locked) — see `AMBIANCE_PROMPT_BODY`.
  *     - Background v5 (locked) — see `BACKGROUND_PROMPT_BODY`.
+ *     - Lighting v1 (locked) — see `LIGHTING_PROMPT_BODY`.
+ *     - Avery v1 (locked) — see `AVERY_PROMPT_BODY`. Painter-reference
+ *       preset: reimagines the painting in Milton Avery's voice while
+ *       preserving the figure / subjects exactly. Body is intentionally
+ *       brief (one sentence + a permission to use Avery color) — gives
+ *       Pro creative latitude with Avery as the reference instead of
+ *       fencing it in with anti-language.
  *
- *   **Composers** — would participate in the templated "Reimagine X,
- *   preserve Y" path. Today only Lighting falls here, and only when checked
- *   alone. When Jeff iterates Lighting in Krea it'll get the same locked-
- *   body + dominator treatment, at which point the templated path will
- *   have no callers and the builder collapses to a 4-way switch.
- *     - Lighting (templated, solo only — combinations with any of the
- *       three dominators get subsumed).
+ *   **Composers** — historically participated in the templated "Reimagine
+ *   X, preserve Y" path. As of the Lighting v1 lock there are no composers
+ *   left — every preset has its own locked body + dominator early-return.
+ *   The templated path is unreachable under the current preset set; kept
+ *   in place as legacy / safety-net code.
  *
  *   **Empty presets** — the validated freeform v0 "make this beautiful"
  *   prompt. Vary colors, preserve everything else. Bit-identical to what
@@ -39,13 +44,16 @@
  *   2. presets includes 'ambiance' → AMBIANCE_PROMPT_BODY.
  *   3. presets includes 'background' → BACKGROUND_PROMPT_BODY.
  *   4. presets includes 'color' → COLOR_PROMPT_BODY.
- *   5. otherwise → templated path (only `['lighting']` reaches here).
+ *   5. presets includes 'lighting' → LIGHTING_PROMPT_BODY.
+ *   6. presets includes 'avery' → AVERY_PROMPT_BODY.
+ *   7. otherwise → templated path (now unreachable; kept as safety net).
  *
  * If multiple dominators are checked, the first hit in the ladder wins.
  * Order is deliberate: Ambiance is the broadest (voice continuation),
- * Background is setting-replacement, Color is palette-replacement.
- * Lighting is currently the only composer — it composes with itself, which
- * is to say it just renders solo via the templated path.
+ * Background is setting-development, Color is palette-development,
+ * Lighting is mood/shadow-development, Avery is painter-reference (most
+ * specific — only fires when explicitly checked alone, which the
+ * mutually-exclusive UI guarantees).
  *
  * `aspectRatio` is always stated explicitly inside the prompt AND passed via
  * `config.imageConfig.aspectRatio` on the API call (belt-and-suspenders).
@@ -220,6 +228,24 @@ Preserve EXACTLY: brushwork, mark-making, drawing style, composition, framing, s
 Do NOT shift skin tones. Do NOT change her color choices or hue family. Do NOT darken the painting overall. Do NOT shift mood toward moody, gloomy, melancholic, dramatic, cold, grey, or shadowed. Do NOT introduce chiaroscuro or romantic-photography moodiness. Do NOT use AI-illustration finish or smooth her marks. Do NOT use rendered gradient lighting. Do NOT make the painting look digital, printed, or vector. Do NOT make timid lateral lighting changes that lack real artistic intent — make confident pushed choices. Do NOT abandon her motifs. Do NOT change subject, proportions, or rendering.
 
 The result should look like the same painting after the artist made one focused lighting pass with confidence and intention — more atmospheric depth, more considered light direction, more painterly value relationships, fully alive in her warm peaceful register.`;
+
+// ---------------------------------------------------------------------------
+// AVERY — v1 locked. Painter-reference preset.
+//
+// Deliberately brief — the body trusts Pro to know who Milton Avery is and
+// gives it creative latitude with that reference, instead of fencing it in
+// with the multi-paragraph anti-language patterns of Color / Background /
+// Lighting / Ambiance. The minimal body IS the spec: preserve character +
+// subjects; reimagine everything else in Avery's voice; permission granted
+// to use Avery's color register.
+//
+// The lowercase opening is intentional — kept verbatim from the user's
+// authored body. The build canary in `scripts/check-prompts.ts` matches
+// the lowercase prefix `do this like a milton avery`; if any future
+// re-cap of the body breaks that prefix the build fails.
+// ---------------------------------------------------------------------------
+
+const AVERY_PROMPT_BODY = `do this like a milton avery while preserving the character and subjects. feel free to use milton avery color.`;
 
 // ---------------------------------------------------------------------------
 // AMBIANCE — v8 locked.
@@ -426,6 +452,7 @@ const PRESET_LABEL: Record<Preset, string> = {
   ambiance: "the atmospheric depth and ambient presence (handled separately)",
   lighting: "the lighting and mood",
   background: "the background environment and setting (handled separately)",
+  avery: "the painted treatment in Milton Avery's voice (handled separately)",
 };
 
 /** Master preserve list, in stable rendering order. Each item has an `id` so
@@ -450,6 +477,7 @@ const PRESET_REMOVES_FROM_PRESERVE: Record<Preset, ReadonlyArray<string>> = {
   ambiance: [], // unreachable — ambiance has its own prompt body
   lighting: ["lighting", "value"],
   background: [], // unreachable — background has its own prompt body
+  avery: [], // unreachable — avery has its own prompt body (v1 dominator)
 };
 
 export interface BuildPromptArgs {
@@ -499,10 +527,20 @@ export function buildPrompt({ presets, aspectRatio }: BuildPromptArgs): string {
     return `${LIGHTING_PROMPT_BODY}\n\nMatch the input aspect ratio exactly (${aspectRatio}).`;
   }
 
-  // 6. Templated path — now unreachable under the current preset set
+  // 6. Avery — painter-reference dominator. Same routing pattern as the
+  //    others; placed after Lighting in the ladder so any historical
+  //    multi-preset row that pairs Avery with one of the older four still
+  //    routes to the older preset's body (Avery is newer; legacy data
+  //    can't have it combined). Under the mutually-exclusive UI, Avery
+  //    only ever appears alone in the array.
+  if (presets.includes("avery")) {
+    return `${AVERY_PROMPT_BODY}\n\nMatch the input aspect ratio exactly (${aspectRatio}).`;
+  }
+
+  // 7. Templated path — now unreachable under the current preset set
   //    (every preset has a locked body + early-return above). Kept in
   //    place as legacy / safety-net code in case a new composer preset
-  //    is ever added; collapsing to a 4-way switch is a future cleanup.
+  //    is ever added; collapsing to a 5-way switch is a future cleanup.
   //
   //    Project to a deduped, stably-ordered array of valid presets. The
   //    filter ensures that a malformed input (already validated upstream,

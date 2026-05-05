@@ -87,6 +87,7 @@ re-read this paragraph and the plan's reference docs first.
 | **Ambiance** | Continues the painting in her voice — extends her own brushwork, marks, level of finish into the canvas; adds elements (a small object, a mark in negative space, atmospheric depth) painted in HER style | Existing developed passages (don't repaint), composition, palette family, subject identity, brushwork voice |
 | **Lighting** | Mood, shadows, light direction | Color palette, composition, brushwork, subject, background, level of finish |
 | **Background** | Reads the artist's compositional intent (interior/outdoor, framing devices, motifs, rhythm, color fields) and develops it — pushes her existing ideas further, refines them, makes them more atmospherically resolved. Indoor stays indoor; outdoor stays outdoor; existing motifs are preserved and developed. | Setting type (indoor/outdoor), her compositional ideas (framing, motifs, rhythm, color fields), foreground figure and subject, foreground brushwork, palette family, lighting direction, peaceful/warm mood, her dry chalky restrained mark register, her wonky gestural shape language |
+| **Avery** | Painter-reference preset. Reimagines surrounding painted treatment in Milton Avery's voice — flat color planes, simplified shape language, atmospheric earthy palette. Locked body is intentionally brief (one sentence + permission to use Avery color); Pro is given creative latitude with the reference instead of fenced in by anti-language. | Character / subjects exactly. Figure preserved. Other aspects (mood, surface register, composition) inherit from whatever the brief prompt body doesn't explicitly grant Pro permission to change. |
 
 > **Composition is gone.** Composition (reframing/repositioning the subject) was tried,
 > didn't match the user's actual workflow, and was removed. Ambiance (continuing the
@@ -96,9 +97,9 @@ re-read this paragraph and the plan's reference docs first.
 > **Color and Ambiance are hidden from the UI.** After many iteration cycles
 > neither `COLOR_PROMPT_BODY` nor `AMBIANCE_PROMPT_BODY` found an operation Zuzi
 > felt confident shipping with. Rather than delete the work, the InputBar's preset
-> picker (`components/krea/InputBar.tsx`) renders a two-cell `VISIBLE_PRESETS`
-> subset (lighting, background); Color and Ambiance are excluded. Everything else
-> stays: both prompt bodies, the dominator-ladder routing in
+> picker (`components/krea/InputBar.tsx`) renders a three-cell `VISIBLE_PRESETS`
+> subset (avery, lighting, background); Color and Ambiance are excluded.
+> Everything else stays: both prompt bodies, the dominator-ladder routing in
 > `lib/gemini/imagePrompts.ts buildPrompt`, both canaries in
 > `scripts/check-prompts.ts` (still drift-protected), and `--presets color` /
 > `--presets ambiance` in `scripts/smoke.ts` for dev iteration. The
@@ -106,6 +107,19 @@ re-read this paragraph and the plan's reference docs first.
 > verifying which Ambiance prompt body is in production if/when the feature is
 > revisited. Re-enable a hidden preset by adding it back to `VISIBLE_PRESETS`
 > (and adjusting the grid columns to fit the new cell count).
+
+> **Avery (v1) is the newest preset and the first painter-reference one.** Body
+> is intentionally brief — one sentence locking the operation ("do this like a
+> milton avery while preserving the character and subjects") plus permission to
+> use Avery color. Different shape from the other locked bodies, which lean on
+> multi-paragraph anti-language to constrain Pro into Zuzi's register. Avery
+> instead trusts Pro to know who Milton Avery is and gives it creative latitude
+> with that reference. The preserve list is correspondingly narrower (just
+> "character and subjects"); composition, mood, surface register all inherit
+> from whatever the brief body doesn't explicitly grant Pro permission to
+> change. Build canary (`scripts/check-prompts.ts`) locks the lowercase
+> `"do this like a milton avery"` prefix so any future re-cap or paraphrase
+> fails the build.
 
 #### Dominators vs composers (legacy / safety-net under exclusive UI)
 

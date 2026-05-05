@@ -82,30 +82,38 @@ const PRESET_LABEL: Record<Preset, string> = {
   ambiance: "Ambiance",
   lighting: "Lighting",
   background: "Background",
+  avery: "Avery",
 };
 
 /**
  * UI-visible preset subset. Color AND Ambiance are intentionally
  * absent — see AGENTS.md §4 ("Color and Ambiance hidden from UI").
  * The full PRESETS array remains exported from `lib/db/schema.ts`,
- * both COLOR_PROMPT_BODY + AMBIANCE_PROMPT_BODY + their dominator-
- * ladder routing in `lib/gemini/imagePrompts.ts buildPrompt` remain
- * in place, and the build-time canaries in
- * `scripts/check-prompts.ts` still validate both prompts against
- * drift. This subset only governs what the InputBar's checkbox
- * grid renders — neither Color nor Ambiance found their reliable
- * operation across many iteration cycles, so we hide them from
- * Zuzi while preserving every line of work for future revisitation.
+ * all five prompt bodies (Color, Ambiance, Lighting, Background,
+ * Avery) + their dominator-ladder routing in
+ * `lib/gemini/imagePrompts.ts buildPrompt` remain in place, and
+ * the build-time canaries in `scripts/check-prompts.ts` still
+ * validate every locked body against drift. This subset only
+ * governs what the InputBar's checkbox grid renders — neither
+ * Color nor Ambiance found their reliable operation across many
+ * iteration cycles, so we hide them from Zuzi while preserving
+ * every line of work for future revisitation.
  *
- * Order matches the original PRESETS order minus the hidden ones
- * (lighting, background). Background stays last because it's also
- * the always-on default — no need to shuffle on its account.
+ * Order: Avery (newest, painter-reference), Lighting, Background.
+ * Background stays last because it's also the always-on default —
+ * no need to shuffle it. Avery slots in first so the new option is
+ * discoverable on the left edge of the grid where Zuzi's reading
+ * scan starts.
  */
-const VISIBLE_PRESETS: ReadonlyArray<Preset> = ["lighting", "background"];
+const VISIBLE_PRESETS: ReadonlyArray<Preset> = [
+  "avery",
+  "lighting",
+  "background",
+];
 
 /** Optional one-line subline rendered under the checkbox label. Ambiance,
- *  Background, and Color all carry sublines because their operations don't
- *  read literally from the label:
+ *  Background, Color, and Avery all carry sublines because their
+ *  operations don't read literally from the label:
  *    - Ambiance is "continue in her voice" (not just add atmosphere).
  *    - Background (v5) is "develop her background ideas" — Pro reads the
  *      source's compositional intent (interior/outdoor, framing, motifs,
@@ -119,12 +127,17 @@ const VISIBLE_PRESETS: ReadonlyArray<Preset> = ["lighting", "background"];
  *      like "tune" / "refine" / "enrich" — those describe the v3
  *      framing that produced lifeless lateral shifts. "Push" is the
  *      load-bearing verb v4 was built around.
+ *    - Avery (v1) is "in Milton Avery's voice" — names the painter
+ *      reference directly so the cell label reads as "preset =
+ *      surface/color treatment" rather than a vague abstraction. The
+ *      label "Avery" alone could mean anything; the subline grounds it.
  *  Lighting reads literally so it gets no subline. Phrasing tracks the
- *  v8/v5/v4 prompt framings in `lib/gemini/imagePrompts.ts`. */
+ *  prompt framings in `lib/gemini/imagePrompts.ts`. */
 const PRESET_SUBLINE: Partial<Record<Preset, string>> = {
   ambiance: "complete it in her voice",
   background: "develop her background ideas",
   color: "push her colors with confidence",
+  avery: "in Milton Avery's voice",
 };
 
 function PillToggle<T extends string>({
@@ -583,24 +596,22 @@ export function InputBar() {
         )}
 
         {/* Top row — mutually-exclusive preset picker.
-            Renders the VISIBLE_PRESETS subset (currently 2: lighting,
-            background — Color and Ambiance are hidden, see the
-            constant's doc above). Grid is `grid-cols-2` at every
-            viewport — two cells side-by-side fit comfortably from
-            phone (~375px) up through iPad Pro 12.9 portrait, and
-            stacking them would waste vertical real estate above
-            the bottom row. Default state (showPicker=false): one
-            cell selected and visible with `×` cancel; the other
-            transitions to opacity-0 + translateY-2 over 150ms but
-            stays in its grid column so the selected one's position
-            doesn't shift. Transitional state (showPicker=true):
-            both cells visible and unchecked. Picking a cell → that
-            becomes selected, transitional ends. Outside-click →
-            Background snaps back, transitional ends (handled by
-            the document listener above). Renders only when a
-            source exists. */}
+            Renders the VISIBLE_PRESETS subset (currently 3: avery,
+            lighting, background — Color and Ambiance are hidden, see
+            the constant's doc above). Grid is `grid-cols-3` at every
+            viewport — three cells fit comfortably from phone-portrait
+            (~375px) up through iPad Pro 12.9 portrait. Default state
+            (showPicker=false): one cell selected and visible with `×`
+            cancel; the other two transition to opacity-0 +
+            translateY-2 over 150ms but stay in their grid columns so
+            the selected one's position doesn't shift. Transitional
+            state (showPicker=true): all three cells visible and
+            unchecked. Picking a cell → that becomes selected,
+            transitional ends. Outside-click → Background snaps back,
+            transitional ends (handled by the document listener
+            above). Renders only when a source exists. */}
         {!isEmpty && (
-          <div ref={presetCellsRef} className="grid grid-cols-2 gap-2">
+          <div ref={presetCellsRef} className="grid grid-cols-3 gap-2">
             {VISIBLE_PRESETS.map((p) => (
               <PresetCheckbox
                 key={p}

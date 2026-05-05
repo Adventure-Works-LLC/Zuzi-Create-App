@@ -88,8 +88,19 @@ export const iterations = sqliteTable(
  *  canonical, fixed-order list of UI checkboxes. See AGENTS.md §4 for the
  *  preset table + the rationale on why Composition was removed in favor of
  *  Ambiance (composition's reframing operation didn't match the user's
- *  workflow). Don't add Composition back without explicit user request. */
-export const PRESETS = ["color", "ambiance", "lighting", "background"] as const;
+ *  workflow). Don't add Composition back without explicit user request.
+ *
+ *  `avery` is a painter-reference preset added on top of the original four:
+ *  reimagines the painting in Milton Avery's voice while preserving the
+ *  figure / subjects exactly. Same locked-body + dominator-routing
+ *  architecture as Background and Lighting. */
+export const PRESETS = [
+  "color",
+  "ambiance",
+  "lighting",
+  "background",
+  "avery",
+] as const;
 export type Preset = (typeof PRESETS)[number];
 
 export const tiles = sqliteTable(

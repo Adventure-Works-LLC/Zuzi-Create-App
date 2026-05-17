@@ -328,6 +328,25 @@ export function SourceStrip() {
         >
           ★ Favorites
         </button>
+
+        {/* Sign out — navigates to /logout, which POSTs /api/logout and
+            then redirects to /login. Visible always so a stuck-session
+            scenario (httpOnly cookie that the server can't unseal — e.g.,
+            iron-session ttl mismatch, env secret rotation) has an in-app
+            recovery path. Same muted/uppercase style as Favorites so the
+            two read as peer header actions. */}
+        <a
+          href="/logout"
+          className={[
+            "shrink-0 rounded-md px-3 py-2",
+            "text-xs uppercase tracking-[0.18em]",
+            "text-text-mute hover:text-foreground",
+            "transition-colors no-callout",
+          ].join(" ")}
+          aria-label="Sign out"
+        >
+          Sign out
+        </a>
       </div>
 
       {actionError && (

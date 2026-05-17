@@ -25,6 +25,17 @@ function sessionOptions(): SessionOptions {
   return {
     cookieName: COOKIE_NAME,
     password,
+    // Match the cookie's browser-side `maxAge`. iron-session's default
+    // `ttl` is 14 days — the seal expires INTERNALLY before the cookie
+    // expires browser-side. The browser still sends the cookie but the
+    // server's `getIronSession` returns an empty session (no user-
+    // visible auth flow, just silent 401s on every API call). Zuzi hit
+    // exactly this in production: cookie present, Studio renders,
+    // sources/iterations come back empty + a transient "authentication
+    // failed" toast in the corner. Setting ttl = maxAge makes the two
+    // clocks agree — while the cookie is still in the browser, the
+    // seal is still valid.
+    ttl: 60 * 60 * 24 * 30, // 30 days — same as cookieOptions.maxAge
     cookieOptions: {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",

@@ -78,12 +78,10 @@ export class RootErrorBoundary extends Component<Props, State> {
       /* ignore */
     }
 
-    // 3. Clear cookies for this origin. The session cookie is httpOnly so
-    //    document.cookie can't see/clear it directly — but expiring all
-    //    visible cookies covers any non-httpOnly state and the server's
-    //    session cookie is short-lived enough that worst case is one
-    //    extra login. (For full session purge use POST /api/logout, but
-    //    that requires a working app — moot if we're in this UI.)
+    // 3a. Clear non-httpOnly cookies via document.cookie. Misses the
+    //     session cookie (which IS httpOnly) — that's what step 3b is
+    //     for. This step still runs first because it's synchronous and
+    //     covers any random non-httpOnly state.
     try {
       if (typeof document !== "undefined") {
         const cookies = document.cookie.split(";");
@@ -97,6 +95,21 @@ export class RootErrorBoundary extends Component<Props, State> {
       }
     } catch {
       /* ignore */
+    }
+
+    // 3b. Clear the httpOnly session cookie via POST /api/logout. We
+    //     can't see this cookie from document.cookie above, so this is
+    //     the only way to nuke it client-side. The endpoint always
+    //     returns 204 regardless of session validity, so this works
+    //     even when the session was already broken. Without this, a
+    //     stuck-cookie-with-bad-seal scenario (iron-session ttl
+    //     mismatch, env secret rotation, etc.) couldn't be recovered
+    //     from this UI — the user would have to clear cookies via
+    //     Safari Settings or navigate to /logout manually.
+    try {
+      await fetch("/api/logout", { method: "POST" });
+    } catch {
+      /* ignore — best effort */
     }
 
     // 4. Hard-reload bypassing whatever cache we can. location.reload(true)

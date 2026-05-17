@@ -37,6 +37,7 @@ import { useImageUrl } from "@/hooks/useImageUrl";
 import { useFavorites } from "@/hooks/useFavorites";
 import { useShare } from "@/hooks/useShare";
 import { useSources } from "@/hooks/useSources";
+import { authFetch } from "@/lib/auth/authFetch";
 
 /** Flat view used by the rendering layer regardless of how the lightbox was
  *  opened. `byId` mode (Tile.tsx → walk iterations[]) and `snapshot` mode
@@ -288,7 +289,7 @@ export function Lightbox() {
     // scripts/sw-template.js, and the endpoint sets Cache-Control: no-store
     // — but explicit hint here means anyone reading the call-site knows
     // the intent without chasing through the proxy + SW config.
-    const inflight = fetch(proxyUrl, { cache: "no-store" })
+    const inflight = authFetch(proxyUrl, { cache: "no-store" })
       .then((resp) => {
         if (!resp.ok) {
           throw new Error(

@@ -1,28 +1,49 @@
 "use client";
 
 /**
- * /logout — recovery page for stuck-session scenarios.
+ * /logout — recovery page for stuck-session scenarios + general sign-out.
  *
  * Renders a small "Signing out…" UI, POSTs `/api/logout` on mount to clear
  * the httpOnly session cookie, then redirects to /login.
  *
- * Two callers:
- *   1. The "Sign out" affordance in the SourceStrip header.
- *   2. Direct URL entry — `/logout` is the recovery URL Zuzi can navigate
- *      to manually when something has gone wrong with her session (e.g.,
- *      she sees empty data + a "couldn't authenticate" message because her
- *      cookie unsealed-but-expired-via-iron-session-ttl). The page works
- *      whether or not the cookie is valid — `POST /api/logout` always
- *      returns 204 regardless.
+ * Three callers:
+ *   1. The "Sign out" affordance at the page level (app/(app)/page.tsx).
+ *   2. The `authFetch` 401 auto-recovery path — any client-side fetch to
+ *      `/api/*` that returns 401 navigates here with `?next` + `?reason`
+ *      preserved so the user lands on /login with the correct context
+ *      and returns to where they were after sign-in.
+ *   3. Direct URL entry — `/logout` works as a manual recovery URL.
  *
- * Proxy lets this page through for the (rare) case of an already-logged-out
- * user navigating here directly: proxy.ts only redirects unauthenticated
- * users to /login, and after /api/logout the next request finds no cookie
- * → redirects to /login automatically. So either way the user lands on
- * /login after this page does its work.
+ * Query-param forwarding (NEW): preserves `?next=…` and `?reason=…` and
+ * passes them through to /login so the post-login redirect lands on the
+ * right page AND /login can show context (e.g. "session expired"). Both
+ * are sanitised — next must be a same-origin path, reason must be
+ * known.
+ *
+ * Proxy lets this page through for the case of an already-logged-out
+ * user navigating here: proxy.ts redirects to /login when no cookie,
+ * which would mean /api/logout is never even called; that's fine —
+ * there's nothing to log out of.
  */
 
 import { useEffect } from "react";
+
+/** Sanitise the next-path query param. Must be a same-origin path
+ *  (`/…`), must not be a protocol-relative URL (`//…`). Anything else
+ *  collapses to `/`. Mirrors the safeNextPath() helper in /login. */
+function safeNext(raw: string | null): string {
+  if (!raw) return "/";
+  if (raw.startsWith("/") && !raw.startsWith("//")) return raw;
+  return "/";
+}
+
+/** Only known reasons are forwarded. Anything else is dropped so we
+ *  don't reflect arbitrary query strings into /login's render path. */
+const KNOWN_REASONS = new Set(["expired"]);
+function safeReason(raw: string | null): string | null {
+  if (raw && KNOWN_REASONS.has(raw)) return raw;
+  return null;
+}
 
 export default function LogoutPage() {
   useEffect(() => {
@@ -35,12 +56,24 @@ export default function LogoutPage() {
         // /login with a stale cookie and the next manual login replaces it.
       }
       if (cancelled) return;
+      if (typeof window === "undefined") return;
+
+      const incoming = new URLSearchParams(window.location.search);
+      const next = safeNext(incoming.get("next"));
+      const reason = safeReason(incoming.get("reason"));
+
+      const out = new URLSearchParams();
+      // Only set next when it's not the trivial default — keeps /login's
+      // URL tidy in the common manual-signout case.
+      if (next !== "/") out.set("next", next);
+      if (reason) out.set("reason", reason);
+
+      const qs = out.toString();
+      const url = qs ? `/login?${qs}` : "/login";
+
       // Use window.location.replace so the back button doesn't bring the
-      // user back here (and re-trigger another POST /api/logout). replace()
-      // removes /logout from the browser history.
-      if (typeof window !== "undefined") {
-        window.location.replace("/login");
-      }
+      // user back here (and re-trigger another POST /api/logout).
+      window.location.replace(url);
     })();
     return () => {
       cancelled = true;

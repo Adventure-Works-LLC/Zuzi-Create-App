@@ -21,6 +21,7 @@ import { Loader2, X } from "lucide-react";
 import { useImageUrl } from "@/hooks/useImageUrl";
 import { useCanvas, type AspectRatioMode } from "@/stores/canvas";
 import { flipAspectRatio } from "@/lib/gemini/aspectRatio";
+import { authFetch } from "@/lib/auth/authFetch";
 
 interface FavoriteRow {
   tileId: string;
@@ -113,7 +114,7 @@ export function FavoritesPanel() {
     setError(null);
     (async () => {
       try {
-        const resp = await fetch("/api/favorites?limit=100", {
+        const resp = await authFetch("/api/favorites?limit=100", {
           signal: ac.signal,
         });
         if (!resp.ok) throw new Error(`favorites fetch failed (${resp.status})`);

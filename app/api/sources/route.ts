@@ -25,7 +25,7 @@ import { NextResponse } from "next/server";
 import sharp from "sharp";
 import { ulid } from "ulid";
 
-import { getSession } from "@/lib/auth/session";
+import { requireAuth } from "@/lib/auth/requireAuth";
 import {
   getTile,
   insertSource,
@@ -40,15 +40,6 @@ export const runtime = "nodejs";
 const MAX_RAW_BYTES = 30 * 1024 * 1024;
 const INPUT_LONG_EDGE_PX = 2048;
 const INPUT_JPEG_QUALITY = 85;
-
-async function isAuthed(): Promise<boolean> {
-  try {
-    const session = await getSession();
-    return typeof session.authedAt === "number" && session.authedAt > 0;
-  } catch {
-    return false;
-  }
-}
 
 /** Outcome shape from the shared "raw bytes → sharp normalize → R2 putObject
  *  + insertSource" tail. Both upload and promote-from-tile end here so every
@@ -106,7 +97,7 @@ async function normalizeAndInsert(
 }
 
 export async function POST(req: Request): Promise<Response> {
-  if (!(await isAuthed())) {
+  if (!(await requireAuth())) {
     return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
   }
 
@@ -284,7 +275,7 @@ async function handlePromoteFromTile(req: Request): Promise<Response> {
 }
 
 export async function GET(req: Request): Promise<Response> {
-  if (!(await isAuthed())) {
+  if (!(await requireAuth())) {
     return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
   }
 

@@ -22,6 +22,7 @@
 import { useCallback, useEffect, useRef } from "react";
 
 import { useCanvas, type Source } from "@/stores/canvas";
+import { authFetch } from "@/lib/auth/authFetch";
 
 interface SourceResponseRow {
   id: string;
@@ -101,7 +102,7 @@ export function useSources(): UseSourcesResult {
     setSourcesLoading(true);
     setSourcesError(null);
     try {
-      const resp = await fetch("/api/sources?archived=false&limit=10", {
+      const resp = await authFetch("/api/sources?archived=false&limit=10", {
         signal: ac.signal,
       });
       if (!resp.ok) {
@@ -129,7 +130,7 @@ export function useSources(): UseSourcesResult {
       try {
         const form = new FormData();
         form.append("file", file);
-        const resp = await fetch("/api/sources", {
+        const resp = await authFetch("/api/sources", {
           method: "POST",
           body: form,
         });
@@ -172,7 +173,7 @@ export function useSources(): UseSourcesResult {
       setUploading(true);
       setSourcesError(null);
       try {
-        const resp = await fetch("/api/sources", {
+        const resp = await authFetch("/api/sources", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ promoteFromTileId: tileId }),
@@ -219,7 +220,7 @@ export function useSources(): UseSourcesResult {
       // Optimistic update — pull from store immediately. Roll back on failure.
       archiveSourceInStore(sourceId);
       try {
-        const resp = await fetch(`/api/sources/${sourceId}`, {
+        const resp = await authFetch(`/api/sources/${sourceId}`, {
           method: "PATCH",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ archived: true }),
@@ -245,7 +246,7 @@ export function useSources(): UseSourcesResult {
       // archivedAt; the active-strip query joins iterations + tiles
       // for aggregate counts, which we'd be missing). Refresh is the
       // canonical-state path.
-      const resp = await fetch(`/api/sources/${sourceId}`, {
+      const resp = await authFetch(`/api/sources/${sourceId}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ archived: false }),
@@ -274,7 +275,7 @@ export function useSources(): UseSourcesResult {
       // from the ArchivedSourcesPanel.
       removeSourceInStore(sourceId);
       try {
-        const resp = await fetch(
+        const resp = await authFetch(
           `/api/sources/${encodeURIComponent(sourceId)}?permanent=true`,
           { method: "DELETE" },
         );

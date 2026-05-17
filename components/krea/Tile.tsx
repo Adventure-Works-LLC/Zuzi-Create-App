@@ -44,6 +44,7 @@ import { useImageUrl } from "@/hooks/useImageUrl";
 import { useFavorites } from "@/hooks/useFavorites";
 import { useCanvas, type Tile as TileT } from "@/stores/canvas";
 import { ActionMenu } from "./ActionMenu";
+import { authFetch } from "@/lib/auth/authFetch";
 
 interface TileProps {
   tile: TileT;
@@ -170,7 +171,7 @@ export const Tile = memo(function Tile({
     // momentary "tile gone, then back" — acceptable; the alternative is
     // freezing the UI on a slow network.
     removeTile(tile.id);
-    void fetch(`/api/tiles/${encodeURIComponent(tile.id)}`, {
+    void authFetch(`/api/tiles/${encodeURIComponent(tile.id)}`, {
       method: "DELETE",
     })
       .then(async (resp) => {

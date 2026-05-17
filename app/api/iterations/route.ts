@@ -26,7 +26,7 @@
 
 import { NextResponse } from "next/server";
 
-import { getSession } from "@/lib/auth/session";
+import { requireAuth } from "@/lib/auth/requireAuth";
 import {
   listIterations,
   tilesForIterations,
@@ -35,17 +35,8 @@ import { parseStoredPresets } from "@/lib/gemini/presets";
 
 export const runtime = "nodejs";
 
-async function isAuthed(): Promise<boolean> {
-  try {
-    const session = await getSession();
-    return typeof session.authedAt === "number" && session.authedAt > 0;
-  } catch {
-    return false;
-  }
-}
-
 export async function GET(req: Request): Promise<Response> {
-  if (!(await isAuthed())) {
+  if (!(await requireAuth())) {
     return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
   }
 

@@ -13,6 +13,7 @@
 import { useCallback } from "react";
 
 import { useCanvas } from "@/stores/canvas";
+import { authFetch } from "@/lib/auth/authFetch";
 
 export interface UseFavoritesResult {
   toggle: (tileId: string, next: boolean) => Promise<void>;
@@ -27,7 +28,7 @@ export function useFavorites(): UseFavoritesResult {
       // Optimistic.
       setTileFavorite(tileId, next, next ? now : null);
       try {
-        const resp = await fetch("/api/favorite", {
+        const resp = await authFetch("/api/favorite", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ tileId, value: next }),

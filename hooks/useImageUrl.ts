@@ -26,6 +26,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
+import { authFetch } from "@/lib/auth/authFetch";
 
 interface CacheEntry {
   url: string;
@@ -98,7 +99,7 @@ async function fetchSignedUrl(key: string): Promise<CacheEntry> {
   if (existing) return existing;
 
   const promise = (async () => {
-    const resp = await fetch(
+    const resp = await authFetch(
       `/api/image-url?key=${encodeURIComponent(key)}`,
       { cache: "no-store" },
     );

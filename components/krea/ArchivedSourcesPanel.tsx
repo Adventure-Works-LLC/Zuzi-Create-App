@@ -33,6 +33,7 @@ import { ArchiveRestore, Loader2, Trash2, X } from "lucide-react";
 import { useImageUrl } from "@/hooks/useImageUrl";
 import { useSources } from "@/hooks/useSources";
 import { useCanvas } from "@/stores/canvas";
+import { authFetch } from "@/lib/auth/authFetch";
 
 interface ArchivedSourceRow {
   id: string;
@@ -208,7 +209,7 @@ export function ArchivedSourcesPanel() {
     setError(null);
     (async () => {
       try {
-        const resp = await fetch("/api/sources?archived=true&limit=100", {
+        const resp = await authFetch("/api/sources?archived=true&limit=100", {
           signal: ac.signal,
         });
         if (!resp.ok) {

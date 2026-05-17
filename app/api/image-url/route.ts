@@ -20,22 +20,13 @@
 
 import { NextResponse } from "next/server";
 
-import { getSession } from "@/lib/auth/session";
+import { requireAuth } from "@/lib/auth/requireAuth";
 import { signedUrlFor } from "@/lib/storage/r2";
 
 export const runtime = "nodejs";
 
 const TTL_SECONDS = 3600;
 const ALLOWED_PREFIXES = ["inputs/", "outputs/", "thumbs/"] as const;
-
-async function isAuthed(): Promise<boolean> {
-  try {
-    const session = await getSession();
-    return typeof session.authedAt === "number" && session.authedAt > 0;
-  } catch {
-    return false; // unsealable cookie → unauthenticated
-  }
-}
 
 function isValidKey(key: string): boolean {
   if (!key || typeof key !== "string") return false;
@@ -46,7 +37,7 @@ function isValidKey(key: string): boolean {
 }
 
 export async function GET(req: Request): Promise<Response> {
-  if (!(await isAuthed())) {
+  if (!(await requireAuth())) {
     return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
   }
 

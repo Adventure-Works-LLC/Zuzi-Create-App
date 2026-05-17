@@ -37,6 +37,7 @@ import {
   type Tile,
 } from "@/stores/canvas";
 import type { Preset } from "@/lib/db/schema";
+import { authFetch } from "@/lib/auth/authFetch";
 
 interface IterationResponseRow {
   id: string;
@@ -170,7 +171,7 @@ export function useIterations(): UseIterationsResult {
     setError(null);
     (async () => {
       try {
-        const resp = await fetch(
+        const resp = await authFetch(
           `/api/iterations?sourceId=${encodeURIComponent(currentSourceId)}&limit=50`,
           { signal: ac.signal },
         );
@@ -232,7 +233,7 @@ export function useIterations(): UseIterationsResult {
     generateAbortRef.current = ac;
 
     try {
-      const resp = await fetch("/api/iterate", {
+      const resp = await authFetch("/api/iterate", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -383,7 +384,7 @@ export function useIterations(): UseIterationsResult {
     const sid = useCanvas.getState().currentSourceId;
     if (!sid) return;
     try {
-      const resp = await fetch(
+      const resp = await authFetch(
         `/api/iterations?sourceId=${encodeURIComponent(sid)}&limit=50`,
       );
       if (!resp.ok) return;
@@ -402,7 +403,7 @@ export function useIterations(): UseIterationsResult {
       const before = useCanvas.getState().iterations;
       useCanvas.getState().removeIteration(iterationId);
       try {
-        const resp = await fetch(
+        const resp = await authFetch(
           `/api/iterations/${encodeURIComponent(iterationId)}`,
           { method: "DELETE" },
         );
@@ -428,7 +429,7 @@ export function useIterations(): UseIterationsResult {
 
   const recoverIteration = useCallback(
     async (iterationId: string): Promise<RecoverIterationResult> => {
-      const resp = await fetch(
+      const resp = await authFetch(
         `/api/iterations/${encodeURIComponent(iterationId)}/recover`,
         { method: "POST" },
       );

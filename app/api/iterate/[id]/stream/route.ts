@@ -18,21 +18,12 @@
  * runtime = 'nodejs' for better-sqlite3 + EventEmitter.
  */
 
-import { getSession } from "@/lib/auth/session";
+import { requireAuth } from "@/lib/auth/requireAuth";
 import { getIteration, tilesFor } from "@/lib/db/queries";
 import * as bus from "@/lib/bus";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-async function isAuthed(): Promise<boolean> {
-  try {
-    const session = await getSession();
-    return typeof session.authedAt === "number" && session.authedAt > 0;
-  } catch {
-    return false;
-  }
-}
 
 function sseEncode(event: string, data: unknown): string {
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
@@ -42,7 +33,7 @@ export async function GET(
   req: Request,
   { params }: { params: Promise<{ id: string }> },
 ): Promise<Response> {
-  if (!(await isAuthed())) {
+  if (!(await requireAuth())) {
     return new Response("unauthenticated", { status: 401 });
   }
 

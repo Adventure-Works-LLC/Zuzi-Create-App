@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 
 import { Input } from "@/components/ui/input";
@@ -13,10 +13,29 @@ function safeNextPath(): string {
   return "/";
 }
 
+/** Read the `?reason=` param, restricted to known reasons so the page
+ *  never reflects arbitrary query strings into its render. */
+function reasonFromQuery(): "expired" | null {
+  if (typeof window === "undefined") return null;
+  const r = new URLSearchParams(window.location.search).get("reason");
+  if (r === "expired") return "expired";
+  return null;
+}
+
 export default function LoginPage() {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  /** Set on mount from `?reason=expired`. The 401-recovery flow
+   *  (authFetch → /logout → /login?reason=expired&next=…) lands here
+   *  with the param set so we can surface a brief "your session
+   *  expired" notice instead of a silent return to the login form. */
+  const [sessionExpired, setSessionExpired] = useState(false);
+
+  // Read the reason query param after hydration to avoid SSR mismatch.
+  useEffect(() => {
+    if (reasonFromQuery() === "expired") setSessionExpired(true);
+  }, []);
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -83,6 +102,25 @@ export default function LoginPage() {
             A creative ideation tool.
           </p>
         </div>
+
+        {/* Session-expired notice. Renders when /login was reached via
+            the authFetch 401-recovery path. Soft warm-tinted surface
+            (not destructive red) since this isn't an error — it's the
+            normal sign-in-again flow after a long absence. */}
+        {sessionExpired && (
+          <div
+            role="status"
+            className="
+              mb-5 rounded-lg
+              bg-secondary/60
+              px-4 py-3
+              caption-display text-sm text-text-mute leading-snug
+            "
+          >
+            Your previous session expired — sign in again to pick up where
+            you left off.
+          </div>
+        )}
 
         <form
           onSubmit={handleSubmit}

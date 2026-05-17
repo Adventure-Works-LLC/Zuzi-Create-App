@@ -7,22 +7,13 @@
 
 import { NextResponse } from "next/server";
 
-import { getSession } from "@/lib/auth/session";
+import { requireAuth } from "@/lib/auth/requireAuth";
 import { setFavorite } from "@/lib/db/queries";
 
 export const runtime = "nodejs";
 
-async function isAuthed(): Promise<boolean> {
-  try {
-    const session = await getSession();
-    return typeof session.authedAt === "number" && session.authedAt > 0;
-  } catch {
-    return false;
-  }
-}
-
 export async function POST(req: Request): Promise<Response> {
-  if (!(await isAuthed())) {
+  if (!(await requireAuth())) {
     return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
   }
 

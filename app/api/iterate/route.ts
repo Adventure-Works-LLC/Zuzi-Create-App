@@ -39,7 +39,7 @@
 import { NextResponse } from "next/server";
 import { ulid } from "ulid";
 
-import { getSession } from "@/lib/auth/session";
+import { requireAuth } from "@/lib/auth/requireAuth";
 import {
   findIterationByRequestId,
   getSource,
@@ -68,15 +68,6 @@ export const runtime = "nodejs";
 const _capParsed = Number(process.env.MONTHLY_USD_CAP ?? "80");
 const MONTHLY_USD_CAP =
   Number.isFinite(_capParsed) && _capParsed > 0 ? _capParsed : 80;
-
-async function isAuthed(): Promise<boolean> {
-  try {
-    const session = await getSession();
-    return typeof session.authedAt === "number" && session.authedAt > 0;
-  } catch {
-    return false;
-  }
-}
 
 /** Parse + validate the `presets` field. Returns a deduped, stably-ordered
  * Preset[] (matching the order in PRESETS). Throws on bad input so the route
@@ -110,7 +101,7 @@ function parseCount(raw: unknown): number {
 }
 
 export async function POST(req: Request): Promise<Response> {
-  if (!(await isAuthed())) {
+  if (!(await requireAuth())) {
     return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
   }
 

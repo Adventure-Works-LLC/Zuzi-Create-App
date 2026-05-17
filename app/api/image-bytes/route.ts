@@ -38,21 +38,12 @@
 
 import { NextResponse } from "next/server";
 
-import { getSession } from "@/lib/auth/session";
+import { requireAuth } from "@/lib/auth/requireAuth";
 import { getObject } from "@/lib/storage/r2";
 
 export const runtime = "nodejs";
 
 const ALLOWED_PREFIXES = ["inputs/", "outputs/", "thumbs/"] as const;
-
-async function isAuthed(): Promise<boolean> {
-  try {
-    const session = await getSession();
-    return typeof session.authedAt === "number" && session.authedAt > 0;
-  } catch {
-    return false; // unsealable cookie → unauthenticated
-  }
-}
 
 function isValidKey(key: string): boolean {
   if (!key || typeof key !== "string") return false;
@@ -75,7 +66,7 @@ function contentTypeForKey(key: string): string {
 }
 
 export async function GET(req: Request): Promise<Response> {
-  if (!(await isAuthed())) {
+  if (!(await requireAuth())) {
     return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
   }
 

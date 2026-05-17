@@ -54,6 +54,34 @@ export default function Studio() {
 
   return (
     <main className="relative flex min-h-dvh flex-col bg-background">
+      {/* Fixed-position Sign out — ALWAYS visible regardless of source
+          state, so a stuck-cookie / auth-broken scenario (which is
+          exactly the state where sources fail to fetch and SourceStrip
+          renders null) still has an in-app recovery affordance. Sits
+          top-right above the SourceStrip's z-30 sticky header at z-40
+          so it doesn't get covered when the strip is present. The
+          SourceStrip itself ALSO has a Sign out anchor in its header
+          when it's rendered, but that one is unreachable in the
+          empty-state. This one is the safety net.
+
+          Padding respects env(safe-area-inset-top) so it doesn't
+          collide with the iPad's status bar in PWA mode. */}
+      <a
+        href="/logout"
+        className={[
+          "fixed right-4 z-40",
+          "rounded-md px-3 py-2",
+          "text-xs uppercase tracking-[0.18em]",
+          "text-text-mute/80 hover:text-foreground",
+          "bg-background/70 backdrop-blur-sm",
+          "transition-colors no-callout",
+        ].join(" ")}
+        style={{ top: "calc(env(safe-area-inset-top) + 0.75rem)" }}
+        aria-label="Sign out"
+      >
+        Sign out
+      </a>
+
       <SourceStrip />
 
       {iterations.length > 0 ? (

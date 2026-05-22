@@ -28,6 +28,14 @@
  *       brief (one sentence + a permission to use Avery color) — gives
  *       Pro creative latitude with Avery as the reference instead of
  *       fencing it in with anti-language.
+ *     - Etching v1 (locked) — see `ETCHING_PROMPT_BODY`. Drawing-
+ *       technique preset: adds classical old-master shadow hatching
+ *       (parallel / cross-hatching + soft graphite shading) to the
+ *       shadow areas only. Strict preserve list — lit areas, existing
+ *       lines, warm paper background, no color, no white highlights.
+ *       Single paragraph with explicit DO/DON'T language because Pro's
+ *       default reading of "shadow hatching" drifts into adding white
+ *       highlights or re-rendering the whole drawing.
  *
  *   **Composers** — historically participated in the templated "Reimagine
  *   X, preserve Y" path. As of the Lighting v1 lock there are no composers
@@ -46,7 +54,8 @@
  *   4. presets includes 'color' → COLOR_PROMPT_BODY.
  *   5. presets includes 'lighting' → LIGHTING_PROMPT_BODY.
  *   6. presets includes 'avery' → AVERY_PROMPT_BODY.
- *   7. otherwise → templated path (now unreachable; kept as safety net).
+ *   7. presets includes 'etching' → ETCHING_PROMPT_BODY.
+ *   8. otherwise → templated path (now unreachable; kept as safety net).
  *
  * If multiple dominators are checked, the first hit in the ladder wins.
  * Order is deliberate: Ambiance is the broadest (voice continuation),
@@ -246,6 +255,28 @@ The result should look like the same painting after the artist made one focused 
 // ---------------------------------------------------------------------------
 
 const AVERY_PROMPT_BODY = `do this like a milton avery while preserving the character and subjects. feel free to use milton avery color.`;
+
+// ---------------------------------------------------------------------------
+// ETCHING — v1 locked. Drawing-technique preset.
+//
+// Operation: add classical old-master shadow hatching (parallel /
+// cross-hatching, soft graphite shading) to the SHADOW areas only.
+// Strict preserve list: lit areas, existing lines, the warm paper
+// background. The body is one paragraph of explicit DO/DON'T language
+// — different shape from Avery's "trust Pro with the reference" brief
+// body. Etching needs the constraints because Pro's default reading
+// of "shadow hatching" tends to drift into adding white highlights or
+// re-rendering the whole drawing, both of which break the preserve
+// list. The DO-NOTs are load-bearing.
+//
+// The lowercase opening is intentional — kept verbatim from the
+// user's authored body. The build canary in
+// `scripts/check-prompts.ts` matches the lowercase prefix
+// `add classical old master shadow hatching`; if any future re-cap
+// of the body breaks that prefix the build fails.
+// ---------------------------------------------------------------------------
+
+const ETCHING_PROMPT_BODY = `add classical old master shadow hatching to this drawing. ONLY darken the shadow areas using parallel hatching, cross-hatching, and soft graphite shading. DO NOT touch the lit areas — they stay as bare paper exactly as they are. DO NOT add white, do not add highlights, do not lighten anything. Only add darkness to the shadow side using pencil/chalk hatching technique in the manner of leonardo or michelangelo preparatory drawings. preserve every existing line exactly. preserve the warm paper background exactly. no color, only graphite shadow shading on the shadow side. etch it like daumier and anders zorn with graphite and no white.`;
 
 // ---------------------------------------------------------------------------
 // AMBIANCE — v8 locked.
@@ -453,6 +484,7 @@ const PRESET_LABEL: Record<Preset, string> = {
   lighting: "the lighting and mood",
   background: "the background environment and setting (handled separately)",
   avery: "the painted treatment in Milton Avery's voice (handled separately)",
+  etching: "old-master shadow hatching on the shadow side (handled separately)",
 };
 
 /** Master preserve list, in stable rendering order. Each item has an `id` so
@@ -478,6 +510,7 @@ const PRESET_REMOVES_FROM_PRESERVE: Record<Preset, ReadonlyArray<string>> = {
   lighting: ["lighting", "value"],
   background: [], // unreachable — background has its own prompt body
   avery: [], // unreachable — avery has its own prompt body (v1 dominator)
+  etching: [], // unreachable — etching has its own prompt body (v1 dominator)
 };
 
 export interface BuildPromptArgs {
@@ -537,10 +570,19 @@ export function buildPrompt({ presets, aspectRatio }: BuildPromptArgs): string {
     return `${AVERY_PROMPT_BODY}\n\nMatch the input aspect ratio exactly (${aspectRatio}).`;
   }
 
-  // 7. Templated path — now unreachable under the current preset set
+  // 7. Etching — drawing-technique dominator. Newest preset; same
+  //    placement rationale as Avery (after Lighting in the ladder).
+  //    Under the mutually-exclusive UI, Etching only ever appears alone
+  //    in the array. Order vs Avery doesn't matter since the UI never
+  //    sends both — pick alphabetical for stable readability.
+  if (presets.includes("etching")) {
+    return `${ETCHING_PROMPT_BODY}\n\nMatch the input aspect ratio exactly (${aspectRatio}).`;
+  }
+
+  // 8. Templated path — now unreachable under the current preset set
   //    (every preset has a locked body + early-return above). Kept in
   //    place as legacy / safety-net code in case a new composer preset
-  //    is ever added; collapsing to a 5-way switch is a future cleanup.
+  //    is ever added; collapsing to a 6-way switch is a future cleanup.
   //
   //    Project to a deduped, stably-ordered array of valid presets. The
   //    filter ensures that a malformed input (already validated upstream,

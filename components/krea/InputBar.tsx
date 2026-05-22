@@ -84,30 +84,31 @@ const PRESET_LABEL: Record<Preset, string> = {
   lighting: "Lighting",
   background: "Background",
   avery: "Avery",
+  etching: "Etching",
 };
 
 /**
  * UI-visible preset subset. Color AND Ambiance are intentionally
  * absent — see AGENTS.md §4 ("Color and Ambiance hidden from UI").
  * The full PRESETS array remains exported from `lib/db/schema.ts`,
- * all five prompt bodies (Color, Ambiance, Lighting, Background,
- * Avery) + their dominator-ladder routing in
- * `lib/gemini/imagePrompts.ts buildPrompt` remain in place, and
- * the build-time canaries in `scripts/check-prompts.ts` still
- * validate every locked body against drift. This subset only
- * governs what the InputBar's checkbox grid renders — neither
- * Color nor Ambiance found their reliable operation across many
- * iteration cycles, so we hide them from Zuzi while preserving
- * every line of work for future revisitation.
+ * all six prompt bodies (Color, Ambiance, Lighting, Background,
+ * Avery, Etching) + their dominator-ladder routing in
+ * `lib/gemini/imagePrompts.ts buildPrompt` remain in place, and the
+ * build-time canaries in `scripts/check-prompts.ts` still validate
+ * every locked body against drift. This subset only governs what
+ * the InputBar's checkbox grid renders — neither Color nor Ambiance
+ * found their reliable operation across many iteration cycles, so
+ * we hide them from Zuzi while preserving every line of work for
+ * future revisitation.
  *
- * Order: Avery (always-on default), Lighting, Background. Avery sits
- * first so the cell the eye lands on first is also the one that's
- * pre-selected — the visual default and the canonical default agree.
- * (Pre-Avery the default was Background, and Background sat last as
- * a "default = rightmost" pattern; that pattern is gone now.)
+ * Order: Avery (always-on default), then alphabetical (Etching,
+ * Lighting, Background). Avery sits first so the cell the eye lands
+ * on first is also the one that's pre-selected — the visual default
+ * and the canonical default agree.
  */
 const VISIBLE_PRESETS: ReadonlyArray<Preset> = [
   "avery",
+  "etching",
   "lighting",
   "background",
 ];
@@ -139,6 +140,7 @@ const PRESET_SUBLINE: Partial<Record<Preset, string>> = {
   background: "develop her background ideas",
   color: "push her colors with confidence",
   avery: "in Milton Avery's voice",
+  etching: "old-master shadow hatching",
 };
 
 function PillToggle<T extends string>({
@@ -597,22 +599,23 @@ export function InputBar() {
         )}
 
         {/* Top row — mutually-exclusive preset picker.
-            Renders the VISIBLE_PRESETS subset (currently 3: avery,
-            lighting, background — Color and Ambiance are hidden, see
-            the constant's doc above). Grid is `grid-cols-3` at every
-            viewport — three cells fit comfortably from phone-portrait
-            (~375px) up through iPad Pro 12.9 portrait. Default state
-            (showPicker=false): one cell selected and visible with `×`
-            cancel; the other two transition to opacity-0 +
-            translateY-2 over 150ms but stay in their grid columns so
-            the selected one's position doesn't shift. Transitional
-            state (showPicker=true): all three cells visible and
-            unchecked. Picking a cell → that becomes selected,
-            transitional ends. Outside-click → Background snaps back,
-            transitional ends (handled by the document listener
-            above). Renders only when a source exists. */}
+            Renders the VISIBLE_PRESETS subset (currently 4: avery,
+            etching, lighting, background — Color and Ambiance are
+            hidden, see the constant's doc above). Grid is
+            `grid-cols-2 sm:grid-cols-4` — phones (< 640px) get a 2×2
+            stack so cells stay tappable; iPad portrait (744+) and up
+            get one tidy row of four. Default state (showPicker=false):
+            one cell selected and visible with `×` cancel; the other
+            three transition to opacity-0 + translateY-2 over 150ms
+            but stay in their grid columns so the selected one's
+            position doesn't shift. Transitional state
+            (showPicker=true): all four cells visible and unchecked.
+            Picking a cell → that becomes selected, transitional ends.
+            Outside-click → Avery snaps back, transitional ends
+            (handled by the document listener above). Renders only
+            when a source exists. */}
         {!isEmpty && (
-          <div ref={presetCellsRef} className="grid grid-cols-3 gap-2">
+          <div ref={presetCellsRef} className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             {VISIBLE_PRESETS.map((p) => (
               <PresetCheckbox
                 key={p}

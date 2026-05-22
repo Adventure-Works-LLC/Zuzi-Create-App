@@ -88,6 +88,7 @@ re-read this paragraph and the plan's reference docs first.
 | **Lighting** | Mood, shadows, light direction | Color palette, composition, brushwork, subject, background, level of finish |
 | **Background** | Reads the artist's compositional intent (interior/outdoor, framing devices, motifs, rhythm, color fields) and develops it — pushes her existing ideas further, refines them, makes them more atmospherically resolved. Indoor stays indoor; outdoor stays outdoor; existing motifs are preserved and developed. | Setting type (indoor/outdoor), her compositional ideas (framing, motifs, rhythm, color fields), foreground figure and subject, foreground brushwork, palette family, lighting direction, peaceful/warm mood, her dry chalky restrained mark register, her wonky gestural shape language |
 | **Avery** | Painter-reference preset. Reimagines surrounding painted treatment in Milton Avery's voice — flat color planes, simplified shape language, atmospheric earthy palette. Locked body is intentionally brief (one sentence + permission to use Avery color); Pro is given creative latitude with the reference instead of fenced in by anti-language. | Character / subjects exactly. Figure preserved. Other aspects (mood, surface register, composition) inherit from whatever the brief prompt body doesn't explicitly grant Pro permission to change. |
+| **Etching** | Drawing-technique preset. Adds classical old-master shadow hatching (parallel hatching, cross-hatching, soft graphite shading) to the shadow areas only. References Leonardo / Michelangelo preparatory drawings + Daumier / Anders Zorn graphite work. Single locked paragraph with explicit DO/DON'T language because Pro's default reading of "shadow hatching" drifts into adding white highlights or re-rendering the whole drawing. | Lit areas (bare paper exactly as they are), every existing line, warm paper background, no color, no white highlights. Only the shadow side gets graphite darkness added. |
 
 > **Composition is gone.** Composition (reframing/repositioning the subject) was tried,
 > didn't match the user's actual workflow, and was removed. Ambiance (continuing the
@@ -97,10 +98,10 @@ re-read this paragraph and the plan's reference docs first.
 > **Color and Ambiance are hidden from the UI.** After many iteration cycles
 > neither `COLOR_PROMPT_BODY` nor `AMBIANCE_PROMPT_BODY` found an operation Zuzi
 > felt confident shipping with. Rather than delete the work, the InputBar's preset
-> picker (`components/krea/InputBar.tsx`) renders a three-cell `VISIBLE_PRESETS`
-> subset (avery, lighting, background); Color and Ambiance are excluded.
-> Everything else stays: both prompt bodies, the dominator-ladder routing in
-> `lib/gemini/imagePrompts.ts buildPrompt`, both canaries in
+> picker (`components/krea/InputBar.tsx`) renders a four-cell `VISIBLE_PRESETS`
+> subset (avery, etching, lighting, background); Color and Ambiance are
+> excluded. Everything else stays: both prompt bodies, the dominator-ladder
+> routing in `lib/gemini/imagePrompts.ts buildPrompt`, both canaries in
 > `scripts/check-prompts.ts` (still drift-protected), and `--presets color` /
 > `--presets ambiance` in `scripts/smoke.ts` for dev iteration. The
 > `AMBIANCE_DEBUG` log line in `runIteration.ts` also stays — it's useful for
@@ -129,6 +130,20 @@ re-read this paragraph and the plan's reference docs first.
 > mutually-exclusive UI invariant ("the user can never persistently land in a
 > no-selection state") still holds — the snap-back target is just Avery
 > instead of Background now.
+
+> **Etching (v1) is the second painter/technique-reference preset.** Where
+> Avery references a painter, Etching references a drawing technique:
+> classical old-master shadow hatching (parallel + cross-hatching + soft
+> graphite shading) in the manner of Leonardo / Michelangelo preparatory
+> drawings + Daumier / Anders Zorn graphite work. Operation is one-sided —
+> add darkness to the shadow side, do NOT touch lit areas, do NOT add white
+> highlights, do NOT introduce color. The body is a single paragraph of
+> explicit DO/DON'T language because Pro's default reading of "shadow
+> hatching" drifts into adding white highlights or re-rendering the whole
+> drawing — both of which break the preserve list. The DO-NOTs are
+> load-bearing; don't soften them. Build canary
+> (`scripts/check-prompts.ts`) locks the lowercase
+> `"add classical old master shadow hatching"` prefix.
 
 #### Dominators vs composers (legacy / safety-net under exclusive UI)
 

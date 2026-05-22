@@ -93,13 +93,20 @@ export const iterations = sqliteTable(
  *  `avery` is a painter-reference preset added on top of the original four:
  *  reimagines the painting in Milton Avery's voice while preserving the
  *  figure / subjects exactly. Same locked-body + dominator-routing
- *  architecture as Background and Lighting. */
+ *  architecture as Background and Lighting.
+ *
+ *  `etching` is a drawing-technique preset: adds classical old-master
+ *  shadow hatching (parallel/cross-hatching + soft graphite shading) to
+ *  shadow areas only, preserving lit areas + existing lines + the warm
+ *  paper background exactly. Same locked-body + dominator-routing
+ *  architecture. */
 export const PRESETS = [
   "color",
   "ambiance",
   "lighting",
   "background",
   "avery",
+  "etching",
 ] as const;
 export type Preset = (typeof PRESETS)[number];
 

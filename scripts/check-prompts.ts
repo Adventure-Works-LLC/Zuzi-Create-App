@@ -7,9 +7,9 @@
  * ship a broken or wrong prompt to Pro.
  *
  * What it verifies:
- *   1. All 32 preset combinations × 4 representative aspect ratios produce
+ *   1. All 64 preset combinations × 4 representative aspect ratios produce
  *      a non-empty string with the aspect ratio sentence interpolated.
- *      (Combinations = 2^N where N = |PRESETS|; 5 presets → 32 subsets.)
+ *      (Combinations = 2^N where N = |PRESETS|; 6 presets → 64 subsets.)
  *   2. `buildPrompt` never throws.
  *   3. Canary substring checks against each locked body, so a typo /
  *      paraphrase / accidental refactor that loses the validated text
@@ -37,6 +37,10 @@
  *          (the body is intentionally lowercase + brief; the canary
  *          locks the prefix so any future re-cap of the body fails
  *          the build)
+ *        - Etching v1: lowercase opener "add classical old master
+ *          shadow hatching" (same lock-the-opening pattern as Avery;
+ *          the locked body is constraint-heavy and the opener is the
+ *          most stable identifier for drift detection)
  *   4. Dominator routing — Ambiance, Background, and Color (a dominator
  *      since v2; current lock is v4) early-returns still fire when combined
  *      with other presets. The failure mode is someone reorders the
@@ -170,6 +174,11 @@ if (!averySolo.startsWith("do this like a milton avery")) {
   fail("[avery]", "Avery v1 prompt regressed (lowercase 'do this like a milton avery' opener canary missing)");
 }
 
+const etchingSolo = buildPrompt({ presets: ["etching"], aspectRatio: "4:5" });
+if (!etchingSolo.startsWith("add classical old master shadow hatching")) {
+  fail("[etching]", "Etching v1 prompt regressed (lowercase 'add classical old master shadow hatching' opener canary missing)");
+}
+
 // --- 4: dominator routing must fire when combined with other presets ---
 const ambColor = buildPrompt({ presets: ["color", "ambiance"], aspectRatio: "4:5" });
 if (!ambColor.startsWith("This painting is the artist's work-in-progress.")) {
@@ -212,5 +221,5 @@ if (failures.length > 0) {
 }
 
 console.log(
-  `[check-prompts] ok — ${totalRenders} prompt renders across ${combos.length} preset combos × ${RATIOS.length} aspect ratios + 18 canary checks all green.`,
+  `[check-prompts] ok — ${totalRenders} prompt renders across ${combos.length} preset combos × ${RATIOS.length} aspect ratios + 19 canary checks all green.`,
 );

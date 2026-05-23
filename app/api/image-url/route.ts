@@ -10,6 +10,7 @@
  *   inputs/<ulid>.jpg
  *   outputs/<iter>/<idx>.jpg
  *   thumbs/<iter>/<idx>.webp
+ *   styles/<style-id>.jpg          (v2 Style Explore: Zuzi's reference library)
  * Anything else is rejected with 400.
  *
  * Response: { url: string, expiresAt: number (unix ms) }
@@ -26,7 +27,7 @@ import { signedUrlFor } from "@/lib/storage/r2";
 export const runtime = "nodejs";
 
 const TTL_SECONDS = 3600;
-const ALLOWED_PREFIXES = ["inputs/", "outputs/", "thumbs/"] as const;
+const ALLOWED_PREFIXES = ["inputs/", "outputs/", "thumbs/", "styles/"] as const;
 
 function isValidKey(key: string): boolean {
   if (!key || typeof key !== "string") return false;

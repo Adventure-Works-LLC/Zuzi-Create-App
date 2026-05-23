@@ -38,6 +38,44 @@ export const sources = sqliteTable(
   ],
 );
 
+/**
+ * Zuzi's reference library of paintings she loves (Sargent, Sorolla,
+ * Wyeth, etc.) — used as the second image input in Style Explore mode.
+ * Semantically distinct from `sources` (which holds her own work).
+ * Same shape as sources (R2-backed input image, sharp-normalized to
+ * 2048px JPEG q85) plus optional metadata + soft-archive column.
+ *
+ * Tag column is unused in v2.1 (filtering deferred to v0.3) but
+ * schema-resident so the column doesn't need a follow-up migration
+ * when the feature ships.
+ */
+export const style_paintings = sqliteTable(
+  "style_paintings",
+  {
+    id: text("id").primaryKey(),
+    input_image_key: text("input_image_key").notNull(),
+    original_filename: text("original_filename"),
+    w: integer("w").notNull(),
+    h: integer("h").notNull(),
+    aspect_ratio: text("aspect_ratio").notNull(),
+    title: text("title"),
+    artist: text("artist"),
+    note: text("note"),
+    tag: text("tag"),
+    created_at: integer("created_at").notNull(),
+    archived_at: integer("archived_at"),
+  },
+  (t) => [
+    index("idx_style_paintings_active")
+      .on(t.created_at)
+      .where(sql`archived_at IS NULL`),
+    index("idx_style_paintings_created").on(t.created_at),
+    index("idx_style_paintings_tag")
+      .on(t.tag)
+      .where(sql`archived_at IS NULL AND tag IS NOT NULL`),
+  ],
+);
+
 export const iterations = sqliteTable(
   "iterations",
   {
@@ -75,12 +113,39 @@ export const iterations = sqliteTable(
     })
       .notNull()
       .default("pending"),
+    /**
+     * Iteration mode — 'prompt' (preset-driven, the v1 behavior) or
+     * 'style_explore' (multi-image: source + style painting, fixed
+     * Krea-validated directive bypasses the preset dominator ladder).
+     * Defaults to 'prompt' so all existing rows backfill cleanly with
+     * no behavior change. See AGENTS.md §15 (Style Explore) for the
+     * mode contract.
+     */
+    mode: text("mode", { enum: ["prompt", "style_explore"] })
+      .notNull()
+      .default("prompt"),
+    /**
+     * Re-added in migration 0006 (was dropped in v1 cleanup per
+     * AGENTS.md §6 as dead weight; now load-bearing again). Set on
+     * prompt-mode iterations spawned from a style_explore tile via the
+     * lightbox's "Iterate on this direction" handoff — `parent_tile_id`
+     * is the style_explore tile id, the iteration's seed reference.
+     * ON DELETE SET NULL: deleting the parent tile preserves the
+     * spawned iteration; only the provenance link disappears.
+     */
+    parent_tile_id: text("parent_tile_id").references(
+      (): import("drizzle-orm/sqlite-core").AnySQLiteColumn => tiles.id,
+      { onDelete: "set null" },
+    ),
     created_at: integer("created_at").notNull(),
     completed_at: integer("completed_at"),
   },
   (t) => [
     index("idx_iter_created").on(t.created_at),
     index("idx_iter_source").on(t.source_id, t.created_at),
+    index("idx_iter_parent_tile")
+      .on(t.parent_tile_id)
+      .where(sql`parent_tile_id IS NOT NULL`),
   ],
 );
 
@@ -137,6 +202,19 @@ export const tiles = sqliteTable(
      * reckon with the FK cascade implications of hard delete.
      */
     deleted_at: integer("deleted_at"),
+    /**
+     * Populated per-tile in style_explore-mode iterations — records
+     * which style painting was the second image input for this tile.
+     * NULL for prompt-mode tiles. Surfaces in the lightbox as the
+     * style attribution thumb + powers the "Iterate on this
+     * direction" handoff (which propagates this id onto the new
+     * iteration). ON DELETE SET NULL: hard-deleting a style painting
+     * preserves the tile but the attribution link disappears.
+     */
+    style_painting_id: text("style_painting_id").references(
+      () => style_paintings.id,
+      { onDelete: "set null" },
+    ),
     created_at: integer("created_at").notNull(),
     completed_at: integer("completed_at"),
   },
@@ -152,6 +230,12 @@ export const tiles = sqliteTable(
     index("idx_tiles_iter_active")
       .on(t.iteration_id, t.idx)
       .where(sql`deleted_at IS NULL`),
+    // Reverse-lookup index for "which tiles were generated against
+    // this style painting" — partial because most tiles (prompt mode)
+    // are NULL.
+    index("idx_tiles_style_painting")
+      .on(t.style_painting_id)
+      .where(sql`style_painting_id IS NOT NULL`),
   ],
 );
 
@@ -168,6 +252,8 @@ export const usage_log = sqliteTable(
 
 export type Source = typeof sources.$inferSelect;
 export type NewSource = typeof sources.$inferInsert;
+export type StylePainting = typeof style_paintings.$inferSelect;
+export type NewStylePainting = typeof style_paintings.$inferInsert;
 export type Iteration = typeof iterations.$inferSelect;
 export type NewIteration = typeof iterations.$inferInsert;
 export type Tile = typeof tiles.$inferSelect;

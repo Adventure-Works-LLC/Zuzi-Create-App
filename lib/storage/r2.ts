@@ -147,7 +147,7 @@ export async function headObject(key: string): Promise<boolean> {
  * Delete a single object from R2. Idempotent — deleting a non-existent
  * key succeeds (S3-compat semantics; R2 returns 204 either way). Caller
  * is responsible for prefix validation (only `inputs/`, `outputs/`,
- * `thumbs/` should ever be deleted via this path).
+ * `thumbs/`, and `styles/` should ever be deleted via this path).
  */
 export async function deleteObject(key: string): Promise<void> {
   await client().send(

@@ -36,6 +36,28 @@ export interface Source {
   archivedAt: number | null;
 }
 
+/**
+ * Style painting — one entry in Zuzi's reference library (Sargent, Sorolla,
+ * Wyeth, etc.), used as the SECOND image input in Style Explore mode.
+ * Shape mirrors `Source` plus optional metadata (title surfaced in v2.1;
+ * artist/note/tag schema-resident for v0.2+ edit UI). `inputKey` lives at
+ * `styles/<id>.jpg` per the migration 0006 header.
+ */
+export interface StylePainting {
+  id: string;
+  inputKey: string;
+  originalFilename: string | null;
+  w: number;
+  h: number;
+  aspectRatio: string;
+  title: string | null;
+  artist: string | null;
+  note: string | null;
+  tag: string | null;
+  createdAt: number;
+  archivedAt: number | null;
+}
+
 export type TileStatus = "pending" | "done" | "blocked" | "failed";
 
 export interface Tile {
@@ -231,6 +253,30 @@ interface CanvasState {
   // is false.
   archivedSourcesPanelOpen: boolean;
   setArchivedSourcesPanelOpen: (open: boolean) => void;
+
+  // ---- style paintings library (v2 Style Explore) ----
+  // The reference library lives here as a flat list, hydrated by
+  // `useStylePaintings()` on Studio mount. v2.1 only surfaces the active
+  // (non-archived) set in the StylesPanel + future ExploreSheet; the
+  // archive UI is deferred to v0.2 per the plan. State + mutators
+  // intentionally mirror the sources slice — same upload-then-prepend +
+  // remove-by-id contract — so the StylesPanel implementation feels
+  // identical to ArchivedSourcesPanel + SourceStrip.
+  stylePaintings: StylePainting[];
+  stylesLoading: boolean;
+  stylesError: string | null;
+  stylesUploading: boolean;
+  /** v2.1 UI flag toggled by the SourceStrip's 🎨 Styles button.
+   *  StylesPanel mounts unconditionally and renders nothing when false,
+   *  matching the FavoritesPanel + ArchivedSourcesPanel lifecycle. */
+  stylesPanelOpen: boolean;
+  setStylePaintings: (rows: StylePainting[]) => void;
+  addStylePainting: (row: StylePainting) => void;
+  removeStylePainting: (id: string) => void;
+  setStylesLoading: (v: boolean) => void;
+  setStylesError: (v: string | null) => void;
+  setStylesUploading: (v: boolean) => void;
+  setStylesPanelOpen: (open: boolean) => void;
 }
 
 export const useCanvas = create<CanvasState>((set) => ({
@@ -454,6 +500,33 @@ export const useCanvas = create<CanvasState>((set) => ({
   // ---- archived sources panel ----
   archivedSourcesPanelOpen: false,
   setArchivedSourcesPanelOpen: (open) => set({ archivedSourcesPanelOpen: open }),
+
+  // ---- style paintings library ----
+  stylePaintings: [],
+  // Default to NOT-loading so first render of the StylesPanel doesn't
+  // flash a "Loading…" state before useStylePaintings's effect kicks in
+  // (parallel to `sourcesLoading: true` which IS the cold-start signal
+  // for the SourceStrip — the strip mounts immediately, the panel only
+  // mounts on user demand).
+  stylesLoading: false,
+  stylesError: null,
+  stylesUploading: false,
+  stylesPanelOpen: false,
+  setStylePaintings: (stylePaintings) => set({ stylePaintings }),
+  addStylePainting: (row) =>
+    set((s) => ({
+      // Newest-first, dedupe by id (a re-upload of the same id is a
+      // server-side ulid collision = impossible; this filter is defensive).
+      stylePaintings: [row, ...s.stylePaintings.filter((x) => x.id !== row.id)],
+    })),
+  removeStylePainting: (id) =>
+    set((s) => ({
+      stylePaintings: s.stylePaintings.filter((x) => x.id !== id),
+    })),
+  setStylesLoading: (stylesLoading) => set({ stylesLoading }),
+  setStylesError: (stylesError) => set({ stylesError }),
+  setStylesUploading: (stylesUploading) => set({ stylesUploading }),
+  setStylesPanelOpen: (open) => set({ stylesPanelOpen: open }),
 }));
 
 /** When the source list changes, decide what currentSourceId should be. Keeps

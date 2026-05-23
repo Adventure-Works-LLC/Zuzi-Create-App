@@ -43,7 +43,14 @@ import { getObject } from "@/lib/storage/r2";
 
 export const runtime = "nodejs";
 
-const ALLOWED_PREFIXES = ["inputs/", "outputs/", "thumbs/"] as const;
+const ALLOWED_PREFIXES = [
+  "inputs/",
+  "outputs/",
+  "thumbs/",
+  // v2 Style Explore: Zuzi's reference library lives at styles/<id>.jpg.
+  // Same suffix → same JPEG content-type → same auth-gated proxy path.
+  "styles/",
+] as const;
 
 function isValidKey(key: string): boolean {
   if (!key || typeof key !== "string") return false;
@@ -56,12 +63,12 @@ function isValidKey(key: string): boolean {
 /** Best-effort Content-Type from the key suffix. The R2 PUT path sets the
  *  same content-type at upload time, but rather than round-trip an extra
  *  HEAD against R2 we infer here — keys are tightly controlled by our own
- *  upload pipeline (sharp writes JPEG to inputs/* and outputs/*, WEBP to
- *  thumbs/*), so the suffix is authoritative. */
+ *  upload pipeline (sharp writes JPEG to inputs/*, outputs/*, and
+ *  styles/*, WEBP to thumbs/*), so the suffix is authoritative. */
 function contentTypeForKey(key: string): string {
   if (key.endsWith(".webp")) return "image/webp";
   if (key.endsWith(".png")) return "image/png";
-  // JPEG is the dominant case (inputs/* and outputs/*).
+  // JPEG is the dominant case (inputs/*, outputs/*, styles/*).
   return "image/jpeg";
 }
 

@@ -43,6 +43,13 @@
       "when": 1777663140612,
       "tag": "0005_add_aspect_ratio_mode",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1779576304590,
+      "tag": "0006_add_style_explore",
+      "breakpoints": true
     }
   ]
 }

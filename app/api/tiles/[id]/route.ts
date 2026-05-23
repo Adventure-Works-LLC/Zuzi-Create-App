@@ -42,6 +42,8 @@ import {
   countActiveTilesForIteration,
   getTile,
   hardDeleteIteration,
+  nullifyParentTileForIteration,
+  nullifyParentTileForTileIds,
   nullifyUsageLogForIteration,
   softDeleteTile,
 } from "@/lib/db/queries";
@@ -92,15 +94,26 @@ export async function DELETE(
   try {
     db().transaction(() => {
       didChange = softDeleteTile(id);
+      // Nullify any iteration's parent_tile_id that points to THIS
+      // tile id. Even though we're only soft-deleting (the row stays),
+      // we proactively nullify the provenance pointer because the tile
+      // is now hidden from every read surface — a stale link pointing
+      // at a deleted-from-UX tile is worse than a NULL link. (If the
+      // iteration gets cleaned up below, the cascade would null these
+      // anyway via the per-iteration helper.)
+      nullifyParentTileForTileIds([id]);
       activeTileCountForIteration = countActiveTilesForIteration(
         tile.iteration_id,
       );
       if (activeTileCountForIteration === 0) {
         // Zero active tiles remain — clean up the now-empty iteration row.
         // Order matters: nullify usage_log FK first (RESTRICT default
-        // would otherwise block the DELETE), then hard-delete the
-        // iteration (CASCADE removes the soft-deleted tile rows).
+        // would otherwise block the DELETE), then nullify parent_tile_id
+        // refs to any of this iteration's tiles (same RESTRICT-default
+        // issue, v2 weak FK from ALTER ADD COLUMN), then hard-delete
+        // the iteration (CASCADE removes the soft-deleted tile rows).
         nullifyUsageLogForIteration(tile.iteration_id);
+        nullifyParentTileForIteration(tile.iteration_id);
         iterationDeleted = hardDeleteIteration(tile.iteration_id);
       }
     });

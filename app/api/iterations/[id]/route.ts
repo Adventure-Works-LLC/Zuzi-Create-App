@@ -34,6 +34,7 @@ import {
   getIteration,
   hardDeleteIteration,
   listAllR2KeysForIteration,
+  nullifyParentTileForIteration,
   nullifyUsageLogForIteration,
 } from "@/lib/db/queries";
 import { deleteObjects } from "@/lib/storage/r2";
@@ -74,6 +75,14 @@ export async function DELETE(
       // the iteration delete can succeed (RESTRICT default would
       // otherwise block).
       nullifyUsageLogForIteration(id);
+      // Nullify any iteration's parent_tile_id that points to a tile
+      // of this iteration — v2 added `iterations.parent_tile_id` via
+      // ALTER TABLE ADD COLUMN, which doesn't enforce ON DELETE SET
+      // NULL, so the cascade-delete of this iteration's tiles would
+      // otherwise leave dangling provenance pointers on spawned
+      // iterations. Same RESTRICT-default issue as usage_log. See
+      // migration 0006 header + nullifyParentTileForIteration's docs.
+      nullifyParentTileForIteration(id);
       dbDeleted = hardDeleteIteration(id);
     });
   } catch (e) {

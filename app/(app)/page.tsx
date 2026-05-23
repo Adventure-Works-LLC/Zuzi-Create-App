@@ -14,6 +14,10 @@
  *   - ArchivedSourcesPanel: right-side drawer when
  *     archivedSourcesPanelOpen is true. Per-row Unarchive +
  *     Delete-forever actions.
+ *   - StylesPanel: right-side drawer when stylesPanelOpen is true. Zuzi's
+ *     style reference library (v2 Style Explore). Grid + Add button + per-
+ *     card long-press → Delete forever. Same Esc-to-close lightbox-
+ *     deference as the other two panels.
  *
  * Empty state: bare InputBar at the bottom of an otherwise empty canvas, with
  * a single Fraunces-italic cue centered above it. No hero, no examples, no
@@ -28,17 +32,22 @@ import { InputBar } from "@/components/krea/InputBar";
 import { Lightbox } from "@/components/krea/Lightbox";
 import { FavoritesPanel } from "@/components/krea/FavoritesPanel";
 import { ArchivedSourcesPanel } from "@/components/krea/ArchivedSourcesPanel";
+import { StylesPanel } from "@/components/krea/StylesPanel";
 import { useSources } from "@/hooks/useSources";
 import { useIterations } from "@/hooks/useIterations";
+import { useStylePaintings } from "@/hooks/useStylePaintings";
 import { useCanvas } from "@/stores/canvas";
 
 export default function Studio() {
   // Boot the data hooks at the page level — components below just consume
   // store state. (useSources fetches the strip; useIterations refetches
   // whenever currentSourceId changes; useStreamingResults inside TileStream
-  // wires SSE per pending iteration.)
+  // wires SSE per pending iteration; useStylePaintings hydrates the
+  // library on mount so StylesPanel + the future ExploreSheet both find
+  // the data warm regardless of which surface opens first.)
   useSources();
   useIterations();
+  useStylePaintings();
 
   const sources = useCanvas((s) => s.sources);
   const currentSourceId = useCanvas((s) => s.currentSourceId);
@@ -108,6 +117,7 @@ export default function Studio() {
       <Lightbox />
       <FavoritesPanel />
       <ArchivedSourcesPanel />
+      <StylesPanel />
     </main>
   );
 }

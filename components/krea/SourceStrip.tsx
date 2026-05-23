@@ -31,7 +31,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { Archive, Plus, Trash2 } from "lucide-react";
+import { Archive, Palette, Plus, Trash2 } from "lucide-react";
 
 import { useSources } from "@/hooks/useSources";
 import { useImageUrl } from "@/hooks/useImageUrl";
@@ -216,6 +216,7 @@ export function SourceStrip() {
   const setArchivedSourcesPanelOpen = useCanvas(
     (s) => s.setArchivedSourcesPanelOpen,
   );
+  const setStylesPanelOpen = useCanvas((s) => s.setStylesPanelOpen);
   const { archive, deleteForever, uploadFile } = useSources();
   const fileRef = useRef<HTMLInputElement>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -315,6 +316,20 @@ export function SourceStrip() {
           />
         </div>
 
+        <button
+          type="button"
+          onClick={() => setStylesPanelOpen(true)}
+          className={[
+            "shrink-0 inline-flex items-center gap-1.5 rounded-md px-3 py-2",
+            "text-xs uppercase tracking-[0.18em]",
+            "text-text-mute hover:text-foreground",
+            "transition-colors no-callout",
+          ].join(" ")}
+          aria-label="Open style library"
+        >
+          <Palette className="h-4 w-4" strokeWidth={1.75} />
+          <span>Styles</span>
+        </button>
         <button
           type="button"
           onClick={() => setFavoritesOpen(true)}

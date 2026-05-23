@@ -35,6 +35,7 @@ import { db } from "@/lib/db/client";
 import {
   hardDeleteSource,
   listAllR2KeysForSource,
+  nullifyParentTileForSource,
   nullifyUsageLogForSource,
   setSourceArchived,
 } from "@/lib/db/queries";
@@ -127,6 +128,15 @@ export async function DELETE(
   try {
     db().transaction(() => {
       nullifyUsageLogForSource(id);
+      // Nullify any iteration's parent_tile_id that points to a tile
+      // of any iteration of this source — v2 added
+      // `iterations.parent_tile_id` via ALTER TABLE ADD COLUMN, which
+      // doesn't enforce ON DELETE SET NULL, so the two-level cascade
+      // delete below (source → iterations → tiles) would otherwise
+      // leave dangling provenance pointers on spawned iterations.
+      // Same RESTRICT-default issue as usage_log. See migration 0006
+      // header + nullifyParentTileForSource's docs.
+      nullifyParentTileForSource(id);
       dbDeleted = hardDeleteSource(id);
     });
   } catch (e) {

@@ -14,13 +14,16 @@ import { db } from "./client";
 import {
   iterations,
   sources,
+  style_paintings,
   tiles,
   usage_log,
   type Iteration,
   type NewIteration,
   type NewSource,
+  type NewStylePainting,
   type NewTile,
   type Source,
+  type StylePainting,
   type Tile,
 } from "./schema";
 
@@ -479,6 +482,30 @@ export function cleanupEmptyIterations(): number {
       .set({ iteration_id: null })
       .where(inArray(usage_log.iteration_id, ids))
       .run();
+    // Nullify any iteration's parent_tile_id that points to a tile
+    // belonging to any of the iterations we're about to delete. v2
+    // added `iterations.parent_tile_id` via ALTER TABLE ADD COLUMN
+    // (no enforced ON DELETE), so without this nullify the cascade-
+    // delete of these iterations' tiles would leave dangling
+    // provenance pointers on spawned iterations. Same RESTRICT-default
+    // issue as usage_log. See migration 0006 header.
+    //
+    // Two-step: enumerate the tile ids first (the drizzle sql template
+    // doesn't bind a JS array to an IN clause cleanly), then update via
+    // the structured builder using `inArray`. Skip the UPDATE if there
+    // are no tiles to orphan.
+    const tileIds = tx
+      .select({ id: tiles.id })
+      .from(tiles)
+      .where(inArray(tiles.iteration_id, ids))
+      .all()
+      .map((r) => r.id);
+    if (tileIds.length > 0) {
+      tx.update(iterations)
+        .set({ parent_tile_id: null })
+        .where(inArray(iterations.parent_tile_id, tileIds))
+        .run();
+    }
     // Hard-delete the iterations. CASCADE removes the tile rows
     // (including soft-deleted ones — they were already excluded from
     // read paths via deleted_at IS NOT NULL).
@@ -596,6 +623,194 @@ export function listFavorites(opts: {
     .limit(limit)
     .all() as FavoriteRow[];
   return rows;
+}
+
+// ---------- style_paintings ----------
+
+export function insertStylePainting(row: NewStylePainting): void {
+  db().insert(style_paintings).values(row).run();
+}
+
+export function getStylePainting(id: string): StylePainting | undefined {
+  return db()
+    .select()
+    .from(style_paintings)
+    .where(eq(style_paintings.id, id))
+    .get();
+}
+
+/**
+ * List style paintings newest-first. v2.1 ships with a single flat list —
+ * the ExploreSheet client-side shuffles its own copy for variety. `archived`
+ * defaults to false (mirrors `listActiveSourcesWithAggregates`); pass `true`
+ * for the deferred Archived Styles drawer once that lands.
+ */
+export function listStylePaintings(opts: {
+  archived?: boolean;
+  limit?: number;
+}): StylePainting[] {
+  const limit = opts.limit ?? 200;
+  const archived = opts.archived ?? false;
+  return db()
+    .select()
+    .from(style_paintings)
+    .where(
+      archived
+        ? sql`${style_paintings.archived_at} IS NOT NULL`
+        : isNull(style_paintings.archived_at),
+    )
+    .orderBy(desc(style_paintings.created_at))
+    .limit(limit)
+    .all();
+}
+
+export function setStylePaintingArchived(
+  id: string,
+  archived: boolean,
+): boolean {
+  const result = db()
+    .update(style_paintings)
+    .set({ archived_at: archived ? Date.now() : null })
+    .where(eq(style_paintings.id, id))
+    .run();
+  return result.changes > 0;
+}
+
+/**
+ * Partial update of editable metadata (title / artist / note / tag). v2.1
+ * doesn't surface an edit UI yet (deferred to v0.2 per the plan) but the
+ * helper exists so the same PATCH route handles archive toggle + future
+ * metadata edits without re-plumbing. Pass only the fields you want to
+ * change; unset keys leave the row untouched.
+ */
+export function updateStylePaintingMetadata(
+  id: string,
+  patch: Partial<Pick<StylePainting, "title" | "artist" | "note" | "tag">>,
+): boolean {
+  if (Object.keys(patch).length === 0) return false;
+  const result = db()
+    .update(style_paintings)
+    .set(patch)
+    .where(eq(style_paintings.id, id))
+    .run();
+  return result.changes > 0;
+}
+
+/**
+ * R2 keys associated with a style painting for the hard-delete path. v2.1
+ * stores ONE image per style painting (`styles/<id>.jpg`) — there are no
+ * derived thumbs at the moment (the StylesPanel renders the same key
+ * through `<ImageBytes>` which produces sized variants client-side via the
+ * existing image-bytes proxy). Returns a single-element array for shape
+ * parity with `listAllR2KeysForSource` so the caller can hand it straight
+ * to `deleteObjects()`.
+ */
+export function listAllR2KeysForStylePainting(id: string): string[] {
+  const sp = getStylePainting(id);
+  return sp ? [sp.input_image_key] : [];
+}
+
+/**
+ * Set `tiles.style_painting_id = NULL` for every tile referencing this
+ * style painting. Required BEFORE `hardDeleteStylePainting` because the FK
+ * was added via `ALTER TABLE ADD COLUMN` and SQLite does NOT enforce ON
+ * DELETE SET NULL clauses on FKs added that way (drizzle-kit drops the
+ * clause from the generated SQL for that reason — see migration 0006's
+ * header). Without this nullify, the FK's default NO ACTION would block
+ * the parent delete with FOREIGN KEY constraint failed.
+ *
+ * Same pattern as `nullifyUsageLogForSource` for the equally-weak
+ * `usage_log.iteration_id` FK. Caller wraps both ops in a transaction.
+ */
+export function nullifyTilesForStylePainting(id: string): number {
+  const result = db()
+    .update(tiles)
+    .set({ style_painting_id: null })
+    .where(eq(tiles.style_painting_id, id))
+    .run();
+  return result.changes;
+}
+
+/**
+ * Hard-delete a style_painting row. Returns true iff the row existed.
+ * Caller MUST have already called `nullifyTilesForStylePainting` (see
+ * the rationale on that helper). Wrapped at the API layer in a single
+ * transaction with the nullify + R2 cleanup so the operation is atomic
+ * from the DB's perspective.
+ *
+ * Referenced tiles + iterations persist after the delete; only the
+ * attribution link disappears. The StyleAttributionThumb renders an
+ * "unavailable" placeholder for tiles whose style_painting_id is NULL.
+ */
+export function hardDeleteStylePainting(id: string): boolean {
+  const result = db()
+    .delete(style_paintings)
+    .where(eq(style_paintings.id, id))
+    .run();
+  return result.changes > 0;
+}
+
+// ---------- parent_tile_id nullify helpers (v2.1) ----------
+
+/**
+ * Set `iterations.parent_tile_id = NULL` for every iteration referencing
+ * any of the provided tile ids. Required by every hard-delete path that
+ * removes tiles (single-tile delete, iteration cascade, source cascade,
+ * empty-iteration sweep) because the FK was added via ALTER TABLE ADD
+ * COLUMN — SQLite's default NO ACTION blocks the delete otherwise.
+ *
+ * Empty input is a no-op (returns 0). Caller wraps in a transaction.
+ *
+ * See `nullifyTilesForStylePainting` for the broader rationale on
+ * weak-FK manual nullification.
+ */
+export function nullifyParentTileForTileIds(
+  tileIds: ReadonlyArray<string>,
+): number {
+  if (tileIds.length === 0) return 0;
+  const result = db()
+    .update(iterations)
+    .set({ parent_tile_id: null })
+    .where(inArray(iterations.parent_tile_id, tileIds as string[]))
+    .run();
+  return result.changes;
+}
+
+/**
+ * Nullify any iteration's parent_tile_id that points to a tile belonging
+ * to the given iteration. Used by `hardDeleteIteration`'s caller before
+ * the cascade-delete fires, so the "Iterate on this direction" provenance
+ * link on spawned iterations turns into NULL instead of dangling.
+ */
+export function nullifyParentTileForIteration(iterationId: string): number {
+  const result = db().run(sql`
+    UPDATE iterations
+       SET parent_tile_id = NULL
+     WHERE parent_tile_id IN (
+       SELECT id FROM ${tiles} WHERE iteration_id = ${iterationId}
+     )
+  `);
+  return result.changes;
+}
+
+/**
+ * Nullify any iteration's parent_tile_id that points to a tile belonging
+ * to any iteration of the given source. Used by `hardDeleteSource`'s
+ * caller before the cascade-delete fires across iterations + tiles.
+ * Same rationale as `nullifyParentTileForIteration` but one join-level up.
+ */
+export function nullifyParentTileForSource(sourceId: string): number {
+  const result = db().run(sql`
+    UPDATE iterations
+       SET parent_tile_id = NULL
+     WHERE parent_tile_id IN (
+       SELECT t.id
+         FROM ${tiles} AS t
+         JOIN ${iterations} AS i ON i.id = t.iteration_id
+        WHERE i.source_id = ${sourceId}
+     )
+  `);
+  return result.changes;
 }
 
 // ---------- usage_log ----------

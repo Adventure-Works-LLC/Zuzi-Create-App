@@ -28,51 +28,101 @@ CREATE TABLE sources (
 CREATE INDEX idx_sources_active  ON sources(created_at) WHERE archived_at IS NULL;
 CREATE INDEX idx_sources_created ON sources(created_at);
 
--- iterations: one "9-tile generation request" against a source
-CREATE TABLE iterations (
-  id              TEXT PRIMARY KEY,                -- ulid
-  request_id      TEXT NOT NULL UNIQUE,            -- client-supplied; idempotency key
-  source_id       TEXT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
-                                                   -- multiple iterations per source = the session
-                                                   -- loop. Cascade so deleting a source removes
-                                                   -- its iterations + tiles automatically.
-  model_tier      TEXT NOT NULL DEFAULT 'pro',     -- 'flash' (cheap exploration) | 'pro' (refined)
-  resolution      TEXT NOT NULL DEFAULT '1k',      -- '1k' | '4k'
-                                                   -- (model_tier × resolution = the cost cell;
-                                                   --  see lib/cost.ts for the 4-tier pricing matrix)
-  tile_count      INTEGER NOT NULL DEFAULT 3,      -- number of tiles per Submit (default 3,
-                                                   -- configurable via TILE_COUNT_DEFAULT in
-                                                   -- lib/cost.ts)
-  presets         TEXT NOT NULL DEFAULT '[]',      -- JSON array of selected preset strings:
-                                                   -- 'color' | 'ambiance' | 'lighting' |
-                                                   -- 'background'. Empty = freeform (model
-                                                   -- chooses everything). Determines prompt
-                                                   -- via lib/gemini/imagePrompts.ts buildPrompt().
-  status          TEXT NOT NULL DEFAULT 'pending', -- pending | running | done | failed
-  created_at      INTEGER NOT NULL,                -- unix ms
-  completed_at    INTEGER
+-- style_paintings: Zuzi's reference library (Sargent, Sorolla, Wyeth, etc.)
+-- used as the SECOND image input in Style Explore mode. Semantically
+-- distinct from sources (her own work-in-progress). Same shape as sources
+-- plus optional metadata + a tag column scaffolded for v0.3 filtering.
+CREATE TABLE style_paintings (
+  id                TEXT PRIMARY KEY,                -- ulid
+  input_image_key   TEXT NOT NULL,                   -- R2 key (styles/<style-id>.jpg)
+  original_filename TEXT,                            -- nullable; preserved when known
+  w                 INTEGER NOT NULL,                -- post-resize dimensions
+  h                 INTEGER NOT NULL,
+  aspect_ratio      TEXT NOT NULL,                   -- snapped per nearestSupportedAspectRatio
+                                                     -- (informational; the SKETCH wins per AGENTS.md §3
+                                                     -- when this painting is the second image input)
+  title             TEXT,                            -- optional ("Lady Agnew", "Naranjas y Limones", …)
+  artist            TEXT,                            -- optional (defer editing UI to v0.2)
+  note              TEXT,                            -- optional freeform (defer UI to v0.2)
+  tag               TEXT,                            -- optional; UNUSED in v2.1; scaffolded for v0.3 filter
+  created_at        INTEGER NOT NULL,
+  archived_at       INTEGER                          -- unix ms when archived; null = active
 );
-CREATE INDEX idx_iter_created ON iterations(created_at);
-CREATE INDEX idx_iter_source  ON iterations(source_id, created_at);
+CREATE INDEX idx_style_paintings_active  ON style_paintings(created_at) WHERE archived_at IS NULL;
+CREATE INDEX idx_style_paintings_created ON style_paintings(created_at);
+CREATE INDEX idx_style_paintings_tag     ON style_paintings(tag)
+  WHERE archived_at IS NULL AND tag IS NOT NULL;
 
--- tiles: one of the 9 outputs per iteration
+-- iterations: one "N-tile generation request" against a source (N defaults to 3)
+CREATE TABLE iterations (
+  id                 TEXT PRIMARY KEY,                -- ulid
+  request_id         TEXT NOT NULL UNIQUE,            -- client-supplied; idempotency key
+  source_id          TEXT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+                                                      -- multiple iterations per source = the session
+                                                      -- loop. Cascade so deleting a source removes
+                                                      -- its iterations + tiles automatically.
+  model_tier         TEXT NOT NULL DEFAULT 'pro',     -- 'flash' (cheap exploration) | 'pro' (refined)
+  resolution         TEXT NOT NULL DEFAULT '1k',      -- '1k' | '4k'
+                                                      -- (model_tier × resolution = the cost cell;
+                                                      --  see lib/cost.ts for the 4-tier pricing matrix)
+  tile_count         INTEGER NOT NULL DEFAULT 3,      -- number of tiles per Submit (default 3,
+                                                      -- configurable via TILE_COUNT_DEFAULT in
+                                                      -- lib/cost.ts)
+  presets            TEXT NOT NULL DEFAULT '[]',      -- JSON array of selected preset strings:
+                                                      -- 'color' | 'ambiance' | 'lighting' |
+                                                      -- 'background' | 'avery' | 'etching'. Empty =
+                                                      -- freeform (model chooses everything). Determines
+                                                      -- prompt via lib/gemini/imagePrompts.ts buildPrompt().
+                                                      -- Ignored when mode='style_explore' (see below).
+  aspect_ratio_mode  TEXT NOT NULL DEFAULT 'match',   -- 'match' (preserves source aspect per AGENTS.md §3)
+                                                      -- | 'flip' (swaps W:H; 1:1 stays 1:1)
+  mode               TEXT NOT NULL DEFAULT 'prompt',  -- 'prompt' (v1 default, preset-driven) |
+                                                      -- 'style_explore' (multi-image: source + style
+                                                      -- painting, fixed Krea-validated directive
+                                                      -- bypasses the preset dominator ladder)
+  parent_tile_id     TEXT REFERENCES tiles(id),       -- See note on FK enforcement below. Populated on
+                                                      -- prompt-mode iterations spawned from a
+                                                      -- style_explore tile via the lightbox's "Iterate
+                                                      -- on this direction" handoff. NULL otherwise.
+                                                      -- Semantic intent: ON DELETE SET NULL.
+  status             TEXT NOT NULL DEFAULT 'pending', -- pending | running | done | failed
+  created_at         INTEGER NOT NULL,                -- unix ms
+  completed_at       INTEGER
+);
+CREATE INDEX idx_iter_created     ON iterations(created_at);
+CREATE INDEX idx_iter_source      ON iterations(source_id, created_at);
+CREATE INDEX idx_iter_parent_tile ON iterations(parent_tile_id) WHERE parent_tile_id IS NOT NULL;
+
+-- tiles: one of the N outputs per iteration
 CREATE TABLE tiles (
-  id               TEXT PRIMARY KEY,                -- ulid
-  iteration_id     TEXT NOT NULL REFERENCES iterations(id) ON DELETE CASCADE,
-  idx              INTEGER NOT NULL,                -- 0..8 (position in the 3x3 grid)
-  output_image_key TEXT,                            -- R2 key (outputs/<iter_id>/<idx>.jpg); null until done
-  thumb_image_key  TEXT,                            -- R2 key (thumbs/<iter_id>/<idx>.webp); null until done
-  status           TEXT NOT NULL DEFAULT 'pending', -- pending | done | blocked | failed
-  error_message    TEXT,                            -- safety reason / network / etc., when not done
-  is_favorite      INTEGER NOT NULL DEFAULT 0,      -- favorites are a primary mechanic (session loop:
-                                                    -- generate 9 → favorite 0–3 → refresh → repeat)
-  favorited_at     INTEGER,                         -- unix ms when first favorited; null if not
-  created_at       INTEGER NOT NULL,
-  completed_at     INTEGER,
+  id                 TEXT PRIMARY KEY,                -- ulid
+  iteration_id       TEXT NOT NULL REFERENCES iterations(id) ON DELETE CASCADE,
+  idx                INTEGER NOT NULL,                -- 0..N-1 (position in the grid)
+  output_image_key   TEXT,                            -- R2 key (outputs/<iter_id>/<idx>.jpg); null until done
+  thumb_image_key    TEXT,                            -- R2 key (thumbs/<iter_id>/<idx>.webp); null until done
+  status             TEXT NOT NULL DEFAULT 'pending', -- pending | done | blocked | failed
+  error_message      TEXT,                            -- safety reason / network / etc., when not done
+  is_favorite        INTEGER NOT NULL DEFAULT 0,      -- favorites are a primary mechanic (session loop:
+                                                      -- generate N → favorite 0–N → refresh → repeat)
+  favorited_at       INTEGER,                         -- unix ms when first favorited; null if not
+  deleted_at         INTEGER,                         -- unix ms; soft-delete (filters all read paths)
+  style_painting_id  TEXT REFERENCES style_paintings(id),
+                                                      -- See note on FK enforcement below. Populated per-tile
+                                                      -- on style_explore-mode iterations, NULL for prompt
+                                                      -- mode. Powers the StyleAttributionThumb + the
+                                                      -- "Iterate on this direction" handoff.
+                                                      -- Semantic intent: ON DELETE SET NULL.
+  created_at         INTEGER NOT NULL,
+  completed_at       INTEGER,
   UNIQUE(iteration_id, idx)
 );
-CREATE INDEX idx_tiles_iter ON tiles(iteration_id);
-CREATE INDEX idx_tiles_fav  ON tiles(is_favorite, favorited_at) WHERE is_favorite = 1;
+CREATE INDEX idx_tiles_iter            ON tiles(iteration_id);
+CREATE INDEX idx_tiles_iter_active     ON tiles(iteration_id, idx)
+  WHERE deleted_at IS NULL;
+CREATE INDEX idx_tiles_fav             ON tiles(is_favorite, favorited_at)
+  WHERE is_favorite = 1 AND deleted_at IS NULL;
+CREATE INDEX idx_tiles_style_painting  ON tiles(style_painting_id)
+  WHERE style_painting_id IS NOT NULL;
 -- All indexes use ASC ordering (Drizzle's `.on(col)` default). Queries that ORDER BY
 -- DESC (Favorites view, source strip, history) use SQLite's index reverse-scan —
 -- same result, negligible perf cost at this scale (~10–100 sources, ~1000s of tiles
@@ -124,6 +174,31 @@ PRAGMA foreign_keys = ON;
   wrong). The `IMAGE_MODEL` env var is a fallback only — request body wins.
 - **`request_id` UNIQUE index** — used by `POST /api/iterate` to dedupe concurrent
   retries. Client supplies a ulid per logical user action.
+- **v2 additions (`iterations.mode` + `iterations.parent_tile_id` + `tiles.style_painting_id`).**
+  Per AGENTS.md §6 schema cleanup principle, `parent_tile_id` was dropped in v1 as
+  dead weight; v2 re-adds it because the "Iterate on this direction" handoff makes
+  it load-bearing for provenance. `mode` discriminates the worker branch
+  (prompt vs style_explore); style_explore iterations bypass the preset dominator
+  ladder and use the fixed Krea-validated directive. `tiles.style_painting_id`
+  powers the StyleAttributionThumb + lightbox handoff.
+
+## FK enforcement caveat (v2 columns)
+
+The intended ON DELETE semantic for both `iterations.parent_tile_id` and
+`tiles.style_painting_id` is **SET NULL**:
+- Hard-deleting a style_painting nulls `tiles.style_painting_id` so referenced
+  tiles + their R2 outputs are preserved; only the attribution link disappears.
+- Hard-deleting a tile nulls `iterations.parent_tile_id` so the spawned iteration
+  + its own tiles are preserved; only the provenance link disappears.
+
+SQLite does NOT enforce ON DELETE actions added via `ALTER TABLE ADD COLUMN`
+(drizzle-kit drops the clause for that reason — see the auto-generated
+migration `drizzle/0006_add_style_explore.sql`). These actions are enforced
+manually via the `nullifyTilesForStylePainting` and
+`nullifyParentTileForReferences` helpers in `lib/db/queries.ts`, called from
+the DELETE routes inside the same transaction as the delete itself. Same
+pattern as the existing `nullifyUsageLogForSource` / `*ForIteration` helpers
+that work around the equally-weak `usage_log.iteration_id` FK.
 
 ## Common queries
 

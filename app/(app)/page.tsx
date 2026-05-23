@@ -18,6 +18,11 @@
  *     style reference library (v2 Style Explore). Grid + Add button + per-
  *     card long-press → Delete forever. Same Esc-to-close lightbox-
  *     deference as the other two panels.
+ *   - ExploreSheet: centered modal overlay (z-50) when exploreSheetOpen
+ *     is true. v2 Style Explore mode entry. v2.2 ships the Idle state
+ *     only (tap Start fires a style_explore iteration into the regular
+ *     TileStream and closes the sheet); Running/Done states arrive in
+ *     v2.3.
  *
  * Empty state: bare InputBar at the bottom of an otherwise empty canvas, with
  * a single Fraunces-italic cue centered above it. No hero, no examples, no
@@ -33,6 +38,7 @@ import { Lightbox } from "@/components/krea/Lightbox";
 import { FavoritesPanel } from "@/components/krea/FavoritesPanel";
 import { ArchivedSourcesPanel } from "@/components/krea/ArchivedSourcesPanel";
 import { StylesPanel } from "@/components/krea/StylesPanel";
+import { ExploreSheet } from "@/components/krea/ExploreSheet";
 import { useSources } from "@/hooks/useSources";
 import { useIterations } from "@/hooks/useIterations";
 import { useStylePaintings } from "@/hooks/useStylePaintings";
@@ -118,6 +124,7 @@ export default function Studio() {
       <FavoritesPanel />
       <ArchivedSourcesPanel />
       <StylesPanel />
+      <ExploreSheet />
     </main>
   );
 }

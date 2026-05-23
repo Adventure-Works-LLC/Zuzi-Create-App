@@ -21,7 +21,7 @@ import sharp from "sharp";
 
 import { genai, IMAGE_MODEL_FLASH, IMAGE_MODEL_PRO } from "./client";
 import { flipAspectRatio } from "./aspectRatio";
-import { buildPrompt } from "./imagePrompts";
+import { buildPrompt, buildStyleExplorePrompt } from "./imagePrompts";
 import { callWithRetry } from "./callWithRetry";
 import { extractImageBytes } from "./extract";
 import { classifyError } from "./errors";
@@ -31,6 +31,7 @@ import { costForCompletedIteration } from "../cost";
 import {
   getIteration,
   getSource,
+  getStylePainting,
   insertUsageLog,
   tilesFor,
   updateIterationStatus,
@@ -58,6 +59,14 @@ async function runOneTile(
   imageSize: string,
   promptText: string,
   recoveryHit: { r2_key: string; thumb_key?: string } | undefined,
+  /**
+   * When set, this tile is a style_explore tile and `styleBase64` is the
+   * SECOND image input (the style painting). The parts array gets built as
+   * [sketch, style, text] in that fixed order — the directive's "image
+   * one / image two" wording depends on it. NULL for prompt-mode tiles
+   * (parts is just [sketch, text] as before).
+   */
+  styleBase64: string | null,
 ): Promise<TileRunResult> {
   // If recovery has bytes for this tile, hydrate without calling Gemini.
   if (recoveryHit) {
@@ -90,6 +99,20 @@ async function runOneTile(
   }
 
   try {
+    // Parts assembly: sketch first (image one). For style_explore tiles
+    // the style painting is appended as image two BEFORE the directive
+    // text — order is FIXED and load-bearing because the directive
+    // explicitly references "image one" and "image two". A reorder
+    // would silently invert the preserve target.
+    const parts: Array<
+      | { inlineData: { mimeType: string; data: string } }
+      | { text: string }
+    > = [{ inlineData: { mimeType: "image/jpeg", data: inputBase64 } }];
+    if (styleBase64) {
+      parts.push({ inlineData: { mimeType: "image/jpeg", data: styleBase64 } });
+    }
+    parts.push({ text: promptText });
+
     const resp = await callWithRetry(
       () =>
         genai().models.generateContent({
@@ -97,10 +120,7 @@ async function runOneTile(
           contents: [
             {
               role: "user",
-              parts: [
-                { inlineData: { mimeType: "image/jpeg", data: inputBase64 } },
-                { text: promptText },
-              ],
+              parts,
             },
           ],
           // `imageSize` was missing previously: requesting `resolution: "4k"`
@@ -233,14 +253,27 @@ export async function runIteration(iterationId: string): Promise<void> {
     // `{aspectRatio}` interpolation (so Pro's preserve-the-aspect sentence
     // matches what we asked for) — the two MUST agree per AGENTS.md §3
     // "all three steps" invariant.
+    //
+    // For style_explore iterations the SKETCH wins — `source.aspect_ratio`
+    // is still the canvas being completed, the style painting is the
+    // reference whose own aspect is irrelevant to output dimensions.
     const aspectRatio =
       iter.aspect_ratio_mode === "flip"
         ? flipAspectRatio(source.aspect_ratio)
         : source.aspect_ratio;
     // SDK expects "1K" | "2K" | "4K" (uppercase). DB column is "1k" | "4k".
     const imageSize = iter.resolution.toUpperCase();
+
+    // Per-mode prompt selection. style_explore mode short-circuits the
+    // preset dominator ladder and uses the locked Krea-validated multi-
+    // image directive. presets array is irrelevant in style_explore mode
+    // (UI never sends presets with mode='style_explore'; the worker still
+    // ignores them defensively).
     const presets = parseStoredPresets(iter.presets, iterationId);
-    const promptText = buildPrompt({ presets, aspectRatio });
+    const promptText =
+      iter.mode === "style_explore"
+        ? buildStyleExplorePrompt(aspectRatio)
+        : buildPrompt({ presets, aspectRatio });
 
     // TEMP DEBUG (remove after Ambiance v8 deploy verification): on any iteration
     // that includes 'ambiance', log the Railway commit SHA + the rendered prompt
@@ -266,12 +299,65 @@ export async function runIteration(iterationId: string): Promise<void> {
       }
     }
 
+    // Pre-fetch style painting bytes for style_explore tiles. One R2
+    // GET per UNIQUE style id referenced by this iteration's tiles —
+    // the cache deduplicates so an iteration that runs 9 styles makes 9
+    // R2 fetches, not 9 × tile_count. Missing rows (style hard-deleted
+    // between tile materialization and worker run) leave the cache entry
+    // empty; the tile then falls through to a fail path with a clear
+    // error_message (the catch in runOneTile takes care of marking).
+    //
+    // Recovery hits skip the fetch entirely (they don't re-call Gemini)
+    // so we filter to tiles WITHOUT a recovery hit. A boot-time replay of
+    // a fully-recovered style_explore iteration makes zero R2 GETs.
+    const styleBytesByPainting = new Map<string, string>();
+    if (iter.mode === "style_explore") {
+      const needed = new Set<string>();
+      for (const t of tileRows) {
+        if (recoveryHits.has(t.idx)) continue;
+        if (t.status !== "pending") continue;
+        if (t.style_painting_id) needed.add(t.style_painting_id);
+      }
+      for (const sid of needed) {
+        const sp = getStylePainting(sid);
+        if (!sp) {
+          console.warn(
+            `[runIteration ${iterationId}] style_painting ${sid} not found at worker time (deleted mid-flight?); tiles referencing it will fail`,
+          );
+          continue;
+        }
+        try {
+          const bytes = await getObject(sp.input_image_key);
+          styleBytesByPainting.set(sid, bytes.toString("base64"));
+        } catch (e) {
+          console.warn(
+            `[runIteration ${iterationId}] r2.getObject failed for style ${sid} (${sp.input_image_key}):`,
+            e instanceof Error ? e.message : e,
+          );
+        }
+      }
+    }
+
     updateIterationStatus(iterationId, "running");
     bus.emit(iterationId, { type: "started" });
 
     const results = await Promise.all(
-      tileRows.map((t) =>
-        runOneTile(
+      tileRows.map((t) => {
+        // Resolve the per-tile style_explore second-image bytes. NULL for
+        // prompt-mode tiles (the inner runOneTile then builds the
+        // single-image parts array). For style_explore tiles that lost
+        // their style ref between materialization and worker run, fall
+        // through with NULL too — the directive's "image two" anchor
+        // then has no image to bind, and Pro's response will fail
+        // extraction at the bytes-sniff step (caught by classifyError).
+        // Cleaner alternative would be a pre-flight failure mark, but
+        // the fall-through is one less branch + the error_message will
+        // surface to the user either way.
+        const styleBase64 =
+          iter.mode === "style_explore" && t.style_painting_id
+            ? styleBytesByPainting.get(t.style_painting_id) ?? null
+            : null;
+        return runOneTile(
           iterationId,
           t.id,
           t.idx,
@@ -281,6 +367,7 @@ export async function runIteration(iterationId: string): Promise<void> {
           imageSize,
           promptText,
           recoveryHits.get(t.idx),
+          styleBase64,
         ).catch((e): TileRunResult => {
           // Defensive: runOneTile already swallows its own errors. This is for the
           // truly unexpected (e.g., the catch handler itself throwing).
@@ -289,8 +376,8 @@ export async function runIteration(iterationId: string): Promise<void> {
             e,
           );
           return { idx: t.idx, ok: false };
-        }),
-      ),
+        });
+      }),
     );
 
     const successfulCount = results.filter((r) => r.ok).length;

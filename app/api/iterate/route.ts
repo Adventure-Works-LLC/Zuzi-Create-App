@@ -1,7 +1,8 @@
 /**
  * POST /api/iterate — kick off an N-tile generation against a source.
  *
- * Body: {requestId, sourceId, modelTier?, resolution?, count?, presets?}
+ * Body: {requestId, sourceId, modelTier?, resolution?, count?, presets?,
+ *        mode?, stylePaintingIds?, parentTileId?}
  *   - requestId: client-supplied ulid for idempotency. Replays return the same
  *     iterationId.
  *   - sourceId: must reference an existing sources row.
@@ -9,24 +10,41 @@
  *   - resolution: '1k' | '4k' (default '1k')
  *   - count: integer in [1, TILE_COUNT_MAX]; default TILE_COUNT_DEFAULT.
  *     Number of tiles to generate. Persisted on `iterations.tile_count`.
+ *     IGNORED when mode='style_explore' — the stylePaintingIds array
+ *     length is authoritative (one tile per style painting in the batch).
  *   - presets: array of preset strings, subset of PRESETS (color, ambiance,
- *     lighting, background). Default []. Persisted as JSON on
- *     `iterations.presets`. Determines the prompt via
- *     `lib/gemini/imagePrompts.ts buildPrompt()`.
+ *     lighting, background, avery, etching). Default []. Persisted as JSON
+ *     on `iterations.presets`. Determines the prompt via
+ *     `lib/gemini/imagePrompts.ts buildPrompt()`. IGNORED at the worker
+ *     when mode='style_explore' (the locked directive bypasses the preset
+ *     dominator ladder); still accepted defensively so a malformed client
+ *     can't crash the route.
+ *   - mode: 'prompt' (default) | 'style_explore'. Discriminates the worker
+ *     branch — see lib/gemini/runIteration.ts. style_explore requires
+ *     stylePaintingIds; prompt mode allows them only via parentTileId
+ *     (single style across all tiles).
+ *   - stylePaintingIds: required when mode='style_explore'. Non-empty
+ *     array of style_paintings ids, ≤ TILE_COUNT_MAX entries, one per
+ *     tile (index alignment — tile.idx i maps to stylePaintingIds[i]).
+ *     Determines tile_count for the batch.
+ *   - parentTileId: optional. When set, the iteration carries provenance
+ *     back to a style_explore tile via iterations.parent_tile_id (the
+ *     "Iterate on this direction" handoff). Valid in either mode;
+ *     v2.2 wires it from the lightbox in prompt-mode only.
  *
  * Returns:
  *   - First write: { iterationId }
  *   - Idempotent replay (early short-circuit OR UNIQUE collision):
- *       { iterationId, idempotentReplay: true, count, presets, aspectRatioMode }
- *     where `count`, `presets`, and `aspectRatioMode` reflect the ORIGINAL
- *     row's values, NOT the retry's body. The client reconciles its
- *     optimistic placeholder skeleton against these fields in
- *     `hooks/useIterations.ts` so a retry whose body differed renders the
- *     right number of tiles, the right preset chips, AND the right
- *     effective aspect ratio (the SSE worker uses the original row's
- *     aspect_ratio_mode regardless of what the retry body said, so the
- *     client must follow suit or every tile thumb will render with the
- *     wrong aspect-ratio container).
+ *       { iterationId, idempotentReplay: true, count, presets, aspectRatioMode,
+ *         mode, parentTileId }
+ *     where echoed fields reflect the ORIGINAL row's values, NOT the
+ *     retry's body. The client reconciles its optimistic placeholder
+ *     skeleton against these fields in `hooks/useIterations.ts` so a
+ *     retry whose body differed renders the right number of tiles, the
+ *     right preset chips, AND the right effective aspect ratio (the SSE
+ *     worker uses the original row's aspect_ratio_mode regardless of
+ *     what the retry body said, so the client must follow suit or every
+ *     tile thumb will render with the wrong aspect-ratio container).
  *
  * Idempotency: iterations.request_id is UNIQUE. Concurrent retries with the same
  * requestId hit the constraint and we return the existing iteration's id.
@@ -43,6 +61,7 @@ import { requireAuth } from "@/lib/auth/requireAuth";
 import {
   findIterationByRequestId,
   getSource,
+  getTile,
   insertIterationAndTiles,
   monthlyUsageUsd,
 } from "@/lib/db/queries";
@@ -100,6 +119,32 @@ function parseCount(raw: unknown): number {
   return raw;
 }
 
+/** Parse + validate the optional `stylePaintingIds` field. Returns a string[]
+ * of length [1, TILE_COUNT_MAX], or null when absent. Strings are NOT
+ * format-validated as ulids — the worker handles missing rows gracefully
+ * via getStylePainting + skip-on-miss, so the validation cost here would
+ * mostly be defensive vs. typos. Throws on bad type / out-of-range size. */
+function parseStylePaintingIds(raw: unknown): string[] | null {
+  if (raw === undefined || raw === null) return null;
+  if (!Array.isArray(raw)) throw new Error("stylePaintingIds_must_be_array");
+  if (raw.length === 0) {
+    throw new Error("stylePaintingIds_empty");
+  }
+  if (raw.length > TILE_COUNT_MAX) {
+    throw new Error(`stylePaintingIds_too_many:max_${TILE_COUNT_MAX}`);
+  }
+  const out: string[] = [];
+  for (const v of raw) {
+    if (typeof v !== "string" || v.length === 0 || v.length > 64) {
+      throw new Error(
+        `invalid_stylePaintingId:${String(v).slice(0, 40)}`,
+      );
+    }
+    out.push(v);
+  }
+  return out;
+}
+
 export async function POST(req: Request): Promise<Response> {
   if (!(await requireAuth())) {
     return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
@@ -113,6 +158,9 @@ export async function POST(req: Request): Promise<Response> {
     aspectRatioMode?: unknown;
     count?: unknown;
     presets?: unknown;
+    mode?: unknown;
+    stylePaintingIds?: unknown;
+    parentTileId?: unknown;
   };
   try {
     body = await req.json();
@@ -136,6 +184,14 @@ export async function POST(req: Request): Promise<Response> {
   // InputBar's Aspect toggle.
   const aspectRatioMode =
     body.aspectRatioMode === "flip" ? "flip" : "match";
+  // mode default 'prompt' preserves v1 behavior for any client/request
+  // that doesn't know about the new field.
+  const mode =
+    body.mode === "style_explore" ? "style_explore" : "prompt";
+  const parentTileId =
+    typeof body.parentTileId === "string" && body.parentTileId.length > 0
+      ? body.parentTileId
+      : null;
 
   if (!requestId)
     return NextResponse.json({ error: "missing_requestId" }, { status: 400 });
@@ -144,14 +200,67 @@ export async function POST(req: Request): Promise<Response> {
 
   let count: number;
   let presets: Preset[];
+  let stylePaintingIds: string[] | null;
   try {
     count = parseCount(body.count);
     presets = parsePresets(body.presets);
+    stylePaintingIds = parseStylePaintingIds(body.stylePaintingIds);
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "invalid_input" },
       { status: 400 },
     );
+  }
+
+  // Mode-specific cross-field validation.
+  if (mode === "style_explore") {
+    if (!stylePaintingIds) {
+      return NextResponse.json(
+        {
+          error: "missing_stylePaintingIds",
+          detail: "mode='style_explore' requires stylePaintingIds[]",
+        },
+        { status: 400 },
+      );
+    }
+    // The array length is authoritative — overrides any `count` the
+    // client also sent. This way the worker's tilesFor() count and the
+    // route's tile materialization always agree.
+    count = stylePaintingIds.length;
+  } else {
+    // prompt mode: stylePaintingIds isn't meaningful (provenance flows
+    // through parentTileId on the iteration, not per-tile). Reject so the
+    // client can't accidentally send the v2 array and have it silently
+    // ignored.
+    if (stylePaintingIds) {
+      return NextResponse.json(
+        {
+          error: "stylePaintingIds_requires_style_explore_mode",
+          detail:
+            "stylePaintingIds is only valid when mode='style_explore'. For prompt mode, pass parentTileId instead.",
+        },
+        { status: 400 },
+      );
+    }
+  }
+
+  // Validate parentTileId references an existing tile if set. The FK on
+  // iterations.parent_tile_id was added via ALTER TABLE ADD COLUMN so
+  // SQLite WON'T reject a bad reference at insert time (FK enforcement
+  // for ALTER-added FKs is best-effort in SQLite). The route does the
+  // existence check explicitly so a typo'd id surfaces as a clean 400
+  // rather than a dangling DB pointer.
+  if (parentTileId !== null) {
+    const parent = getTile(parentTileId);
+    if (!parent) {
+      return NextResponse.json(
+        {
+          error: "parent_tile_not_found",
+          detail: `no tile with id ${parentTileId}`,
+        },
+        { status: 404 },
+      );
+    }
   }
 
   // Idempotency: if a row already exists for this request_id, return it.
@@ -169,6 +278,15 @@ export async function POST(req: Request): Promise<Response> {
         // attempts). Worker keys off this column too — both sides have to
         // agree or thumbs render in the wrong container shape.
         aspectRatioMode: existing.aspect_ratio_mode,
+        // Echo mode + parentTileId so the client can hydrate the right
+        // optimistic placeholder shape — style_explore placeholders need
+        // the StyleAttributionThumb slot; prompt-from-tile iterations
+        // carry the parent_tile_id provenance link that the lightbox UI
+        // surfaces. Per-tile style_painting_id is NOT echoed (lives on
+        // the tiles rows; client refetches via /api/iterations to
+        // hydrate the per-tile attribution on a fresh tab).
+        mode: existing.mode,
+        parentTileId: existing.parent_tile_id,
       },
       { status: 200 },
     );
@@ -212,6 +330,8 @@ export async function POST(req: Request): Promise<Response> {
         aspect_ratio_mode: aspectRatioMode,
         tile_count: count,
         presets: presetsJson,
+        mode,
+        parent_tile_id: parentTileId,
         status: "pending",
         created_at: now,
         completed_at: null,
@@ -226,6 +346,16 @@ export async function POST(req: Request): Promise<Response> {
         error_message: null,
         is_favorite: 0,
         favorited_at: null,
+        // Per-tile style attribution for style_explore mode — index
+        // alignment with stylePaintingIds means tile.idx i is generated
+        // against stylePaintingIds[i]. NULL for prompt-mode tiles. The
+        // worker reads this column to decide whether to pull the second
+        // image input from R2; the client renders the StyleAttributionThumb
+        // from it once /api/iterations hydrates the row.
+        style_painting_id:
+          mode === "style_explore" && stylePaintingIds
+            ? stylePaintingIds[idx]
+            : null,
         created_at: now,
         completed_at: null,
       })),
@@ -245,6 +375,8 @@ export async function POST(req: Request): Promise<Response> {
           // SAME field set or the client's reconcile is conditional on
           // which branch fired.
           aspectRatioMode: reread.aspect_ratio_mode,
+          mode: reread.mode,
+          parentTileId: reread.parent_tile_id,
         },
         { status: 200 },
       );

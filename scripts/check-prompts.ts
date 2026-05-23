@@ -56,7 +56,11 @@
  * If this script ever fails, DO NOT bypass it. Fix the prompt builder.
  */
 
-import { buildPrompt } from "../lib/gemini/imagePrompts";
+import {
+  buildPrompt,
+  buildStyleExplorePrompt,
+  STYLE_EXPLORE_DIRECTIVE,
+} from "../lib/gemini/imagePrompts";
 import { PRESETS, type Preset } from "../lib/db/schema";
 
 const RATIOS = ["1:1", "4:5", "16:9", "9:16"] as const;
@@ -179,6 +183,37 @@ if (!etchingSolo.startsWith("add classical old master shadow hatching")) {
   fail("[etching]", "Etching v1 prompt regressed (lowercase 'add classical old master shadow hatching' opener canary missing)");
 }
 
+// Style Explore v1 — the directive is byte-locked from Jeff's Krea
+// validation. The plan note marked this canary as N/A ("directive is
+// constant"), but a constant can still be paraphrased by anyone editing
+// the file; the canary catches that at build time before the prompt drift
+// reaches production. Same defensive pattern as Avery/Etching openers.
+const styleExplore = buildStyleExplorePrompt("4:5");
+if (!styleExplore.startsWith("keep the character design exactly as is from image one")) {
+  fail("[style_explore]", "STYLE_EXPLORE_DIRECTIVE regressed (lowercase 'keep the character design exactly as is from image one' opener canary missing)");
+}
+if (!styleExplore.includes(STYLE_EXPLORE_DIRECTIVE)) {
+  fail("[style_explore]", "buildStyleExplorePrompt no longer emits the canonical STYLE_EXPLORE_DIRECTIVE constant");
+}
+if (!styleExplore.includes("Match the input aspect ratio exactly (4:5)")) {
+  fail("[style_explore]", "buildStyleExplorePrompt dropped the aspect-ratio sentence");
+}
+
+// And via the unified buildPrompt entrypoint with mode='style_explore' —
+// the presets array must be IGNORED (passing a contradictory preset
+// should not change the output bytes).
+const styleExploreViaBuild = buildPrompt({
+  presets: ["color"],
+  aspectRatio: "4:5",
+  mode: "style_explore",
+});
+if (styleExploreViaBuild !== styleExplore) {
+  fail(
+    "[mode=style_explore]",
+    "buildPrompt with mode='style_explore' must equal buildStyleExplorePrompt — presets must be ignored when mode is style_explore",
+  );
+}
+
 // --- 4: dominator routing must fire when combined with other presets ---
 const ambColor = buildPrompt({ presets: ["color", "ambiance"], aspectRatio: "4:5" });
 if (!ambColor.startsWith("This painting is the artist's work-in-progress.")) {
@@ -221,5 +256,5 @@ if (failures.length > 0) {
 }
 
 console.log(
-  `[check-prompts] ok — ${totalRenders} prompt renders across ${combos.length} preset combos × ${RATIOS.length} aspect ratios + 19 canary checks all green.`,
+  `[check-prompts] ok — ${totalRenders} prompt renders across ${combos.length} preset combos × ${RATIOS.length} aspect ratios + 23 canary checks all green.`,
 );

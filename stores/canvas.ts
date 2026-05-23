@@ -70,7 +70,23 @@ export interface Tile {
   errorMessage: string | null;
   isFavorite: boolean;
   favoritedAt: number | null;
+  /**
+   * Per-tile style attribution. Populated for tiles generated under a
+   * style_explore-mode iteration (one entry per tile, index-aligned with
+   * the iteration's `stylePaintingIds` request). NULL for prompt-mode
+   * tiles. Powers the StyleAttributionThumb under each result tile + the
+   * Lightbox toolbar's "Iterate on this direction" swap. The library is
+   * already hydrated in `stylePaintings[]`, so the client can look up
+   * title/inputKey for this id without an extra fetch.
+   */
+  stylePaintingId: string | null;
 }
+
+/** Iteration mode discriminator. 'prompt' (default) runs the existing
+ *  preset-driven flow; 'style_explore' runs the locked multi-image
+ *  directive (sketch + style painting per tile). See AGENTS.md §15
+ *  (to be added) for the mode contract. */
+export type IterationMode = "prompt" | "style_explore";
 
 export type ModelTier = "flash" | "pro";
 export type Resolution = "1k" | "4k";
@@ -129,6 +145,19 @@ export interface Iteration {
   aspectRatioMode: AspectRatioMode;
   tileCount: number;
   presets: Preset[];
+  /** v2 iteration mode. 'prompt' = existing preset-driven flow (the
+   *  IterationRow renders preset chips, the Lightbox shows "Use as
+   *  Source"). 'style_explore' = multi-image Krea-directive flow
+   *  (IterationRow renders a "Style Explore" badge instead of preset
+   *  chips, Lightbox shows "Iterate on this direction" and Compare-
+   *  with toggle swaps to result-vs-style). */
+  mode: IterationMode;
+  /** v2 provenance link. Set on prompt-mode iterations spawned from a
+   *  style_explore tile via the lightbox's "Iterate on this direction"
+   *  handoff — the parent tile id (across any source). NULL for
+   *  organically-generated iterations. Surfaced in the
+   *  IterationRow header as a small breadcrumb (future). */
+  parentTileId: string | null;
   status: IterationStatus;
   createdAt: number;
   tiles: Tile[];
@@ -277,6 +306,16 @@ interface CanvasState {
   setStylesError: (v: string | null) => void;
   setStylesUploading: (v: boolean) => void;
   setStylesPanelOpen: (open: boolean) => void;
+
+  // ---- explore sheet (v2.2 Style Explore mode entry) ----
+  // Toggled by the InputBar's "Explore styles →" button. ExploreSheet
+  // is a z-50 modal overlay (above the z-40 panels, above Studio's
+  // z-30 SourceStrip). Mounts unconditionally and renders nothing when
+  // false, same lifecycle as the other panels but at a higher z-layer
+  // because the sheet OWNS the screen while open — interaction with
+  // SourceStrip / Generate is intentionally blocked.
+  exploreSheetOpen: boolean;
+  setExploreSheetOpen: (open: boolean) => void;
 }
 
 export const useCanvas = create<CanvasState>((set) => ({
@@ -527,6 +566,10 @@ export const useCanvas = create<CanvasState>((set) => ({
   setStylesError: (stylesError) => set({ stylesError }),
   setStylesUploading: (stylesUploading) => set({ stylesUploading }),
   setStylesPanelOpen: (open) => set({ stylesPanelOpen: open }),
+
+  // ---- explore sheet ----
+  exploreSheetOpen: false,
+  setExploreSheetOpen: (open) => set({ exploreSheetOpen: open }),
 }));
 
 /** When the source list changes, decide what currentSourceId should be. Keeps

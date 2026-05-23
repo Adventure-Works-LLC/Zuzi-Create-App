@@ -13,10 +13,12 @@
  *   {
  *     iterations: [
  *       {
- *         id, sourceId, modelTier, resolution, tileCount, presets,
+ *         id, sourceId, modelTier, resolution, aspectRatioMode, tileCount,
+ *         presets, mode, parentTileId,
  *         status, createdAt, completedAt,
  *         tiles: [{ id, idx, status, outputKey, thumbKey, errorMessage,
- *                   isFavorite, favoritedAt, createdAt, completedAt }]
+ *                   isFavorite, favoritedAt, stylePaintingId,
+ *                   createdAt, completedAt }]
  *       }
  *     ]
  *   }
@@ -79,6 +81,12 @@ export async function GET(req: Request): Promise<Response> {
         aspectRatioMode: it.aspect_ratio_mode,
         tileCount: it.tile_count,
         presets: parseStoredPresets(it.presets),
+        // v2 Style Explore fields. `mode` discriminates the iteration
+        // type (Lightbox/InputBar branch off it); `parentTileId` is the
+        // "Iterate on this direction" provenance link (NULL for
+        // organically-generated iterations).
+        mode: it.mode,
+        parentTileId: it.parent_tile_id,
         status: it.status,
         createdAt: it.created_at,
         completedAt: it.completed_at,
@@ -91,6 +99,13 @@ export async function GET(req: Request): Promise<Response> {
           errorMessage: t.error_message,
           isFavorite: t.is_favorite === 1,
           favoritedAt: t.favorited_at,
+          // Per-tile style attribution for style_explore tiles, NULL
+          // for prompt-mode tiles. Powers the StyleAttributionThumb
+          // and the lightbox toolbar's "Iterate on this direction"
+          // swap. Surfaced from the tiles row as-is — the StylesPanel
+          // already hydrates the library so the client can look up
+          // title/inputKey without an extra fetch.
+          stylePaintingId: t.style_painting_id,
           createdAt: t.created_at,
           completedAt: t.completed_at,
         })),

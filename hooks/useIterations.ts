@@ -31,6 +31,7 @@ import {
   useCanvas,
   type AspectRatioMode,
   type Iteration,
+  type IterationMode,
   type IterationStatus,
   type ModelTier,
   type Resolution,
@@ -47,6 +48,10 @@ interface IterationResponseRow {
   aspectRatioMode: AspectRatioMode;
   tileCount: number;
   presets: Preset[];
+  /** v2 fields. Servers running pre-v2 code won't include them; the
+   *  client falls back to 'prompt' / null. */
+  mode?: IterationMode;
+  parentTileId?: string | null;
   status: Iteration["status"];
   createdAt: number;
   completedAt: number | null;
@@ -59,6 +64,9 @@ interface IterationResponseRow {
     errorMessage: string | null;
     isFavorite: boolean;
     favoritedAt: number | null;
+    /** v2 per-tile field. NULL for prompt-mode tiles + missing from
+     *  pre-v2 server responses. */
+    stylePaintingId?: string | null;
     createdAt: number;
     completedAt: number | null;
   }>;
@@ -73,6 +81,8 @@ function rowToIteration(r: IterationResponseRow): Iteration {
     aspectRatioMode: r.aspectRatioMode ?? "match",
     tileCount: r.tileCount,
     presets: r.presets,
+    mode: r.mode ?? "prompt",
+    parentTileId: r.parentTileId ?? null,
     status: r.status,
     createdAt: r.createdAt,
     tiles: r.tiles.map((t) => ({
@@ -85,6 +95,7 @@ function rowToIteration(r: IterationResponseRow): Iteration {
       errorMessage: t.errorMessage,
       isFavorite: t.isFavorite,
       favoritedAt: t.favoritedAt,
+      stylePaintingId: t.stylePaintingId ?? null,
     })),
   };
 }
@@ -92,6 +103,38 @@ function rowToIteration(r: IterationResponseRow): Iteration {
 export interface GenerateResult {
   iterationId: string;
   idempotentReplay?: boolean;
+}
+
+/**
+ * Optional knobs for `generate()`. Default behavior (no opts) fires a
+ * prompt-mode iteration against the current source using the store's
+ * preset/count/tier settings — matches the v1 InputBar Generate button.
+ *
+ * Style Explore flow (v2.2): the ExploreSheet passes
+ *   { mode: 'style_explore', stylePaintingIds: [...], modelTier: 'flash' }
+ * which overrides the store's `count` (the array length is authoritative),
+ * IGNORES the store's `presets` (the worker uses the locked
+ * STYLE_EXPLORE_DIRECTIVE regardless), AND uses its own tier preference
+ * (Explore defaults to Flash for cheaper discovery, independent of what
+ * the InputBar happens to be showing). The optimistic skeleton
+ * materializes per-tile stylePaintingId so the StyleAttributionThumb can
+ * render placeholders without waiting for the iterations refetch.
+ *
+ * "Iterate on this direction" handoff (v2.4) will pass
+ *   { parentTileId: '<style_explore tile id>' }
+ * in prompt mode to record provenance on iterations.parent_tile_id.
+ *
+ * modelTier / resolution overrides: when set, they replace the store's
+ * values for THIS call only — the store's UI-bound settings stay
+ * untouched. Used by ExploreSheet so its tier picker doesn't bleed into
+ * the InputBar's tier toggle.
+ */
+export interface GenerateOptions {
+  mode?: IterationMode;
+  stylePaintingIds?: ReadonlyArray<string>;
+  parentTileId?: string | null;
+  modelTier?: ModelTier;
+  resolution?: Resolution;
 }
 
 export interface RecoverIterationResult {
@@ -117,7 +160,7 @@ export interface UseIterationsResult {
   loading: boolean;
   error: string | null;
   generating: boolean;
-  generate: () => Promise<GenerateResult | null>;
+  generate: (opts?: GenerateOptions) => Promise<GenerateResult | null>;
   /** Hard-delete an iteration via DELETE /api/iterations/:id. Optimistic
    *  store removal (drops iteration + closes lightbox if it was on
    *  one of the iteration's tiles) before the network roundtrip; on
@@ -188,13 +231,32 @@ export function useIterations(): UseIterationsResult {
     return () => ac.abort();
   }, [currentSourceId, setIterations]);
 
-  const generate = useCallback(async (): Promise<GenerateResult | null> => {
+  const generate = useCallback(
+    async (opts?: GenerateOptions): Promise<GenerateResult | null> => {
     if (!currentSourceId) {
       setError("no_source");
       return null;
     }
     setError(null);
     setGenerating(true);
+
+    // Resolve mode-aware request shape. style_explore overrides `count`
+    // (array length wins) and effectively ignores `presets` (server
+    // accepts but worker bypasses the dominator ladder). Prompt mode
+    // with parentTileId records provenance on the iteration row.
+    const mode: IterationMode = opts?.mode ?? "prompt";
+    const stylePaintingIds = opts?.stylePaintingIds ?? null;
+    const parentTileId = opts?.parentTileId ?? null;
+    // Per-call tier / resolution overrides (ExploreSheet uses its own
+    // Flash-default toggle rather than the InputBar's Pro-default). Falls
+    // back to the store's values so the InputBar Generate path is
+    // unchanged.
+    const effectiveModelTier = opts?.modelTier ?? modelTier;
+    const effectiveResolution = opts?.resolution ?? resolution;
+    const effectiveCount =
+      mode === "style_explore" && stylePaintingIds
+        ? stylePaintingIds.length
+        : count;
 
     // Optimistic placeholder — gets swapped after the POST returns. The
     // optimistic id is unique per click so React keys don't collide.
@@ -204,14 +266,22 @@ export function useIterations(): UseIterationsResult {
     const optimistic: Iteration = {
       id: optimisticId,
       sourceId: currentSourceId,
-      modelTier,
-      resolution,
+      modelTier: effectiveModelTier,
+      resolution: effectiveResolution,
       aspectRatioMode,
-      tileCount: count,
-      presets,
+      tileCount: effectiveCount,
+      // Per-mode preset shape: prompt mode uses the store's presets;
+      // style_explore mode renders as the locked directive on server,
+      // so the iteration's `presets` is meaningless. Persist the empty
+      // array to match what the server stores (the route's parsePresets
+      // returns [] when presets is absent + the iteration row's
+      // `presets` is just JSON storage).
+      presets: mode === "style_explore" ? [] : presets,
+      mode,
+      parentTileId,
       status: "pending",
       createdAt: now,
-      tiles: Array.from({ length: count }, (_, idx) => ({
+      tiles: Array.from({ length: effectiveCount }, (_, idx) => ({
         id: `${optimisticId}-${idx}`,
         iterationId: optimisticId,
         idx,
@@ -221,6 +291,14 @@ export function useIterations(): UseIterationsResult {
         errorMessage: null,
         isFavorite: false,
         favoritedAt: null,
+        // Index-aligned per-tile style attribution for style_explore —
+        // matches the server's tile materialization below. Null for
+        // prompt mode (regardless of parentTileId, which lives on the
+        // iteration row, not per-tile).
+        stylePaintingId:
+          mode === "style_explore" && stylePaintingIds
+            ? stylePaintingIds[idx] ?? null
+            : null,
       })),
     };
     prependIteration(optimistic);
@@ -239,11 +317,24 @@ export function useIterations(): UseIterationsResult {
         body: JSON.stringify({
           requestId,
           sourceId: currentSourceId,
-          modelTier,
-          resolution,
+          modelTier: effectiveModelTier,
+          resolution: effectiveResolution,
           aspectRatioMode,
-          count,
+          // count is sent but the server ignores it for style_explore
+          // (computes from stylePaintingIds.length). Send the effective
+          // count anyway so the body's intent is unambiguous in logs.
+          count: effectiveCount,
           presets,
+          // v2 fields — server accepts mode default 'prompt'. Omit
+          // stylePaintingIds for prompt mode (server rejects it there
+          // explicitly). Omit parentTileId when null so the body stays
+          // clean.
+          ...(mode === "style_explore" && stylePaintingIds
+            ? { mode, stylePaintingIds }
+            : mode !== "prompt"
+              ? { mode }
+              : {}),
+          ...(parentTileId ? { parentTileId } : {}),
         }),
         signal: ac.signal,
       });
@@ -331,7 +422,13 @@ export function useIterations(): UseIterationsResult {
                       }
                     : {
                         // Surplus tile when the server's count > our optimistic
-                        // count. Build a fresh placeholder.
+                        // count. Build a fresh placeholder. stylePaintingId is
+                        // null here because the surplus case only fires when
+                        // an idempotent replay rebuilds with a count that
+                        // exceeds our optimistic skeleton — the new index has
+                        // no client-side context for the per-tile style id
+                        // (the server's row carries it). The /api/iterations
+                        // refetch below recovers the canonical value.
                         id: `${iterationId}-${idx}`,
                         iterationId,
                         idx,
@@ -341,6 +438,7 @@ export function useIterations(): UseIterationsResult {
                         errorMessage: null,
                         isFavorite: false,
                         favoritedAt: null,
+                        stylePaintingId: null,
                       };
                 }),
               }

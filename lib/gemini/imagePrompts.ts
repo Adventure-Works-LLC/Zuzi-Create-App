@@ -471,6 +471,54 @@ The figure, subject, foreground composition, palette family, lighting direction,
 The result should look like the same painting after she made one focused background development pass — same intent, same compositional ideas, more resolved.`;
 
 // ---------------------------------------------------------------------------
+// STYLE_EXPLORE — v1 locked. Krea-validated multi-image directive.
+//
+// Used by `mode: 'style_explore'` iterations (NOT a preset). Pro receives
+// TWO images per tile — sketch as image one, style painting as image two
+// — plus this fixed directive. Bypasses the preset dominator ladder
+// entirely; the variation across tiles comes from swapping image two,
+// not from text.
+//
+// The wording is byte-locked from Jeff's Krea validation. Order matters
+// in the directive — "image one" is the sketch (preserve), "image two"
+// is the style painting (channel). Reorder breaks the prompt's
+// semantics. See AGENTS.md §15 (to be added).
+//
+// Smoke gate (`scripts/smoke-style.ts`) re-imports this constant so the
+// two paths share ONE canonical string — drift between smoke-validated
+// bytes and production-served bytes is the failure mode this lock
+// prevents. The check-prompts build canary additionally locks the
+// opener phrase "keep the character design exactly as is from image
+// one" so any future re-cap fails the build.
+//
+// The lowercase opening is intentional — kept verbatim from Jeff's
+// Krea source. See AGENTS.md §4 (Avery/Etching pattern) for the same
+// rationale applied to other locked bodies.
+// ---------------------------------------------------------------------------
+
+/**
+ * The locked Krea-validated multi-image directive for Style Explore mode.
+ * Sent verbatim as the text part on every style_explore tile, alongside
+ * sketch bytes (image one) + style painting bytes (image two). Append the
+ * aspect ratio sentence via `buildStyleExplorePrompt` rather than
+ * concatenating inline so the formatting stays consistent across
+ * call sites.
+ */
+export const STYLE_EXPLORE_DIRECTIVE =
+  "keep the character design exactly as is from image one but show a completed work in the completed style of image 2. keep the exact character style and shape.";
+
+/**
+ * Render the full style_explore prompt with the aspect-ratio sentence
+ * appended per AGENTS.md §3 (the sketch's snapped aspect drives the call
+ * — not the style painting's, since the sketch is the canvas being
+ * completed). The same builder is reused by smoke-style.ts so the two
+ * paths produce byte-identical prompts for the same inputs.
+ */
+export function buildStyleExplorePrompt(aspectRatio: string): string {
+  return `${STYLE_EXPLORE_DIRECTIVE}\n\nMatch the input aspect ratio exactly (${aspectRatio}).`;
+}
+
+// ---------------------------------------------------------------------------
 // Templated path — for Lighting solo and Color+Lighting combos.
 // ---------------------------------------------------------------------------
 
@@ -516,9 +564,31 @@ const PRESET_REMOVES_FROM_PRESERVE: Record<Preset, ReadonlyArray<string>> = {
 export interface BuildPromptArgs {
   presets: ReadonlyArray<Preset>;
   aspectRatio: string;
+  /**
+   * Iteration mode. 'prompt' (default) runs the existing preset-driven
+   * dominator ladder; 'style_explore' returns the locked Krea-validated
+   * multi-image directive (see `STYLE_EXPLORE_DIRECTIVE` above) and
+   * IGNORES the presets array entirely. Variation in style_explore mode
+   * comes from swapping the second image input per tile, not from text.
+   * See AGENTS.md §15 (to be added) for the mode contract.
+   */
+  mode?: "prompt" | "style_explore";
 }
 
-export function buildPrompt({ presets, aspectRatio }: BuildPromptArgs): string {
+export function buildPrompt({
+  presets,
+  aspectRatio,
+  mode = "prompt",
+}: BuildPromptArgs): string {
+  // 0. Style Explore mode short-circuits the entire ladder. Presets are
+  //    ignored — the directive is fixed and the variation comes from the
+  //    second image input (the style painting) per tile, not from text.
+  //    Same builder is used by scripts/smoke-style.ts so the bytes that
+  //    pass the smoke gate are the bytes production serves.
+  if (mode === "style_explore") {
+    return buildStyleExplorePrompt(aspectRatio);
+  }
+
   // 1. Empty → the validated v0 prompt (verbatim — Zuzi approved this during
   //    smoke runs; do not paraphrase).
   if (presets.length === 0) {

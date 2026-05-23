@@ -68,7 +68,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Camera, Image as ImageIcon, Loader2, X } from "lucide-react";
+import { Camera, Image as ImageIcon, Loader2, Wand2, X } from "lucide-react";
 
 import { useSources } from "@/hooks/useSources";
 import { useIterations } from "@/hooks/useIterations";
@@ -379,6 +379,13 @@ export function InputBar() {
   const setAspectRatioMode = useCanvas((s) => s.setAspectRatioMode);
   const count = useCanvas((s) => s.count);
   const setCount = useCanvas((s) => s.setCount);
+  // v2.2: Style Explore entry. Library count gates the Explore button's
+  // enabled state (empty library → disabled with hint subline → tap still
+  // opens the sheet to its empty-state CTA per the plan, but for v2.2's
+  // Idle-state ship we just disable the button + render the hint, which
+  // also discourages an empty-state-only flow we don't have yet).
+  const stylePaintingsCount = useCanvas((s) => s.stylePaintings.length);
+  const setExploreSheetOpen = useCanvas((s) => s.setExploreSheetOpen);
 
   const { uploadFile, uploading } = useSources();
   const { generate, generating } = useIterations();
@@ -702,44 +709,86 @@ export function InputBar() {
                 </button>
               </>
             ) : (
-              <button
-                type="button"
-                onClick={() => void onGenerate()}
-                // NOTE: deliberately HTML-enabled during showPicker — only
-                // disabled when the work pipe is actually busy. Disabling
-                // the HTML element during the transitional state blocks
-                // pointerdown delivery on iPad Safari, so the document-
-                // level outside-click dismiss path can't see the tap and
-                // the user lands in a dead zone. With the button live,
-                // `onGenerate` snaps Background back + closes the picker
-                // (no generation fires) — see the guard at the top of
-                // onGenerate. Visually still dimmed via opacity-70 to
-                // signal "not the canonical Generate state right now."
-                disabled={generating || uploading}
-                className={[
-                  "inline-flex items-center gap-2 rounded-full",
-                  "px-5 py-2 text-sm font-medium no-callout",
-                  "bg-accent text-accent-foreground",
-                  "transition-opacity",
-                  generating || uploading
-                    ? "opacity-60 cursor-wait"
-                    : showPicker
-                      ? "opacity-70 hover:opacity-80"
-                      : "hover:opacity-90",
-                ].join(" ")}
-              >
-                {generating ? (
-                  <>
-                    <Loader2
-                      className="h-4 w-4 animate-spin"
-                      strokeWidth={1.75}
-                    />
-                    Painting…
-                  </>
-                ) : (
-                  "Generate"
-                )}
-              </button>
+              <>
+                {/* Explore styles → opens the ExploreSheet modal overlay.
+                    Visible whenever sources exist; disabled with a hint
+                    subline when the style library is empty. We don't gate
+                    on `generating` because Explore is its own work-stream
+                    (the sheet manages its own batch firing) — but we DO
+                    disable during a source-upload to avoid racing the
+                    SourceStrip's optimistic state with the sheet's
+                    sourceId-bound flow. */}
+                <div className="flex flex-col items-end gap-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setExploreSheetOpen(true)}
+                    disabled={stylePaintingsCount === 0 || uploading}
+                    aria-label="Explore styles"
+                    className={[
+                      "inline-flex items-center gap-2 rounded-full",
+                      "px-4 py-2 text-sm font-medium no-callout",
+                      "border border-hairline bg-card",
+                      "text-foreground/90 hover:bg-secondary",
+                      "transition-opacity",
+                      stylePaintingsCount === 0 || uploading
+                        ? "opacity-60 cursor-not-allowed"
+                        : "hover:opacity-100",
+                    ].join(" ")}
+                  >
+                    <Wand2 className="h-4 w-4" strokeWidth={1.5} />
+                    Explore styles
+                    <span className="text-text-mute" aria-hidden>
+                      →
+                    </span>
+                  </button>
+                  {stylePaintingsCount === 0 && (
+                    // Hint subline. Rendering it underneath the button keeps
+                    // the row's height stable while still telegraphing the
+                    // path forward ("add some styles to enable this").
+                    <span className="caption-display text-[10px] uppercase tracking-[0.18em] text-text-mute">
+                      Add styles first
+                    </span>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void onGenerate()}
+                  // NOTE: deliberately HTML-enabled during showPicker — only
+                  // disabled when the work pipe is actually busy. Disabling
+                  // the HTML element during the transitional state blocks
+                  // pointerdown delivery on iPad Safari, so the document-
+                  // level outside-click dismiss path can't see the tap and
+                  // the user lands in a dead zone. With the button live,
+                  // `onGenerate` snaps Background back + closes the picker
+                  // (no generation fires) — see the guard at the top of
+                  // onGenerate. Visually still dimmed via opacity-70 to
+                  // signal "not the canonical Generate state right now."
+                  disabled={generating || uploading}
+                  className={[
+                    "inline-flex items-center gap-2 rounded-full",
+                    "px-5 py-2 text-sm font-medium no-callout",
+                    "bg-accent text-accent-foreground",
+                    "transition-opacity",
+                    generating || uploading
+                      ? "opacity-60 cursor-wait"
+                      : showPicker
+                        ? "opacity-70 hover:opacity-80"
+                        : "hover:opacity-90",
+                  ].join(" ")}
+                >
+                  {generating ? (
+                    <>
+                      <Loader2
+                        className="h-4 w-4 animate-spin"
+                        strokeWidth={1.75}
+                      />
+                      Painting…
+                    </>
+                  ) : (
+                    "Generate"
+                  )}
+                </button>
+              </>
             )}
           </div>
         </div>

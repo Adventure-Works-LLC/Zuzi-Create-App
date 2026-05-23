@@ -64,6 +64,10 @@ import {
   type SupportedAspectRatio,
 } from "../lib/gemini/aspectRatio";
 import {
+  buildStyleExplorePrompt,
+  STYLE_EXPLORE_DIRECTIVE,
+} from "../lib/gemini/imagePrompts";
+import {
   costFor,
   pricePerImage,
   type ModelTier,
@@ -77,19 +81,16 @@ const INPUT_LONG_EDGE_PX = 2048;
 const INPUT_JPEG_QUALITY = 85;
 const OUTPUT_JPEG_QUALITY = 90;
 
-/**
- * Locked directive — Krea-validated by Jeff against Zuzi's character work.
- * Lowercase + casual phrasing is INTENTIONAL: matches what produced good
- * outputs in Krea. Do not "clean it up" or capitalize without re-running
- * the gate against multiple sketches.
- *
- * "character" wording is character-work-specific (confirmed with Jeff;
- * Zuzi's practice is figurative). If her practice later expands to
- * landscapes / still life / abstracts, this template needs a generalized
- * variant — flag and re-run the gate.
- */
-const STYLE_EXPLORE_DIRECTIVE =
-  "keep the character design exactly as is from image one but show a completed work in the completed style of image 2. keep the exact character style and shape.";
+// Locked directive — Krea-validated by Jeff against Zuzi's character work.
+// The single source of truth lives in `lib/gemini/imagePrompts.ts` as
+// `STYLE_EXPLORE_DIRECTIVE` so the smoke gate's bytes match production's
+// bytes. v2.0 inlined a duplicate; v2.2 promoted the constant into the
+// shared module and we now re-import it.
+//
+// "character" wording is character-work-specific (confirmed with Jeff;
+// Zuzi's practice is figurative). If her practice later expands to
+// landscapes / still life / abstracts, this template needs a generalized
+// variant — flag and re-run the gate.
 
 interface ParsedArgs {
   sketchArg: string | undefined;
@@ -288,7 +289,7 @@ async function main() {
   // painting's. Style paintings are reference inputs whose own aspect is
   // ignored at the Gemini call level (they're inline data, not the
   // generation target).
-  const promptText = `${STYLE_EXPLORE_DIRECTIVE}\n\nMatch the input aspect ratio exactly (${aspectRatio}).`;
+  const promptText = buildStyleExplorePrompt(aspectRatio);
 
   // 2. Loop: prep each style, fire call, extract, write to disk.
   const tStart = performance.now();

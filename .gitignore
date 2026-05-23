@@ -53,6 +53,13 @@ next-env.d.ts
 # Zuzi's source sketches — her IP, never commit
 /samples/inputs/
 
+# v2 Style Explore smoke gate — sketches + style refs are private (her IP +
+# her reference library). Keep the README so the layout is discoverable but
+# ignore everything else under the input dir + the entire output dir.
+/samples/v2-day-0-input/*
+!/samples/v2-day-0-input/README.md
+/samples/v2-day-0/
+
 # IDE
 .vscode/
 .idea/

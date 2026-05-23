@@ -16,6 +16,7 @@
     "check:prompts": "node --import tsx scripts/check-prompts.ts",
     "stamp:sw": "node --import tsx scripts/stamp-sw.ts",
     "smoke": "node --env-file=.env --import tsx scripts/smoke.ts",
+    "smoke-style": "node --env-file=.env --import tsx scripts/smoke-style.ts",
     "hash-password": "node --import tsx scripts/hash-password.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "node --env-file-if-exists=.env --import tsx scripts/migrate.ts"

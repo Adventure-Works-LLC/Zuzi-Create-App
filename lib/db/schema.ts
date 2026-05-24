@@ -118,7 +118,7 @@ export const iterations = sqliteTable(
      * 'style_explore' (multi-image: source + style painting, fixed
      * Krea-validated directive bypasses the preset dominator ladder).
      * Defaults to 'prompt' so all existing rows backfill cleanly with
-     * no behavior change. See AGENTS.md §15 (Style Explore) for the
+     * no behavior change. See AGENTS.md §13 (Style Explore) for the
      * mode contract.
      */
     mode: text("mode", { enum: ["prompt", "style_explore"] })

@@ -1,5 +1,5 @@
 -- v2 Style Explore mode — schema foundation. See the plan doc + AGENTS.md
--- §15 (to be added) for the mode contract.
+-- §13 for the mode contract.
 --
 -- Four additions, all in one migration so the schema flips atomically:
 --

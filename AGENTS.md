@@ -742,7 +742,184 @@ and wraps the third tile to row 2 — verified empirically. Do not bump.
 Inline `style` attribute, not a Tailwind arbitrary-value class — nested
 calc() inside clamp() inside `w-[...]` trips the JIT in Tailwind 4.
 
-## 13. When changing this file
+## 13. Style Explore mode (v2)
+
+The second creative-direction surface in Studio. Where prompt mode is
+"I know what I want, push it on this painting" (preset-driven), Style
+Explore is "I don't know what I want yet — show me my sketch
+re-rendered in the style of each painting from my reference library."
+Discovery surface → refinement handoff. Plan source-of-truth:
+`/Users/jeff/.claude/plans/i-want-to-make-cheerful-orbit.md` §"Style
+Explore Mode — v2 SPEC (canonical)".
+
+### Schema delta (migration 0006)
+
+  - **`style_paintings` table** — Zuzi's reference library (Sargent,
+    Sorolla, Wyeth…). Semantically distinct from `sources` (her own
+    work). Same shape as sources + optional `title` / `artist` / `note`
+    / `tag` metadata + soft-archive column. `tag` is scaffolded for a
+    v0.3 filter UI; not used in v2.x.
+  - **`iterations.mode`** — `'prompt'` (default; backfills all v1 rows)
+    | `'style_explore'`. Discriminates the worker branch. The text
+    column has a NOT NULL DEFAULT 'prompt' so the migration is
+    instantaneous and pre-v2 reads keep behaving identically.
+  - **`iterations.parent_tile_id`** — re-added per AGENTS.md §6
+    cleanup-then-revive (was dropped in v1 as dead weight; v2 makes it
+    load-bearing for "Iterate on this direction" provenance). Set on
+    prompt-mode iterations spawned from a style_explore tile via the
+    lightbox handoff.
+  - **`tiles.style_painting_id`** — populated per-tile in
+    style_explore iterations AND on every tile of prompt-mode
+    iterations spawned from the handoff (the route copies the single
+    handoff stylePaintingId onto every tile). NULL for organic
+    prompt-mode tiles.
+
+**Weak FK enforcement caveat.** Both new FK columns
+(`iterations.parent_tile_id`, `tiles.style_painting_id`) were added
+via `ALTER TABLE ADD COLUMN`. SQLite does NOT enforce ON DELETE
+actions on FKs added that way — drizzle-kit drops the clause from the
+generated SQL for exactly that reason. The intended semantics are
+**ON DELETE SET NULL** for both: hard-deleting a tile preserves the
+spawned iteration (provenance link nulls); hard-deleting a style
+painting preserves the referenced tiles + R2 outputs (attribution link
+nulls). These are enforced manually via the `nullifyParentTileForTileIds`
+/ `nullifyParentTileForIteration` / `nullifyParentTileForSource` /
+`nullifyTilesForStylePainting` helpers in `lib/db/queries.ts`, called
+from inside every hard-delete transaction (tile, iteration, source,
+style painting, empty-iteration sweep). Same pattern as the existing
+`nullifyUsageLogForSource` / `*ForIteration` helpers for the equally-
+weak `usage_log.iteration_id` FK. **If you add a new hard-delete code
+path that removes tiles, you must also nullify any parent_tile_id
+references** — or the FK's default NO ACTION will block the delete.
+
+### The locked directive
+
+```
+keep the character design exactly as is from image one but show a
+completed work in the completed style of image 2. keep the exact
+character style and shape.
+```
+
+Lives in `lib/gemini/imagePrompts.ts` as `STYLE_EXPLORE_DIRECTIVE`.
+Byte-locked from Jeff's Krea validation against character work
+(confirmed Zuzi's practice is figurative). If her practice ever
+expands to landscape / still life / abstracts, this template needs a
+generalised variant — flag and re-run the v2.0 smoke gate
+(`scripts/smoke-style.ts`) before changing it. The directive's
+"image one / image two" wording is load-bearing — the API call's parts
+array order is FIXED: sketch first (image one), style painting second
+(image two), then directive text.
+
+Build canary in `scripts/check-prompts.ts` locks the opener phrase
+"keep the character design exactly as is from image one" + asserts
+`buildPrompt({mode:'style_explore'})` ignores `presets` entirely
+(returns bytes identical to `buildStyleExplorePrompt`). The smoke gate
+re-imports `STYLE_EXPLORE_DIRECTIVE` from `imagePrompts.ts` so the
+bytes that pass the gate are byte-identical to what production serves.
+
+### Mode contract — invariants
+
+  1. **style_explore bypasses the preset dominator ladder entirely.**
+     The route accepts a `presets` field in style_explore mode (for
+     payload consistency) but the worker ignores it — `buildPrompt`
+     short-circuits to `buildStyleExplorePrompt(aspectRatio)` on the
+     mode='style_explore' branch. Variation across tiles comes from
+     swapping image two (the style painting), not from text.
+
+  2. **stylePaintingIds (array, style_explore) vs. stylePaintingId
+     (single, prompt-mode handoff) are mutually exclusive at the API
+     layer.** The route rejects mixing them with cross-field validation:
+     stylePaintingIds in prompt mode → 400; single stylePaintingId in
+     style_explore mode → 400. Each mode owns one and only one of the
+     two fields.
+
+  3. **Aspect ratio is the SKETCH's** (per §3) regardless of mode. The
+     style painting is a reference input whose own aspect is
+     irrelevant to the output dimensions. `iter.aspect_ratio_mode`
+     (match/flip) modulates the sketch's aspect; the style painting
+     is never the basis for `imageConfig.aspectRatio`.
+
+  4. **The "Iterate on this direction" handoff is a prompt-mode
+     iteration with both a parent_tile_id AND a per-tile
+     style_painting_id.** The worker detects the prompt-mode-with-
+     style-tile case (`promptModeHasStyleRef`) and:
+       - Prefetches the style painting bytes (deduped across tiles —
+         the handoff puts the SAME stylePaintingId on every tile, so
+         it's one R2 GET regardless of tile count).
+       - Includes the style as second image input on every Gemini call.
+       - Tells `buildPrompt` to set `withStyleReference: true` which
+         prepends "The second image is a style reference — channel its
+         painted treatment, brushwork, and palette sensibility while
+         preserving the first image's composition, subject, and
+         identity." to the resolved preset body.
+     The result: the new iteration's tiles render Zuzi's sketch in the
+     same direction as the seed style_explore tile, but with the
+     preset (typically Avery) applied on top.
+
+  5. **The session loop persists across the sheet.** ExploreSheet
+     fires iterations into the canvas store's `iterations[]` — the
+     same array the regular Studio TileStream reads from — so closing
+     the sheet leaves the explored tiles visible in the main stream
+     under their iteration row (with the `mode: 'style_explore'` field
+     surfaced so the IterationRow header can render a distinguishing
+     chip in a future iteration of the UI). Refresh, switch sources,
+     come back → the row is still there because it's stored normally.
+
+### Cost protection
+
+ExploreSheet defaults to **Flash** (the InputBar default is Pro). Per
+the plan, discovery is cost-sensitive — many style tries per session
+makes the cheap tier the right default. The sheet's tier toggle is
+local (doesn't bleed into the InputBar), passed via
+`generate({modelTier: 'flash', ...})` which threads it as a per-call
+override. The InputBar's Pro default stays Pro.
+
+Stop button halts BETWEEN batches, not mid-batch. In-flight Gemini
+calls have already been charged the moment the worker fires the
+`generateContent` request — cancelling client-side throws money away.
+Worst-case cost floor on Stop = remaining-tiles-of-current-batch ×
+`pricePerImage(tier, resolution)`. The Keep-going mode's
+IntersectionObserver also gates on `userStopped` so no further
+triplets fire after Stop.
+
+MONTHLY_USD_CAP (default $80) gates every iteration. POST /api/iterate
+returns 429 monthly_cap_reached with `{currentUsd, capUsd}` when the
+projected iteration cost would push month-so-far past the cap; the
+sheet parses this from generate()'s thrown error message into a
+sticky red banner and auto-fires Stop.
+
+### Critical files
+
+  - `lib/gemini/imagePrompts.ts` — `STYLE_EXPLORE_DIRECTIVE` constant,
+    `buildStyleExplorePrompt(aspectRatio)`, `buildPrompt` accepts
+    `mode` + `withStyleReference`.
+  - `lib/gemini/runIteration.ts` — mode branch + multi-image parts
+    construction + style-bytes prefetch.
+  - `app/api/iterate/route.ts` — request body grows mode +
+    stylePaintingIds + stylePaintingId + parentTileId with cross-field
+    validation.
+  - `app/api/iterations/route.ts` + `app/api/favorites/route.ts` —
+    responses grow iteration.mode + iteration.parentTileId + per-tile
+    stylePaintingId.
+  - `components/krea/ExploreSheet.tsx` — 3-state machine (idle →
+    running → done), Keep-going IntersectionObserver, Stop button,
+    cap banner.
+  - `components/krea/StyleAttributionThumb.tsx` — per-tile attribution
+    chip under every tile carrying a style_painting_id (in both
+    ExploreSheet grid and the main IterationRow).
+  - `components/krea/Lightbox.tsx` — Compare-target swap + "Iterate
+    on this direction" toolbar swap when `view.stylePaintingId` is set.
+  - `lib/db/queries.ts` — `insertStylePainting`, `listStylePaintings`,
+    `getStylePainting`, `hardDeleteStylePainting`,
+    `nullifyTilesForStylePainting` + the parent_tile_id nullify
+    helpers.
+  - `scripts/check-prompts.ts` — 4 new canaries (locked opener,
+    constant-equality, aspect-ratio sentence, mode='style_explore'
+    bytes-equality with buildStyleExplorePrompt).
+  - `scripts/smoke-style.ts` — the v2.0 standalone gate; re-imports
+    `STYLE_EXPLORE_DIRECTIVE` so smoke bytes equal production bytes.
+
+## 14. When changing this file
 
   - If you're adding a new architectural contract: add a numbered section
     at the bottom. Keep each section focused on one durable rule.

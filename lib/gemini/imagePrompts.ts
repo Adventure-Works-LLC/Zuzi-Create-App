@@ -482,7 +482,7 @@ The result should look like the same painting after she made one focused backgro
 // The wording is byte-locked from Jeff's Krea validation. Order matters
 // in the directive — "image one" is the sketch (preserve), "image two"
 // is the style painting (channel). Reorder breaks the prompt's
-// semantics. See AGENTS.md §15 (to be added).
+// semantics. See AGENTS.md §13.
 //
 // Smoke gate (`scripts/smoke-style.ts`) re-imports this constant so the
 // two paths share ONE canonical string — drift between smoke-validated
@@ -570,7 +570,7 @@ export interface BuildPromptArgs {
    * multi-image directive (see `STYLE_EXPLORE_DIRECTIVE` above) and
    * IGNORES the presets array entirely. Variation in style_explore mode
    * comes from swapping the second image input per tile, not from text.
-   * See AGENTS.md §15 (to be added) for the mode contract.
+   * See AGENTS.md §13 for the mode contract.
    */
   mode?: "prompt" | "style_explore";
   /**

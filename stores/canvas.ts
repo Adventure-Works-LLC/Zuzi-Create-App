@@ -84,7 +84,7 @@ export interface Tile {
 
 /** Iteration mode discriminator. 'prompt' (default) runs the existing
  *  preset-driven flow; 'style_explore' runs the locked multi-image
- *  directive (sketch + style painting per tile). See AGENTS.md §15
+ *  directive (sketch + style painting per tile). See AGENTS.md §13
  *  (to be added) for the mode contract. */
 export type IterationMode = "prompt" | "style_explore";
 

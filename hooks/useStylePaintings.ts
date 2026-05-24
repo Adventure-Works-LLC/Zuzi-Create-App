@@ -154,6 +154,13 @@ export function useStylePaintings(): UseStylePaintingsResult {
 
   const deleteForever = useCallback(
     async (id: string) => {
+      // Abort any in-flight refresh BEFORE the optimistic removal +
+      // network DELETE. Otherwise a refresh that fired moments earlier
+      // (e.g., from a parallel uploadFile completion or the mount
+      // effect still resolving) can land its response AFTER our
+      // optimistic remove and re-insert the just-deleted style via
+      // setStylePaintings(...). The abort makes the response a no-op.
+      abortRef.current?.abort();
       // Optimistic store removal. Rollback on failure via refresh.
       removeStylePainting(id);
       try {

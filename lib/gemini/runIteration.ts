@@ -270,21 +270,28 @@ export async function runIteration(iterationId: string): Promise<void> {
     // (UI never sends presets with mode='style_explore'; the worker still
     // ignores them defensively).
     //
-    // Prompt-mode "Iterate on this direction" handoff (v2.4): if ANY tile
-    // of this iteration has a style_painting_id set (the route copies the
-    // single stylePaintingId field onto every tile in this case), the
-    // prompt body must be prepended with the style-reference sentence
-    // so Pro knows the second image is the style anchor, not a second
-    // sketch / compositional input. We sample tileRows below; check now
-    // by fetching the rows up-front for both branches.
+    // Prompt-mode "Iterate on this direction" handoff (v2.4): the route
+    // copies the single stylePaintingId field onto EVERY tile of the new
+    // iteration (uniform shape — all-or-none). When that's the case the
+    // prompt body must be prepended with the style-reference sentence so
+    // Pro knows the second image is the style anchor, not a second
+    // sketch / compositional input.
+    //
+    // `.every()` (not `.some()`) is the load-bearing predicate: if a
+    // mixed-mode iteration ever materializes (only possible via direct
+    // DB write — the route guarantees uniform shape), `.some()` would
+    // prepend the style-reference sentence to ALL tile prompts including
+    // ones without a style image input, sending Pro contradictory
+    // instructions. `.every()` falls through to the default no-prepend
+    // path on mixed-mode, which is the predictable failure mode.
     const presets = parseStoredPresets(iter.presets, iterationId);
-    // tilesFor() is called twice — once here for the prompt-decision,
-    // once below for the orchestration. Cheap (index-covered query) and
-    // keeping the order linear makes the decision flow easier to read.
+    // Single read of tilesFor — reused below for orchestration to avoid
+    // wasted DB work and remove any race window between the two reads.
     const tileRowsForPromptDecision = tilesFor(iterationId);
     const promptModeHasStyleRef =
       iter.mode === "prompt" &&
-      tileRowsForPromptDecision.some((t) => t.style_painting_id !== null);
+      tileRowsForPromptDecision.length > 0 &&
+      tileRowsForPromptDecision.every((t) => t.style_painting_id !== null);
     const promptText =
       iter.mode === "style_explore"
         ? buildStyleExplorePrompt(aspectRatio)

@@ -144,6 +144,14 @@ export function ExploreSheet() {
   // response which contains the new iterationId). Gates Keep-going's
   // observer so we never fire two batches concurrently.
   const [batchInFlight, setBatchInFlight] = useState(false);
+  // Ref mirror of batchInFlight, kept in sync inside fireBatch. The
+  // IntersectionObserver callback closes over the EFFECT's snapshot of
+  // `batchInFlight` at attach time, so without the ref a rapid sequence
+  // of scroll → intersection → fire could race a still-pending state
+  // update (the React render loop hasn't committed setBatchInFlight(true)
+  // yet, so the observer's closure sees `false` and fires again).
+  // fireBatch itself reads the ref as a first-line guard.
+  const batchInFlightRef = useRef(false);
   // Monthly-cap state. Cleared on every Start; populated by the 429
   // response. Once set, banner sticks + Stop auto-fires.
   const [capState, setCapState] = useState<{
@@ -230,10 +238,18 @@ export function ExploreSheet() {
   );
 
   /** Fire one batch with the given style ids. Handles cap-banner state,
-   *  spawned-iteration tracking, and batchInFlight gating. */
+   *  spawned-iteration tracking, and batchInFlight gating.
+   *
+   *  Ref guard makes this idempotent against concurrent callers — the
+   *  IntersectionObserver in Keep-going mode can fire multiple times in
+   *  rapid succession before React commits a setBatchInFlight(true), so
+   *  the closure-captured `batchInFlight` would read stale and the
+   *  observer could double-fire. The ref captures the synchronous truth. */
   const fireBatch = useCallback(
     async (ids: string[]): Promise<boolean> => {
       if (ids.length === 0) return false;
+      if (batchInFlightRef.current) return false; // concurrent-call guard
+      batchInFlightRef.current = true;
       setBatchInFlight(true);
       try {
         const result = await generate({
@@ -274,6 +290,7 @@ export function ExploreSheet() {
         }
         return false;
       } finally {
+        batchInFlightRef.current = false;
         setBatchInFlight(false);
       }
     },
@@ -282,21 +299,37 @@ export function ExploreSheet() {
 
   // ---- lifecycle effects ----------------------------------------------
 
-  // Reset all session state on sheet open. Capture the source id we
-  // opened against so a mid-explore source switch is detectable.
+  // Reset all session state on sheet OPEN — only on the closed→open
+  // transition, NOT on currentSourceId changes mid-open. The earlier
+  // version had `[open, currentSourceId]` deps and was re-firing on
+  // source switches, which clobbered spawnedIterationIds + rewrote
+  // openedSourceIdRef.current to match the new currentSourceId. That
+  // made `sourceSwitched` (derived below) always-false after a switch,
+  // so the user never saw the "Switched to a different source" banner
+  // AND lost all in-flight tracking. The prevOpenRef gates the reset
+  // strictly on the open transition so currentSourceId changes don't
+  // re-fire it. (Don't reset modelTier / batchChoice — let them be
+  // sticky within the session, matching the InputBar's tier
+  // stickiness pattern.)
+  const prevOpenRef = useRef(false);
   useEffect(() => {
-    if (!open) return;
-    openedSourceIdRef.current = currentSourceId;
-    setState("idle");
-    setStartError(null);
-    setSpawnedIterationIds([]);
-    setUsedStyleIds(new Set());
-    setUserStopped(false);
-    setBatchInFlight(false);
-    setCapState(null);
-    // Don't reset modelTier / batchChoice — let them be sticky within
-    // the session (matches the InputBar's modelTier-stickiness pattern).
-  }, [open, currentSourceId]);
+    if (open && !prevOpenRef.current) {
+      openedSourceIdRef.current = currentSourceId;
+      setState("idle");
+      setStartError(null);
+      setSpawnedIterationIds([]);
+      setUsedStyleIds(new Set());
+      setUserStopped(false);
+      setBatchInFlight(false);
+      setCapState(null);
+    }
+    prevOpenRef.current = open;
+    // currentSourceId is intentionally NOT in the deps — only `open`
+    // transitions reset state; currentSourceId divergence is detected
+    // by the `sourceSwitched` derivation comparing the seeded ref to
+    // the live value.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   // State machine driver. Reacts to allTiles + batchInFlight +
   // userStopped + state to decide the next sheet state.

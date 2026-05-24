@@ -67,11 +67,19 @@ import { StyleAttributionThumb } from "./StyleAttributionThumb";
 import { useCanvas } from "@/stores/canvas";
 import { useIterations } from "@/hooks/useIterations";
 
+// Mirrors VISIBLE_PRESETS + hidden presets in InputBar.tsx — labels for
+// the iteration caption chip. Missing entries fall through to literal
+// "undefined" in the rendered caption, which was the bug before Avery
+// + Etching were added: any iteration whose presets included one of
+// those (notably the v2.4 "Iterate on this direction" handoff, which
+// uses the store's default ['avery']) caption-rendered as "undefined".
 const PRESET_LABEL: Record<string, string> = {
   color: "color",
   ambiance: "ambiance",
   lighting: "lighting",
   background: "background",
+  avery: "avery",
+  etching: "etching",
 };
 
 /** Inline style for the per-tile fixed width. See file header for the

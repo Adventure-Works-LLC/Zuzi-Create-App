@@ -304,14 +304,24 @@ export function useIterations(): UseIterationsResult {
         errorMessage: null,
         isFavorite: false,
         favoritedAt: null,
-        // Index-aligned per-tile style attribution for style_explore —
-        // matches the server's tile materialization below. Null for
-        // prompt mode (regardless of parentTileId, which lives on the
-        // iteration row, not per-tile).
+        // Per-tile style attribution. Three cases:
+        //   - style_explore: index-aligned with stylePaintingIds —
+        //     each tile carries its own style id.
+        //   - prompt-mode handoff (v2.4 "Iterate on this direction"):
+        //     every tile carries the SAME single stylePaintingId. The
+        //     route copies it onto every tile's style_painting_id, so
+        //     the optimistic skeleton mirrors that here. Without this,
+        //     the Lightbox's "Iterate on this direction" affordance
+        //     wouldn't appear on the spawned tiles until SSE+refetch
+        //     overwrote the placeholder (SSE events don't currently
+        //     carry stylePaintingId, so refresh would be the only path).
+        //   - plain prompt mode: null.
         stylePaintingId:
           mode === "style_explore" && stylePaintingIds
             ? stylePaintingIds[idx] ?? null
-            : null,
+            : mode === "prompt" && stylePaintingId
+              ? stylePaintingId
+              : null,
       })),
     };
     prependIteration(optimistic);
@@ -337,7 +347,17 @@ export function useIterations(): UseIterationsResult {
           // (computes from stylePaintingIds.length). Send the effective
           // count anyway so the body's intent is unambiguous in logs.
           count: effectiveCount,
-          presets,
+          // For style_explore, send empty presets — the worker bypasses
+          // the dominator ladder via mode='style_explore'. Sending the
+          // store's `presets` (e.g. the default ['avery']) would
+          // serialize to the iterations.presets column and the
+          // idempotent-replay reconcile path below would then OVERWRITE
+          // the optimistic empty array with the persisted preset — the
+          // result is a style_explore iteration that visually
+          // contradicts its own mode (preset chips on a directive-only
+          // run). Empty array matches both the worker's behavior and
+          // the optimistic skeleton above.
+          presets: mode === "style_explore" ? [] : presets,
           // v2 fields — server accepts mode default 'prompt'. Omit
           // stylePaintingIds for prompt mode (server rejects it there
           // explicitly) and stylePaintingId for style_explore mode
@@ -403,8 +423,15 @@ export function useIterations(): UseIterationsResult {
       // wrong aspect-ratio container (because the row's effective aspect is
       // derived from `iteration.aspectRatioMode` and the worker is keying
       // off the persisted column, not our body).
+      //
+      // Fallback uses `effectiveCount` (the mode-aware count we just
+      // calculated above) rather than the store's raw `count` — important
+      // for style_explore because the store's count (typically 3) is
+      // meaningless once stylePaintingIds.length wins.
       const canonicalCount =
-        typeof data.count === "number" && data.count > 0 ? data.count : count;
+        typeof data.count === "number" && data.count > 0
+          ? data.count
+          : effectiveCount;
       const canonicalPresets = Array.isArray(data.presets)
         ? (data.presets as Preset[])
         : presets;
@@ -439,13 +466,12 @@ export function useIterations(): UseIterationsResult {
                       }
                     : {
                         // Surplus tile when the server's count > our optimistic
-                        // count. Build a fresh placeholder. stylePaintingId is
-                        // null here because the surplus case only fires when
-                        // an idempotent replay rebuilds with a count that
-                        // exceeds our optimistic skeleton — the new index has
-                        // no client-side context for the per-tile style id
-                        // (the server's row carries it). The /api/iterations
-                        // refetch below recovers the canonical value.
+                        // count. Build a fresh placeholder. For style_explore
+                        // we can still seed stylePaintingId from our own
+                        // stylePaintingIds (the request body we just sent),
+                        // since the route assigns ids by index alignment. For
+                        // prompt-mode handoff every tile carries the same id.
+                        // Plain prompt mode: null.
                         id: `${iterationId}-${idx}`,
                         iterationId,
                         idx,
@@ -455,7 +481,12 @@ export function useIterations(): UseIterationsResult {
                         errorMessage: null,
                         isFavorite: false,
                         favoritedAt: null,
-                        stylePaintingId: null,
+                        stylePaintingId:
+                          mode === "style_explore" && stylePaintingIds
+                            ? stylePaintingIds[idx] ?? null
+                            : mode === "prompt" && stylePaintingId
+                              ? stylePaintingId
+                              : null,
                       };
                 }),
               }

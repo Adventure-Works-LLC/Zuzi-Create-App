@@ -54,7 +54,8 @@
 -- `iterations.parent_tile_id` (iteration + its own tiles preserved,
 -- only the provenance link disappears). Until SQLite supports adding
 -- enforced FK actions via ALTER, these are enforced manually via
--- `nullifyTilesForStylePainting` and `nullifyParentTileForReferences`
+-- `nullifyTilesForStylePainting` and `nullifyParentTileForTileIds` /
+-- `nullifyParentTileForIteration` / `nullifyParentTileForSource`
 -- helpers in `lib/db/queries.ts`, called from the DELETE routes. Same
 -- pattern as the existing `nullifyUsageLogForSource` / `*ForIteration`
 -- helpers for the equally-weak `usage_log.iteration_id` FK.

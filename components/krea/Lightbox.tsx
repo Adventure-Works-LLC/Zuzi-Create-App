@@ -623,10 +623,15 @@ export function Lightbox() {
         );
         return;
       }
-      // Close the lightbox + any open Explore sheet so the user lands
-      // back in the Studio stream watching their new iteration arrive.
+      // Close the lightbox + any open Explore sheet + the FavoritesPanel
+      // so the user lands back in the Studio stream watching their new
+      // iteration arrive. Snapshot-mode opens come from FavoritesPanel
+      // (z-40 over Studio); without dismissing it, the panel stays
+      // covering the new iteration that's now streaming in. Mirrors
+      // onUseAsSource's setFavoritesOpen(false) pattern.
       closeLightbox();
       useCanvas.getState().setExploreSheetOpen(false);
+      setFavoritesOpen(false);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setActionError(`Couldn't iterate — ${msg}`);
@@ -844,7 +849,13 @@ export function Lightbox() {
             with style"; for v1 tiles it remains "Compare". When ON
             (split view rendered), the button text drops to just
             "Style"/"Original" — matches the existing pattern that
-            previously toggled to "Original" on activation. */}
+            previously toggled to "Original" on activation. The label
+            must agree with what compareKey actually points at: if the
+            tile is style_explore-derived BUT the style painting was
+            hard-deleted (compareKey falls back to the source), the
+            label reads "Original" so the user isn't told they're
+            looking at a style painting when they're really seeing the
+            source. */}
         {compareKey !== null && (
           <button
             type="button"
@@ -859,7 +870,7 @@ export function Lightbox() {
           >
             <Columns2 className="h-4 w-4" strokeWidth={1.5} />
             {compareOpen
-              ? view.stylePaintingId
+              ? view.stylePaintingId && stylePaintingForView
                 ? "Style"
                 : "Original"
               : "Compare"}

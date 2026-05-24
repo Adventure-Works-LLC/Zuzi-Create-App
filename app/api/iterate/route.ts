@@ -67,6 +67,7 @@ import { ulid } from "ulid";
 import { requireAuth } from "@/lib/auth/requireAuth";
 import {
   findIterationByRequestId,
+  getIteration,
   getSource,
   getStylePainting,
   getTile,
@@ -312,15 +313,37 @@ export async function POST(req: Request): Promise<Response> {
   // for ALTER-added FKs is best-effort in SQLite). The route does the
   // existence check explicitly so a typo'd id surfaces as a clean 400
   // rather than a dangling DB pointer.
+  //
+  // Three constraints, all checked here:
+  //   1. The tile row exists.
+  //   2. The tile is ACTIVE (not soft-deleted) — otherwise the
+  //      provenance link points at a tile every UI surface filters
+  //      out. The lightbox breadcrumb would dereference to nothing.
+  //   3. The parent tile's iteration lives on the same `sourceId` we're
+  //      iterating against. The "Iterate on this direction" handoff UI
+  //      always fires intra-source (the spawned iteration uses the
+  //      current source); cross-source provenance creates a graph the
+  //      UI can't render coherently.
   if (parentTileId !== null) {
     const parent = getTile(parentTileId);
-    if (!parent) {
+    if (!parent || parent.deleted_at !== null) {
       return NextResponse.json(
         {
           error: "parent_tile_not_found",
-          detail: `no tile with id ${parentTileId}`,
+          detail: `no active tile with id ${parentTileId}`,
         },
         { status: 404 },
+      );
+    }
+    const parentIter = getIteration(parent.iteration_id);
+    if (!parentIter || parentIter.source_id !== sourceId) {
+      return NextResponse.json(
+        {
+          error: "parent_tile_cross_source",
+          detail:
+            "parentTileId must reference a tile whose iteration is on the same sourceId",
+        },
+        { status: 400 },
       );
     }
   }

@@ -160,8 +160,10 @@ PRAGMA foreign_keys = ON;
   span all sources (active + archived). No separate favorites table; the boolean +
   timestamp columns are enough at one-user scale. Partial index
   `idx_tiles_fav` keeps the Favorites view query fast as the table grows.
-- **No `preset_tag`, `variation_mode`, `preset_tags`, `prompt_text`, or `parent_tile_id`**
-  columns on iterations. The product is the single shared "make this beautiful" prompt
+- **No `preset_tag`, `variation_mode`, `preset_tags`, or `prompt_text`**
+  columns on iterations (`parent_tile_id` was also in this cut list in v1
+  but was RE-ADDED in v2 for the "Iterate on this direction" handoff — see
+  the v2 additions note below). The product is the single shared "make this beautiful" prompt
   — no presets, no directive taxonomy, no per-iteration prompt input from the user, no
   branch-from-tile. All planner-era cruft removed.
 - **No `prompt_used` column on tiles.** With the single shared prompt every tile in an
@@ -194,8 +196,10 @@ The intended ON DELETE semantic for both `iterations.parent_tile_id` and
 SQLite does NOT enforce ON DELETE actions added via `ALTER TABLE ADD COLUMN`
 (drizzle-kit drops the clause for that reason — see the auto-generated
 migration `drizzle/0006_add_style_explore.sql`). These actions are enforced
-manually via the `nullifyTilesForStylePainting` and
-`nullifyParentTileForReferences` helpers in `lib/db/queries.ts`, called from
+manually via `nullifyTilesForStylePainting` (for `tiles.style_painting_id`)
+and `nullifyParentTileForTileIds` / `nullifyParentTileForIteration` /
+`nullifyParentTileForSource` (for `iterations.parent_tile_id`, scoped to
+the three hard-delete cascade levels) in `lib/db/queries.ts`, called from
 the DELETE routes inside the same transaction as the delete itself. Same
 pattern as the existing `nullifyUsageLogForSource` / `*ForIteration` helpers
 that work around the equally-weak `usage_log.iteration_id` FK.

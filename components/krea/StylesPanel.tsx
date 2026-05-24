@@ -55,7 +55,11 @@ function StylePaintingCard({
   const { url } = useImageUrl(row.inputKey);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const timerRef = useRef<number | null>(null);
-  const longPressFiredRef = useRef(false);
+  // (No longPressFiredRef here — the StylesPanel card has no tap
+  // action in v2.x, so there's no click-after-long-press to suppress.
+  // Compare with SourceStrip's SourceThumb which DOES need this ref
+  // because tap = setCurrentSource. Add the ref back if a v0.2 tap
+  // action lands.)
   const startPosRef = useRef<{ x: number; y: number } | null>(null);
 
   const [menuOpen, setMenuOpen] = useState(false);
@@ -89,11 +93,9 @@ function StylePaintingCard({
   };
 
   const startPress = (e: React.PointerEvent) => {
-    longPressFiredRef.current = false;
     startPosRef.current = { x: e.clientX, y: e.clientY };
     cancelTimer();
     timerRef.current = window.setTimeout(() => {
-      longPressFiredRef.current = true;
       openMenu();
     }, LONG_PRESS_MS);
   };

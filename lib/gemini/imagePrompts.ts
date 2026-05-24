@@ -573,12 +573,37 @@ export interface BuildPromptArgs {
    * See AGENTS.md §15 (to be added) for the mode contract.
    */
   mode?: "prompt" | "style_explore";
+  /**
+   * v2.4: when true (mode='prompt' only), prepends a single sentence
+   * acknowledging the second image input is a style reference. Set on
+   * prompt-mode iterations spawned from the "Iterate on this direction"
+   * lightbox handoff — those iterations have `tiles.style_painting_id`
+   * populated and the worker pulls the style painting as image two, so
+   * the prompt body must tell Pro how to interpret it. Without this
+   * sentence Pro treats the second image as either compositional input
+   * or ignores it; the prepended sentence anchors it as the style anchor
+   * for whatever the preset body asks for.
+   *
+   * In style_explore mode this flag is ignored — the locked directive
+   * already references "image two" explicitly.
+   */
+  withStyleReference?: boolean;
 }
+
+/**
+ * Style-reference prepend sentence for prompt-mode iterations that
+ * carry a style painting as second image input. Validated empirically
+ * against the v2 smoke gate's outputs — same construction as the
+ * locked directive's "image one / image two" anchoring.
+ */
+const STYLE_REFERENCE_PREPEND =
+  "The second image is a style reference — channel its painted treatment, brushwork, and palette sensibility while preserving the first image's composition, subject, and identity. ";
 
 export function buildPrompt({
   presets,
   aspectRatio,
   mode = "prompt",
+  withStyleReference = false,
 }: BuildPromptArgs): string {
   // 0. Style Explore mode short-circuits the entire ladder. Presets are
   //    ignored — the directive is fixed and the variation comes from the
@@ -589,10 +614,18 @@ export function buildPrompt({
     return buildStyleExplorePrompt(aspectRatio);
   }
 
+  // Helper that wraps the existing body-output with the optional
+  // style-reference prepend. All ladder branches below funnel through
+  // this so the prepend is consistent regardless of which preset wins.
+  const withPrepend = (body: string): string =>
+    withStyleReference ? `${STYLE_REFERENCE_PREPEND}${body}` : body;
+
   // 1. Empty → the validated v0 prompt (verbatim — Zuzi approved this during
   //    smoke runs; do not paraphrase).
   if (presets.length === 0) {
-    return `This painting is shown as the input image. Reimagine it with new colors of your own choosing — pick whatever colors you think will make this painting as beautiful as possible. Preserve the brushwork, drawing style, marks, composition, subject, level of finish, and value structure exactly. Only the colors change. Match the input aspect ratio exactly (${aspectRatio}).`;
+    return withPrepend(
+      `This painting is shown as the input image. Reimagine it with new colors of your own choosing — pick whatever colors you think will make this painting as beautiful as possible. Preserve the brushwork, drawing style, marks, composition, subject, level of finish, and value structure exactly. Only the colors change. Match the input aspect ratio exactly (${aspectRatio}).`,
+    );
   }
 
   // 2. Ambiance dominates — when checked, the dedicated v8 style-continuation
@@ -600,7 +633,9 @@ export function buildPrompt({
   //    mixing ambiance's "continue in her style" directive with e.g. color's
   //    "vary the palette" produces contradictory instructions.
   if (presets.includes("ambiance")) {
-    return `${AMBIANCE_PROMPT_BODY}\n\nMatch the input aspect ratio exactly (${aspectRatio}).`;
+    return withPrepend(
+      `${AMBIANCE_PROMPT_BODY}\n\nMatch the input aspect ratio exactly (${aspectRatio}).`,
+    );
   }
 
   // 3. Background dominates — same reason. The locked body's preserve list
@@ -608,7 +643,9 @@ export function buildPrompt({
   //    clash with Color and Lighting respectively. If Zuzi wants compound
   //    edits she runs two passes (Background, then Color on a favorite).
   if (presets.includes("background")) {
-    return `${BACKGROUND_PROMPT_BODY}\n\nMatch the input aspect ratio exactly (${aspectRatio}).`;
+    return withPrepend(
+      `${BACKGROUND_PROMPT_BODY}\n\nMatch the input aspect ratio exactly (${aspectRatio}).`,
+    );
   }
 
   // 4. Color dominates — the locked body's preserve list explicitly includes
@@ -617,7 +654,9 @@ export function buildPrompt({
   //    and Background. If Zuzi wants Color + Lighting compound edits, she
   //    runs two passes (Color first, then Lighting on a favorite).
   if (presets.includes("color")) {
-    return `${COLOR_PROMPT_BODY}\n\nMatch the input aspect ratio exactly (${aspectRatio}).`;
+    return withPrepend(
+      `${COLOR_PROMPT_BODY}\n\nMatch the input aspect ratio exactly (${aspectRatio}).`,
+    );
   }
 
   // 5. Lighting — fourth dominator under the v1 lock. Order doesn't matter
@@ -627,7 +666,9 @@ export function buildPrompt({
   //    higher-priority dominator (preserves prior routing behavior for
   //    historical iterations in DB).
   if (presets.includes("lighting")) {
-    return `${LIGHTING_PROMPT_BODY}\n\nMatch the input aspect ratio exactly (${aspectRatio}).`;
+    return withPrepend(
+      `${LIGHTING_PROMPT_BODY}\n\nMatch the input aspect ratio exactly (${aspectRatio}).`,
+    );
   }
 
   // 6. Avery — painter-reference dominator. Same routing pattern as the
@@ -637,7 +678,9 @@ export function buildPrompt({
   //    can't have it combined). Under the mutually-exclusive UI, Avery
   //    only ever appears alone in the array.
   if (presets.includes("avery")) {
-    return `${AVERY_PROMPT_BODY}\n\nMatch the input aspect ratio exactly (${aspectRatio}).`;
+    return withPrepend(
+      `${AVERY_PROMPT_BODY}\n\nMatch the input aspect ratio exactly (${aspectRatio}).`,
+    );
   }
 
   // 7. Etching — drawing-technique dominator. Newest preset; same
@@ -646,7 +689,9 @@ export function buildPrompt({
   //    in the array. Order vs Avery doesn't matter since the UI never
   //    sends both — pick alphabetical for stable readability.
   if (presets.includes("etching")) {
-    return `${ETCHING_PROMPT_BODY}\n\nMatch the input aspect ratio exactly (${aspectRatio}).`;
+    return withPrepend(
+      `${ETCHING_PROMPT_BODY}\n\nMatch the input aspect ratio exactly (${aspectRatio}).`,
+    );
   }
 
   // 8. Templated path — now unreachable under the current preset set
@@ -672,7 +717,9 @@ export function buildPrompt({
   const preserveSentence =
     preservePhrases.length > 0 ? ` Preserve ${joinPhrases(preservePhrases)} exactly.` : "";
 
-  return `This painting is shown as the input image. Reimagine ${varyList}, picking whatever choices you think will make this painting as beautiful as possible.${preserveSentence} Match the input aspect ratio exactly (${aspectRatio}).`;
+  return withPrepend(
+    `This painting is shown as the input image. Reimagine ${varyList}, picking whatever choices you think will make this painting as beautiful as possible.${preserveSentence} Match the input aspect ratio exactly (${aspectRatio}).`,
+  );
 }
 
 /** Oxford-comma list joiner: ["a"] → "a"; ["a","b"] → "a and b";

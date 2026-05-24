@@ -46,6 +46,12 @@ interface FavoriteRow {
   favoritedAt: number;
   modelTier: "flash" | "pro";
   resolution: "1k" | "4k";
+  /** v2.4: per-tile style attribution. Threaded into the LightboxSnapshot
+   *  so the Lightbox can swap its toolbar / Compare target for favorited
+   *  style_explore tiles. Optional in the response shape so older client
+   *  builds against new servers don't crash; missing = null (the v1
+   *  default, no swap). */
+  stylePaintingId?: string | null;
 }
 
 /** Effective aspect ratio for a favorite — flips if the iteration was
@@ -239,6 +245,13 @@ export function FavoritesPanel() {
                       aspectRatioMode: fav.aspectRatioMode ?? "match",
                       modelTier: fav.modelTier,
                       resolution: fav.resolution,
+                      // v2.4: per-tile style attribution. When non-null
+                      // the Lightbox swaps "Use as source" → "Iterate
+                      // on this direction" + Compare target swaps to
+                      // the style painting. Server's join returns null
+                      // for plain prompt-mode favorites, in which case
+                      // the v1 toolbar applies.
+                      stylePaintingId: fav.stylePaintingId ?? null,
                     });
                   }}
                   className="block focus:outline-none focus:ring-2 focus:ring-accent rounded-md no-callout"

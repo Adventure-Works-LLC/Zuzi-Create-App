@@ -20,17 +20,24 @@
  *     dominator ladder); still accepted defensively so a malformed client
  *     can't crash the route.
  *   - mode: 'prompt' (default) | 'style_explore'. Discriminates the worker
- *     branch — see lib/gemini/runIteration.ts. style_explore requires
- *     stylePaintingIds; prompt mode allows them only via parentTileId
- *     (single style across all tiles).
+ *     branch — see lib/gemini/runIteration.ts.
  *   - stylePaintingIds: required when mode='style_explore'. Non-empty
  *     array of style_paintings ids, ≤ TILE_COUNT_MAX entries, one per
  *     tile (index alignment — tile.idx i maps to stylePaintingIds[i]).
- *     Determines tile_count for the batch.
+ *     Determines tile_count for the batch. REJECTED in prompt mode (use
+ *     `stylePaintingId` instead).
+ *   - stylePaintingId: optional in prompt mode. A SINGLE style painting
+ *     id that gets copied to every tile.style_painting_id of the new
+ *     iteration. The worker then includes the style painting as second
+ *     image input on every tile AND prepends a style-reference sentence
+ *     to the preset body. Used by the v2.4 lightbox "Iterate on this
+ *     direction" handoff so refinement passes can carry the seed
+ *     direction forward. REJECTED in style_explore mode (use the
+ *     array `stylePaintingIds` instead).
  *   - parentTileId: optional. When set, the iteration carries provenance
  *     back to a style_explore tile via iterations.parent_tile_id (the
  *     "Iterate on this direction" handoff). Valid in either mode;
- *     v2.2 wires it from the lightbox in prompt-mode only.
+ *     v2.4 wires it from the lightbox in prompt-mode only.
  *
  * Returns:
  *   - First write: { iterationId }
@@ -61,6 +68,7 @@ import { requireAuth } from "@/lib/auth/requireAuth";
 import {
   findIterationByRequestId,
   getSource,
+  getStylePainting,
   getTile,
   insertIterationAndTiles,
   monthlyUsageUsd,
@@ -160,6 +168,11 @@ export async function POST(req: Request): Promise<Response> {
     presets?: unknown;
     mode?: unknown;
     stylePaintingIds?: unknown;
+    /** v2.4: single style id for the prompt-mode handoff path. Distinct
+     *  from `stylePaintingIds` (which is the per-tile array for
+     *  style_explore mode). One field per mode = cleanest cross-field
+     *  validation: each is allowed only in its mode, never both. */
+    stylePaintingId?: unknown;
     parentTileId?: unknown;
   };
   try {
@@ -192,6 +205,28 @@ export async function POST(req: Request): Promise<Response> {
     typeof body.parentTileId === "string" && body.parentTileId.length > 0
       ? body.parentTileId
       : null;
+  // v2.4: single style painting id for prompt-mode handoff. Validate
+  // tightly — same constraints as stylePaintingIds entries (ulid-ish
+  // length cap; existence check below).
+  const stylePaintingId =
+    typeof body.stylePaintingId === "string" &&
+    body.stylePaintingId.length > 0 &&
+    body.stylePaintingId.length <= 64
+      ? body.stylePaintingId
+      : null;
+  if (
+    body.stylePaintingId !== undefined &&
+    body.stylePaintingId !== null &&
+    stylePaintingId === null
+  ) {
+    return NextResponse.json(
+      {
+        error: "invalid_stylePaintingId",
+        detail: "stylePaintingId must be a non-empty string ≤ 64 chars",
+      },
+      { status: 400 },
+    );
+  }
 
   if (!requestId)
     return NextResponse.json({ error: "missing_requestId" }, { status: 400 });
@@ -223,23 +258,50 @@ export async function POST(req: Request): Promise<Response> {
         { status: 400 },
       );
     }
+    if (stylePaintingId !== null) {
+      return NextResponse.json(
+        {
+          error: "stylePaintingId_requires_prompt_mode",
+          detail:
+            "stylePaintingId (single) is only valid when mode='prompt'. For style_explore, pass the per-tile array stylePaintingIds[] instead.",
+        },
+        { status: 400 },
+      );
+    }
     // The array length is authoritative — overrides any `count` the
     // client also sent. This way the worker's tilesFor() count and the
     // route's tile materialization always agree.
     count = stylePaintingIds.length;
   } else {
-    // prompt mode: stylePaintingIds isn't meaningful (provenance flows
-    // through parentTileId on the iteration, not per-tile). Reject so the
-    // client can't accidentally send the v2 array and have it silently
-    // ignored.
+    // prompt mode: stylePaintingIds (the array) is rejected — clients
+    // should use the single stylePaintingId field instead.
     if (stylePaintingIds) {
       return NextResponse.json(
         {
           error: "stylePaintingIds_requires_style_explore_mode",
           detail:
-            "stylePaintingIds is only valid when mode='style_explore'. For prompt mode, pass parentTileId instead.",
+            "stylePaintingIds is only valid when mode='style_explore'. For prompt mode use the single stylePaintingId field.",
         },
         { status: 400 },
+      );
+    }
+  }
+
+  // v2.4: validate stylePaintingId references an existing row (same
+  // RESTRICT-default concern as parentTileId — the FK was added via
+  // ALTER ADD COLUMN so SQLite WON'T reject an unknown id at insert
+  // time; a typo'd id would dangle on every tile of the iteration and
+  // surface as worker R2 fetch failures. Do the existence check up
+  // front so the user sees a clean 404 instead.
+  if (stylePaintingId !== null) {
+    const sp = getStylePainting(stylePaintingId);
+    if (!sp) {
+      return NextResponse.json(
+        {
+          error: "style_painting_not_found",
+          detail: `no style_painting with id ${stylePaintingId}`,
+        },
+        { status: 404 },
       );
     }
   }
@@ -346,16 +408,19 @@ export async function POST(req: Request): Promise<Response> {
         error_message: null,
         is_favorite: 0,
         favorited_at: null,
-        // Per-tile style attribution for style_explore mode — index
-        // alignment with stylePaintingIds means tile.idx i is generated
-        // against stylePaintingIds[i]. NULL for prompt-mode tiles. The
-        // worker reads this column to decide whether to pull the second
-        // image input from R2; the client renders the StyleAttributionThumb
-        // from it once /api/iterations hydrates the row.
+        // Per-tile style attribution.
+        // - style_explore mode: index-aligned with stylePaintingIds so
+        //   tile.idx i is generated against stylePaintingIds[i].
+        // - prompt mode + stylePaintingId set: every tile carries the
+        //   same single id (v2.4 "Iterate on this direction" handoff).
+        //   The worker then pulls the style painting as second image
+        //   input on every tile AND tells buildPrompt to prepend the
+        //   style-reference sentence.
+        // - prompt mode without stylePaintingId: NULL (the v1 default).
         style_painting_id:
           mode === "style_explore" && stylePaintingIds
             ? stylePaintingIds[idx]
-            : null,
+            : stylePaintingId, // null in the no-handoff prompt-mode case
         created_at: now,
         completed_at: null,
       })),

@@ -67,6 +67,12 @@ export async function GET(req: Request): Promise<Response> {
         createdAt: r.created_at,
         modelTier: r.model_tier,
         resolution: r.resolution,
+        // v2.4: per-tile style attribution. The Lightbox uses this to
+        // swap its toolbar to "Iterate on this direction" + Compare-
+        // with-style for favorited style_explore tiles (and favorited
+        // prompt-mode tiles spawned via the handoff). NULL for plain
+        // prompt-mode tiles, in which case the v1 toolbar applies.
+        stylePaintingId: r.style_painting_id,
       })),
     },
     { status: 200 },

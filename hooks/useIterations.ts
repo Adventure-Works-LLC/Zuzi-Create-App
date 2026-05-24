@@ -131,7 +131,17 @@ export interface GenerateResult {
  */
 export interface GenerateOptions {
   mode?: IterationMode;
+  /** style_explore mode: per-tile style attribution. Length is
+   *  authoritative (overrides count) and the index aligns with the
+   *  resulting tile.idx. REJECTED by the server if mode !== 'style_explore'. */
   stylePaintingIds?: ReadonlyArray<string>;
+  /** v2.4 prompt-mode handoff: single style_painting_id copied to
+   *  every tile.style_painting_id of the new iteration. The worker then
+   *  pulls the style as second image input + prepends the style-
+   *  reference sentence to the preset body. REJECTED by the server
+   *  if mode !== 'prompt'. Used by the Lightbox's "Iterate on this
+   *  direction" handler. */
+  stylePaintingId?: string;
   parentTileId?: string | null;
   modelTier?: ModelTier;
   resolution?: Resolution;
@@ -243,9 +253,12 @@ export function useIterations(): UseIterationsResult {
     // Resolve mode-aware request shape. style_explore overrides `count`
     // (array length wins) and effectively ignores `presets` (server
     // accepts but worker bypasses the dominator ladder). Prompt mode
-    // with parentTileId records provenance on the iteration row.
+    // with parentTileId records provenance on the iteration row;
+    // prompt mode with stylePaintingId (single) carries the v2.4
+    // "Iterate on this direction" handoff payload.
     const mode: IterationMode = opts?.mode ?? "prompt";
     const stylePaintingIds = opts?.stylePaintingIds ?? null;
+    const stylePaintingId = opts?.stylePaintingId ?? null;
     const parentTileId = opts?.parentTileId ?? null;
     // Per-call tier / resolution overrides (ExploreSheet uses its own
     // Flash-default toggle rather than the InputBar's Pro-default). Falls
@@ -327,13 +340,17 @@ export function useIterations(): UseIterationsResult {
           presets,
           // v2 fields — server accepts mode default 'prompt'. Omit
           // stylePaintingIds for prompt mode (server rejects it there
-          // explicitly). Omit parentTileId when null so the body stays
-          // clean.
+          // explicitly) and stylePaintingId for style_explore mode
+          // (server rejects it there too). Omit parentTileId when null
+          // so the body stays clean.
           ...(mode === "style_explore" && stylePaintingIds
             ? { mode, stylePaintingIds }
             : mode !== "prompt"
               ? { mode }
               : {}),
+          ...(mode === "prompt" && stylePaintingId
+            ? { stylePaintingId }
+            : {}),
           ...(parentTileId ? { parentTileId } : {}),
         }),
         signal: ac.signal,

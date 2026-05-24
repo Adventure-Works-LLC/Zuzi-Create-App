@@ -579,6 +579,12 @@ export interface FavoriteRow {
    *  Lightbox snapshot) need this to size the container correctly when the
    *  tile was generated with flip mode. */
   aspect_ratio_mode: "match" | "flip";
+  /** v2.4: per-tile style attribution. Threaded through so the cross-
+   *  source Lightbox snapshot can swap its toolbar to "Iterate on this
+   *  direction" + Compare-with-style for favorited style_explore tiles
+   *  (and favorited prompt-mode tiles spawned via the handoff). NULL
+   *  for plain prompt-mode tiles. */
+  style_painting_id: string | null;
 }
 
 /**
@@ -614,6 +620,7 @@ export function listFavorites(opts: {
       model_tier: iterations.model_tier,
       resolution: iterations.resolution,
       aspect_ratio_mode: iterations.aspect_ratio_mode,
+      style_painting_id: tiles.style_painting_id,
     })
     .from(tiles)
     .innerJoin(iterations, eq(iterations.id, tiles.iteration_id))

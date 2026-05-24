@@ -269,11 +269,30 @@ export async function runIteration(iterationId: string): Promise<void> {
     // image directive. presets array is irrelevant in style_explore mode
     // (UI never sends presets with mode='style_explore'; the worker still
     // ignores them defensively).
+    //
+    // Prompt-mode "Iterate on this direction" handoff (v2.4): if ANY tile
+    // of this iteration has a style_painting_id set (the route copies the
+    // single stylePaintingId field onto every tile in this case), the
+    // prompt body must be prepended with the style-reference sentence
+    // so Pro knows the second image is the style anchor, not a second
+    // sketch / compositional input. We sample tileRows below; check now
+    // by fetching the rows up-front for both branches.
     const presets = parseStoredPresets(iter.presets, iterationId);
+    // tilesFor() is called twice — once here for the prompt-decision,
+    // once below for the orchestration. Cheap (index-covered query) and
+    // keeping the order linear makes the decision flow easier to read.
+    const tileRowsForPromptDecision = tilesFor(iterationId);
+    const promptModeHasStyleRef =
+      iter.mode === "prompt" &&
+      tileRowsForPromptDecision.some((t) => t.style_painting_id !== null);
     const promptText =
       iter.mode === "style_explore"
         ? buildStyleExplorePrompt(aspectRatio)
-        : buildPrompt({ presets, aspectRatio });
+        : buildPrompt({
+            presets,
+            aspectRatio,
+            withStyleReference: promptModeHasStyleRef,
+          });
 
     // TEMP DEBUG (remove after Ambiance v8 deploy verification): on any iteration
     // that includes 'ambiance', log the Railway commit SHA + the rendered prompt
@@ -290,7 +309,12 @@ export async function runIteration(iterationId: string): Promise<void> {
     // Recovery rehydration — only matters for boot-time replays where the iteration row
     // already exists with pending tiles. Map by `(iter_id, idx)` is keyed for O(1) lookup.
     const { byIterIdx } = await scanRecovery();
-    const tileRows = tilesFor(iterationId);
+    // Reuse the rows we already fetched for the prompt decision —
+    // tilesFor() is idempotent but the second call would be wasted DB
+    // work. (If the worker grows enough that re-reading mid-flight
+    // becomes valuable for some race protection, this is the place to
+    // split them again.)
+    const tileRows = tileRowsForPromptDecision;
     const recoveryHits = new Map<number, { r2_key: string; thumb_key?: string }>();
     for (const t of tileRows) {
       if (t.status === "pending") {
@@ -299,19 +323,31 @@ export async function runIteration(iterationId: string): Promise<void> {
       }
     }
 
-    // Pre-fetch style painting bytes for style_explore tiles. One R2
-    // GET per UNIQUE style id referenced by this iteration's tiles —
-    // the cache deduplicates so an iteration that runs 9 styles makes 9
-    // R2 fetches, not 9 × tile_count. Missing rows (style hard-deleted
-    // between tile materialization and worker run) leave the cache entry
-    // empty; the tile then falls through to a fail path with a clear
+    // Pre-fetch style painting bytes for tiles that need a second image
+    // input — covers two cases:
+    //   1. style_explore mode: each tile carries its OWN style_painting_id
+    //      (per-tile attribution from the route's stylePaintingIds array).
+    //   2. prompt mode + handoff: every tile carries the SAME
+    //      style_painting_id (the route copies the single handoff
+    //      stylePaintingId field onto every tile). The promptModeHasStyleRef
+    //      check above already detected this case for the prompt
+    //      prepend; the same tile.style_painting_id drives the second
+    //      image input here.
+    //
+    // One R2 GET per UNIQUE style id referenced by this iteration's
+    // tiles — the cache deduplicates so a prompt-mode handoff with
+    // 3 tiles all pointing at the same style id makes ONE R2 fetch,
+    // not three. Missing rows (style hard-deleted between tile
+    // materialization and worker run) leave the cache entry empty;
+    // the tile then falls through to a fail path with a clear
     // error_message (the catch in runOneTile takes care of marking).
     //
     // Recovery hits skip the fetch entirely (they don't re-call Gemini)
-    // so we filter to tiles WITHOUT a recovery hit. A boot-time replay of
-    // a fully-recovered style_explore iteration makes zero R2 GETs.
+    // so we filter to tiles WITHOUT a recovery hit.
     const styleBytesByPainting = new Map<string, string>();
-    if (iter.mode === "style_explore") {
+    const needsStyleFetch =
+      iter.mode === "style_explore" || promptModeHasStyleRef;
+    if (needsStyleFetch) {
       const needed = new Set<string>();
       for (const t of tileRows) {
         if (recoveryHits.has(t.idx)) continue;
@@ -343,20 +379,23 @@ export async function runIteration(iterationId: string): Promise<void> {
 
     const results = await Promise.all(
       tileRows.map((t) => {
-        // Resolve the per-tile style_explore second-image bytes. NULL for
-        // prompt-mode tiles (the inner runOneTile then builds the
-        // single-image parts array). For style_explore tiles that lost
-        // their style ref between materialization and worker run, fall
-        // through with NULL too — the directive's "image two" anchor
-        // then has no image to bind, and Pro's response will fail
+        // Resolve the per-tile second-image bytes (style painting). NULL
+        // for prompt-mode tiles WITHOUT a style_painting_id (the inner
+        // runOneTile then builds the single-image parts array — the v1
+        // default behavior). For style_explore tiles AND prompt-mode
+        // tiles spawned from the "Iterate on this direction" handoff,
+        // tile.style_painting_id drives the second image input.
+        // For tiles that lost their style ref between materialization
+        // and worker run (style was hard-deleted mid-flight), fall
+        // through with NULL too — the prompt's "image two" anchor then
+        // has no image to bind, and Pro's response will most often fail
         // extraction at the bytes-sniff step (caught by classifyError).
         // Cleaner alternative would be a pre-flight failure mark, but
         // the fall-through is one less branch + the error_message will
         // surface to the user either way.
-        const styleBase64 =
-          iter.mode === "style_explore" && t.style_painting_id
-            ? styleBytesByPainting.get(t.style_painting_id) ?? null
-            : null;
+        const styleBase64 = t.style_painting_id
+          ? styleBytesByPainting.get(t.style_painting_id) ?? null
+          : null;
         return runOneTile(
           iterationId,
           t.id,

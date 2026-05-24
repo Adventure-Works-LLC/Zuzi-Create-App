@@ -63,6 +63,7 @@ import { AlertTriangle, MoreHorizontal, RotateCw, Trash2 } from "lucide-react";
 
 import { Tile } from "./Tile";
 import { ActionMenu } from "./ActionMenu";
+import { StyleAttributionThumb } from "./StyleAttributionThumb";
 import { useCanvas } from "@/stores/canvas";
 import { useIterations } from "@/hooks/useIterations";
 
@@ -385,6 +386,18 @@ export const IterationRow = memo(function IterationRow({
               optimistic={optimistic}
               frozen={isStuck}
             />
+            {/* v2.4: per-tile style attribution. Renders for every
+                tile that carries a style_painting_id — covers both
+                style_explore tiles AND prompt-mode tiles spawned via
+                the "Iterate on this direction" handoff (the handoff
+                copies the single stylePaintingId onto every tile of
+                the new iteration). Sits BELOW the tile's action row
+                per the no-overlay rule (see Tile.tsx header). */}
+            {tile.stylePaintingId && (
+              <StyleAttributionThumb
+                stylePaintingId={tile.stylePaintingId}
+              />
+            )}
           </div>
         ))}
       </div>

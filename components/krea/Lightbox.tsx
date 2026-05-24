@@ -30,11 +30,12 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { Loader2, Star, Share2, X, ArrowUpFromLine, Columns2 } from "lucide-react";
+import { Loader2, Star, Share2, X, ArrowUpFromLine, Columns2, Wand2 } from "lucide-react";
 
 import { useCanvas } from "@/stores/canvas";
 import { useImageUrl } from "@/hooks/useImageUrl";
 import { useFavorites } from "@/hooks/useFavorites";
+import { useIterations } from "@/hooks/useIterations";
 import { useShare } from "@/hooks/useShare";
 import { useSources } from "@/hooks/useSources";
 import { authFetch } from "@/lib/auth/authFetch";
@@ -54,6 +55,12 @@ interface LightboxView {
    *  the original alongside the generated tile. Null is the "no compare"
    *  signal — the Compare button stays hidden in that defensive case. */
   sourceInputKey: string | null;
+  /** v2.4: per-tile style attribution. When non-null, the toolbar
+   *  swaps "Use as source" → "Iterate on this direction" + Compare's
+   *  target becomes the style painting (not the source). NULL for
+   *  v1-style prompt-mode tiles. Resolved from tile.stylePaintingId
+   *  in both by-id and snapshot paths. */
+  stylePaintingId: string | null;
 }
 
 export function Lightbox() {
@@ -102,6 +109,7 @@ export function Lightbox() {
         // FavoritesPanel from the server-side join. No store fallback
         // needed; the snapshot path is self-contained.
         sourceInputKey: lightboxSnapshot.sourceInputKey,
+        stylePaintingId: lightboxSnapshot.stylePaintingId,
       };
     }
     if (lightboxTileId !== null) {
@@ -124,6 +132,7 @@ export function Lightbox() {
             outputKey: t.outputKey,
             isFavorite: t.isFavorite,
             sourceInputKey: src?.inputKey ?? null,
+            stylePaintingId: t.stylePaintingId,
           };
         }
       }
@@ -133,16 +142,33 @@ export function Lightbox() {
 
   const fullKey = view?.outputKey ?? null;
   const { url } = useImageUrl(fullKey);
-  // Source key for Compare-with-Original mode. useImageUrl no-ops cleanly
-  // when the key is null (returns { url: null }), so threading the same
-  // hook here is safe even when there's no source to compare against
-  // (defensive fallback case described on the LightboxView interface).
-  const sourceKey = view?.sourceInputKey ?? null;
-  const { url: sourceUrl } = useImageUrl(sourceKey);
+  // v2.4: Compare target depends on whether the tile is style_explore
+  // (or prompt-mode spawned from one). When stylePaintingId is set,
+  // the Compare toggle shows result + style painting (the reference
+  // Pro was channeling); when null, the v1 behavior — result + source.
+  // Resolve the style painting from the canvas store's hydrated
+  // library; renders a null-fallback in the missing-row case (style
+  // deleted between generation + viewing).
+  const stylePaintings = useCanvas((s) => s.stylePaintings);
+  const stylePaintingForView = view?.stylePaintingId
+    ? stylePaintings.find((sp) => sp.id === view.stylePaintingId) ?? null
+    : null;
+  // Compare key picks style over source when the tile carries a style
+  // attribution. Falls back to source for v1-style tiles. The fallback
+  // path also handles the "style painting deleted mid-view" case —
+  // stylePaintingForView is null and we revert to source-compare.
+  const compareKey: string | null = view?.stylePaintingId
+    ? stylePaintingForView?.inputKey ?? view.sourceInputKey
+    : view?.sourceInputKey ?? null;
+  // useImageUrl no-ops cleanly when the key is null (returns
+  // { url: null }), so threading the same hook here is safe even when
+  // there's nothing to compare against.
+  const { url: compareUrl } = useImageUrl(compareKey);
   const { toggle } = useFavorites();
   const { canShare } = useShare();
   const { promoteFromTile } = useSources();
-  const [busyAction, setBusyAction] = useState<"share" | "use" | null>(null);
+  const { generate } = useIterations();
+  const [busyAction, setBusyAction] = useState<"share" | "use" | "iterate" | null>(null);
   /** Compare-with-Original split layout toggle. Off by default — most
    *  lightbox opens are "tap a tile to look at it", and forcing the user
    *  to dismiss a split view they didn't ask for would be hostile. Resets
@@ -215,10 +241,14 @@ export function Lightbox() {
     setCompareOpen(false);
   }, [view?.tileId]);
   useEffect(() => {
-    if (view && view.sourceInputKey === null && compareOpen) {
+    // Auto-collapse compare mode when there's nothing to compare against
+    // (defensive — by-id path during in-flight source archive; or the
+    // v2.4 style-target case where the style painting was hard-deleted
+    // between view-open and compareKey-resolution).
+    if (view && compareKey === null && compareOpen) {
       setCompareOpen(false);
     }
-  }, [view, compareOpen]);
+  }, [view, compareKey, compareOpen]);
 
   // Reset Share state whenever the open tile (R2 key) changes. The actual
   // pre-fetch is INTENT-DRIVEN now (fired from the Share button's
@@ -551,6 +581,60 @@ export function Lightbox() {
     void toggle(view.tileId, !view.isFavorite);
   };
 
+  /**
+   * v2.4: "Iterate on this direction" — for style_explore tiles (and
+   * prompt-mode tiles spawned via a prior handoff). Fires a new
+   * prompt-mode iteration against the CURRENT source with:
+   *   - parentTileId = this tile's id (provenance link recorded on
+   *     iterations.parent_tile_id; surfaces in the IterationRow's
+   *     header in a future iteration of the UI).
+   *   - stylePaintingId = this tile's style_painting_id (copied to
+   *     every tile of the new iteration; the worker pulls the style
+   *     as second image input and prepends the style-reference
+   *     sentence to the preset body).
+   *   - presets = ['avery']  → the painter-reference preset is the
+   *     canonical default for style-direction refinement (matches the
+   *     canvas store's preset default; gives Pro a strong painterly
+   *     anchor while preserving the figure).
+   * The new iteration lands in the regular Studio TileStream (the
+   * Lightbox closes; ExploreSheet closes if it was open behind).
+   */
+  const onIterateOnThisDirection = async () => {
+    if (!view) return;
+    if (!view.stylePaintingId) return;
+    if (view.tileId.startsWith("opt-")) {
+      setActionError(
+        "Optimistic tile not yet finalized — wait a moment and try again.",
+      );
+      return;
+    }
+    setBusyAction("iterate");
+    setActionError(null);
+    try {
+      const result = await generate({
+        mode: "prompt",
+        parentTileId: view.tileId,
+        stylePaintingId: view.stylePaintingId,
+      });
+      if (!result) {
+        // generate set its own error string; surface to the user.
+        setActionError(
+          "Couldn't start the iteration — check the input bar for the error.",
+        );
+        return;
+      }
+      // Close the lightbox + any open Explore sheet so the user lands
+      // back in the Studio stream watching their new iteration arrive.
+      closeLightbox();
+      useCanvas.getState().setExploreSheetOpen(false);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setActionError(`Couldn't iterate — ${msg}`);
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
   return (
     <div
       role="dialog"
@@ -603,34 +687,37 @@ export function Lightbox() {
             if (e.target === e.currentTarget) closeLightbox();
           }}
         >
-          {/* Original (left in landscape, top in portrait). When the
-              source key is null — the defensive case where the by-id
-              path can't resolve the source — render a soft warm
-              placeholder rather than a broken slot, so the layout still
-              reads as a deliberate two-up. */}
+          {/* Compare target (left in landscape, top in portrait). For
+              v1-style prompt-mode tiles this is the source painting;
+              for v2.4 style_explore tiles it's the style painting Pro
+              was channeling. The compareKey + compareUrl already
+              resolve the right target. Label flips accordingly so the
+              user knows what they're comparing against. */}
           <div
             className="flex min-h-0 min-w-0 flex-1 flex-col items-center justify-center gap-2"
             onClick={(e) => {
               if (e.target === e.currentTarget) closeLightbox();
             }}
           >
-            {sourceKey && sourceUrl ? (
+            {compareKey && compareUrl ? (
               <img
-                src={sourceUrl}
+                src={compareUrl}
                 alt=""
                 className="max-h-full max-w-full rounded-md object-contain"
               />
-            ) : sourceKey ? (
+            ) : compareKey ? (
               <Loader2 className="h-8 w-8 text-text-mute animate-spin" />
             ) : (
               <div className="bloom-warm flex h-32 w-32 items-center justify-center rounded-md">
                 <span className="caption-display text-xs italic text-text-mute">
-                  original unavailable
+                  {view.stylePaintingId
+                    ? "style unavailable"
+                    : "original unavailable"}
                 </span>
               </div>
             )}
             <span className="caption-display text-xs text-text-mute/80">
-              Original
+              {view.stylePaintingId ? "Style" : "Original"}
             </span>
           </div>
           {/* Generated (right in landscape, bottom in portrait). */}
@@ -678,19 +765,40 @@ export function Lightbox() {
         className="flex shrink-0 items-center justify-center gap-2 px-4 py-4"
         style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 1rem)" }}
       >
-        <button
-          type="button"
-          onClick={onUseAsSource}
-          disabled={!url || busyAction !== null}
-          className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/5 px-4 py-2 text-sm text-white hover:bg-white/10 transition-colors disabled:opacity-50 no-callout"
-        >
-          {busyAction === "use" ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <ArrowUpFromLine className="h-4 w-4" strokeWidth={1.5} />
-          )}
-          Use as source
-        </button>
+        {view.stylePaintingId ? (
+          // v2.4: style_explore tiles (and prompt-mode tiles spawned
+          // from the prior handoff) get "Iterate on this direction"
+          // instead of "Use as source". The semantic difference is
+          // "carry the style forward + refine" vs. "make this tile the
+          // new sketch". Matches the plan's lightbox contract.
+          <button
+            type="button"
+            onClick={() => void onIterateOnThisDirection()}
+            disabled={!url || busyAction !== null}
+            className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/5 px-4 py-2 text-sm text-white hover:bg-white/10 transition-colors disabled:opacity-50 no-callout"
+          >
+            {busyAction === "iterate" ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Wand2 className="h-4 w-4" strokeWidth={1.5} />
+            )}
+            Iterate on this direction
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={onUseAsSource}
+            disabled={!url || busyAction !== null}
+            className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/5 px-4 py-2 text-sm text-white hover:bg-white/10 transition-colors disabled:opacity-50 no-callout"
+          >
+            {busyAction === "use" ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <ArrowUpFromLine className="h-4 w-4" strokeWidth={1.5} />
+            )}
+            Use as source
+          </button>
+        )}
         {canShare && (
           <button
             type="button"
@@ -727,14 +835,17 @@ export function Lightbox() {
             Share
           </button>
         )}
-        {/* Compare-with-Original toggle. Sits between Share and Favorite —
-            same group of "secondary" actions before Close. Hidden when
-            sourceInputKey is null (defensive — shouldn't happen for the
-            snapshot path, can happen briefly during an in-flight source
-            archive on the by-id path). Active state mirrors the Favorite-
-            active treatment so the lit-up appearance is consistent across
-            the toolbar. */}
-        {view.sourceInputKey !== null && (
+        {/* Compare toggle. Sits between Share and Favorite — same group
+            of "secondary" actions before Close. Hidden when compareKey
+            is null (defensive — by-id path during in-flight source
+            archive; v2.4 style_explore tile with deleted style painting
+            falls back to source-compare so it stays available there).
+            For style_explore tiles the OFF state label reads "Compare
+            with style"; for v1 tiles it remains "Compare". When ON
+            (split view rendered), the button text drops to just
+            "Style"/"Original" — matches the existing pattern that
+            previously toggled to "Original" on activation. */}
+        {compareKey !== null && (
           <button
             type="button"
             onClick={() => setCompareOpen((v) => !v)}
@@ -747,7 +858,11 @@ export function Lightbox() {
             ].join(" ")}
           >
             <Columns2 className="h-4 w-4" strokeWidth={1.5} />
-            {compareOpen ? "Original" : "Compare"}
+            {compareOpen
+              ? view.stylePaintingId
+                ? "Style"
+                : "Original"
+              : "Compare"}
           </button>
         )}
         <button

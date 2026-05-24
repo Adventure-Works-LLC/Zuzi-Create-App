@@ -129,6 +129,13 @@ export interface LightboxSnapshot {
   aspectRatioMode: AspectRatioMode;
   modelTier: ModelTier;
   resolution: Resolution;
+  /** v2.4: per-tile style attribution. Populated for snapshots of
+   *  style_explore tiles (and prompt-mode tiles spawned via "Iterate on
+   *  this direction") so the Lightbox can swap "Use as source" →
+   *  "Iterate on this direction" + swap Compare's target to the style
+   *  painting (not the source). NULL for prompt-mode-without-handoff
+   *  tiles. The favorites query joins this column from `tiles`. */
+  stylePaintingId: string | null;
 }
 
 export interface Iteration {

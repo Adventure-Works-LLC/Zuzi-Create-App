@@ -1,0 +1,30 @@
+-- v3 Style Blend mode — schema addition.
+--
+-- Adds a single column to support pure multi-style fusion iterations
+-- (NO sketch input). The user picks N (2..MAX_BLEND_STYLES) style
+-- paintings from her library; Pro generates a brand new painting that
+-- blends their best aspects per its own judgment. Output anchors to
+-- her current source for session-loop semantics (cascade + history
+-- filter all work) but the source bytes are NOT used as input.
+--
+-- `iterations.mode` is a TEXT enum column with no SQLite-side CHECK
+-- constraint to alter — the enum lives in the Drizzle schema's typing
+-- layer (lib/db/schema.ts) + the API route's body parser. Adding the
+-- 'style_blend' enum value is a code-only change; the SQL doesn't
+-- need a column rewrite.
+--
+-- `blend_style_ids` is a JSON text array (stringified). Populated only
+-- when mode='style_blend'; '[]' for every other mode (cheaper-than-
+-- nullable because the DB default keeps the worker's parser linear —
+-- always JSON.parse, never branch on null). Per-iteration storage
+-- (not per-tile) because every tile in a blend run uses the SAME N
+-- styles — the variation across tiles comes from Pro's temp 1.0
+-- stochasticity at generation time, not from input swap.
+--
+-- NO FK enforcement on the JSON column — same pattern as
+-- `iterations.presets` JSON column. Style existence is checked at
+-- route time (rejects 404 if any id is missing). If a style is
+-- hard-deleted between iteration creation and read, the lightbox's
+-- blend attribution chips render "Style unavailable" for the missing
+-- entries (mirrors style_explore's deleted-style-painting handling).
+ALTER TABLE `iterations` ADD `blend_style_ids` text DEFAULT '[]' NOT NULL;

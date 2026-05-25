@@ -33,7 +33,10 @@ import {
   listIterations,
   tilesForIterations,
 } from "@/lib/db/queries";
-import { parseStoredPresets } from "@/lib/gemini/presets";
+import {
+  parseBlendStyleIdsJson,
+  parseStoredPresets,
+} from "@/lib/gemini/presets";
 
 export const runtime = "nodejs";
 
@@ -87,6 +90,12 @@ export async function GET(req: Request): Promise<Response> {
         // organically-generated iterations).
         mode: it.mode,
         parentTileId: it.parent_tile_id,
+        // v3.0 style_blend: parse the JSON column into a string[]. Empty
+        // array for every non-blend iteration. The client uses this to
+        // render attribution chips on blend tiles (per-iteration; every
+        // tile in a blend run shares the same N styles, so there's no
+        // per-tile style_painting_id to read).
+        blendStyleIds: parseBlendStyleIdsJson(it.blend_style_ids),
         status: it.status,
         createdAt: it.created_at,
         completedAt: it.completed_at,

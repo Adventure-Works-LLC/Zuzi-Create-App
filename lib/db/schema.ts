@@ -114,16 +114,32 @@ export const iterations = sqliteTable(
       .notNull()
       .default("pending"),
     /**
-     * Iteration mode — 'prompt' (preset-driven, the v1 behavior) or
-     * 'style_explore' (multi-image: source + style painting, fixed
-     * Krea-validated directive bypasses the preset dominator ladder).
-     * Defaults to 'prompt' so all existing rows backfill cleanly with
-     * no behavior change. See AGENTS.md §13 (Style Explore) for the
-     * mode contract.
+     * Iteration mode — discriminates the worker branch.
+     *   - 'prompt' (default; v1 behavior): preset-driven via dominator
+     *     ladder.
+     *   - 'style_explore' (v2): multi-image — sketch + ONE style
+     *     painting per tile, fixed Krea-validated directive bypasses
+     *     the preset ladder.
+     *   - 'style_blend' (v3): multi-image — N style paintings (2..MAX),
+     *     NO sketch, fixed directive. Pro generates a brand new painting
+     *     from the references' best aspects per its own judgment.
+     * Defaults to 'prompt' so existing rows backfill cleanly. See
+     * AGENTS.md §13 (Style Explore) + §14 (Style Blend, to be added).
      */
-    mode: text("mode", { enum: ["prompt", "style_explore"] })
+    mode: text("mode", { enum: ["prompt", "style_explore", "style_blend"] })
       .notNull()
       .default("prompt"),
+    /**
+     * v3 Style Blend: JSON array of style_painting ids that drove this
+     * iteration. Populated only when mode='style_blend'; '[]' for every
+     * other mode. Stored on the iteration (not per-tile) because every
+     * tile in a blend run uses the SAME N styles — the variation across
+     * tiles comes from Pro's temp 1.0 stochasticity, not from input
+     * swap. No FK enforcement (JSON column); existence is checked at
+     * route time + the lightbox renders "deleted" gracefully if a style
+     * was hard-deleted between iteration creation and read.
+     */
+    blend_style_ids: text("blend_style_ids").notNull().default("[]"),
     /**
      * Re-added in migration 0006 (was dropped in v1 cleanup per
      * AGENTS.md §6 as dead weight; now load-bearing again). Set on

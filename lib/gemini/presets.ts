@@ -31,3 +31,29 @@ export function parseStoredPresets(raw: string, context?: string): Preset[] {
     return [];
   }
 }
+
+/**
+ * Shared parser for the v3.0 `iterations.blend_style_ids` JSON column.
+ * Same defense-in-depth contract as parseStoredPresets — tolerates
+ * malformed JSON / wrong shape by returning []. Empty array is the
+ * canonical "not a blend iteration" signal; callers read
+ * `iter.mode === 'style_blend'` for the authoritative discriminator.
+ */
+export function parseBlendStyleIdsJson(
+  raw: string,
+  context?: string,
+): string[] {
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((v): v is string => typeof v === "string");
+  } catch (e) {
+    if (context) {
+      console.warn(
+        `[parseBlendStyleIdsJson ${context}] blend_style_ids JSON parse failed; falling back to []`,
+        e instanceof Error ? e.message : e,
+      );
+    }
+    return [];
+  }
+}

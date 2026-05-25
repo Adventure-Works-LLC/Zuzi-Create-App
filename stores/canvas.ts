@@ -86,7 +86,7 @@ export interface Tile {
  *  preset-driven flow; 'style_explore' runs the locked multi-image
  *  directive (sketch + style painting per tile). See AGENTS.md §13
  *  (to be added) for the mode contract. */
-export type IterationMode = "prompt" | "style_explore";
+export type IterationMode = "prompt" | "style_explore" | "style_blend";
 
 export type ModelTier = "flash" | "pro";
 export type Resolution = "1k" | "4k";
@@ -152,12 +152,11 @@ export interface Iteration {
   aspectRatioMode: AspectRatioMode;
   tileCount: number;
   presets: Preset[];
-  /** v2 iteration mode. 'prompt' = existing preset-driven flow (the
-   *  IterationRow renders preset chips, the Lightbox shows "Use as
-   *  Source"). 'style_explore' = multi-image Krea-directive flow
-   *  (IterationRow renders a "Style Explore" badge instead of preset
-   *  chips, Lightbox shows "Iterate on this direction" and Compare-
-   *  with toggle swaps to result-vs-style). */
+  /** Iteration mode. 'prompt' = preset-driven flow. 'style_explore' =
+   *  sketch + ONE style per tile via locked directive. 'style_blend'
+   *  (v3.0) = N styles fused, NO sketch input — Pro invents a new
+   *  painting from the references. Each mode has its own IterationRow
+   *  + Lightbox rendering. */
   mode: IterationMode;
   /** v2 provenance link. Set on prompt-mode iterations spawned from a
    *  style_explore tile via the lightbox's "Iterate on this direction"
@@ -165,6 +164,13 @@ export interface Iteration {
    *  organically-generated iterations. Surfaced in the
    *  IterationRow header as a small breadcrumb (future). */
   parentTileId: string | null;
+  /** v3.0 style_blend: the N style ids that drove this iteration.
+   *  Empty array for every other mode. Used by IterationRow + the
+   *  Lightbox to render a row of attribution chips for blend tiles
+   *  (no per-tile style_painting_id is set in blend mode — every tile
+   *  shares the same N styles, so the attribution lives on the
+   *  iteration). */
+  blendStyleIds: string[];
   status: IterationStatus;
   createdAt: number;
   tiles: Tile[];

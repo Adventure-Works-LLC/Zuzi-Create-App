@@ -27,12 +27,18 @@
  *     "add some" rather than "wait for sync".
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { ImagePlus, Loader2, Trash2, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ImagePlus, Layers, Loader2, Trash2, X } from "lucide-react";
 
 import { useImageUrl } from "@/hooks/useImageUrl";
+import { useIterations } from "@/hooks/useIterations";
 import { useStylePaintings } from "@/hooks/useStylePaintings";
 import { useCanvas, type StylePainting } from "@/stores/canvas";
+import { pricePerImage } from "@/lib/cost";
+import {
+  MAX_BLEND_STYLES,
+  TILE_COUNT_DEFAULT,
+} from "@/lib/gemini/imagePrompts";
 import { ActionMenu } from "./ActionMenu";
 
 // Match SourceStrip's long-press constants so the gesture feels identical
@@ -44,13 +50,41 @@ const LONG_PRESS_MOVE_TOLERANCE = 10;
 /** One painting in the grid — square thumbnail + optional title caption
  *  underneath. Long-press opens an ActionMenu anchored to the thumb. The
  *  card owns its own busy/error state so a slow Delete on one card
- *  doesn't freeze the rest of the grid. */
+ *  doesn't freeze the rest of the grid.
+ *
+ *  v3.0 blend mode: when `blendMode` is true, the card swaps to a
+ *  selection affordance:
+ *    - Tap toggles selection (single-tap to select, second tap to
+ *      deselect — matches the gesture pattern from the UX agent).
+ *    - Selected cards show a brass ring + numbered badge ("1", "2", …)
+ *      indicating selection order.
+ *    - Long-press is disabled (no delete from blend mode — keeps the
+ *      cap-conscious operation surface explicit).
+ *  In non-blend mode (default), the card behaves as before: tap is a
+ *  no-op, long-press opens the delete ActionMenu.
+ */
 function StylePaintingCard({
   row,
   onDelete,
+  blendMode,
+  selectionIndex,
+  onToggleSelect,
+  selectionDisabledReason,
 }: {
   row: StylePainting;
   onDelete: () => Promise<void>;
+  /** True when the panel is in blend-selection mode. */
+  blendMode: boolean;
+  /** 1-based position in the selection order, or null if not selected.
+   *  Renders as the badge number on the thumb. */
+  selectionIndex: number | null;
+  /** Toggle the selection state of this card. The caller enforces the
+   *  cap + dedup; this card just signals user intent. */
+  onToggleSelect: () => void;
+  /** When non-null, the card is selectable=false (e.g. cap reached and
+   *  this card isn't already selected). Renders a dimmed look + the
+   *  reason as a hover title. */
+  selectionDisabledReason: string | null;
 }) {
   const { url } = useImageUrl(row.inputKey);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -93,6 +127,10 @@ function StylePaintingCard({
   };
 
   const startPress = (e: React.PointerEvent) => {
+    // Long-press → delete menu is suppressed in blend mode. The selection
+    // gesture (tap) owns the surface there; mixing in a delete shortcut
+    // would make the cap-conscious operation feel destructive-adjacent.
+    if (blendMode) return;
     startPosRef.current = { x: e.clientX, y: e.clientY };
     cancelTimer();
     timerRef.current = window.setTimeout(() => {
@@ -136,6 +174,23 @@ function StylePaintingCard({
     }
   };
 
+  const isSelected = selectionIndex !== null;
+  // The selection badge sits at top-right of the thumb. Brass ring
+  // mirrors the SourceStrip's current-source ring (`ring-accent`) so
+  // the visual vocabulary stays consistent.
+  const ringClasses = isSelected
+    ? "ring-2 ring-accent"
+    : blendMode && selectionDisabledReason
+      ? "ring-1 ring-hairline/30"
+      : "ring-1 ring-hairline/50 hover:ring-hairline";
+
+  const handleClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (!blendMode) return; // non-blend: tap is intentionally a no-op
+    if (!isSelected && selectionDisabledReason) return; // capped + not already selected
+    onToggleSelect();
+  };
+
   return (
     <li className="flex flex-col gap-2">
       <button
@@ -146,21 +201,35 @@ function StylePaintingCard({
         onPointerUp={endPress}
         onPointerLeave={endPress}
         onPointerCancel={endPress}
-        // Tap (without long-press) is a no-op in v2.1 — there's no
-        // "tap = use this style" affordance yet (that lives in the
-        // ExploreSheet in v2.2). Prevent the implicit click highlight.
-        onClick={(e) => e.preventDefault()}
+        onClick={handleClick}
         onContextMenu={(e) => e.preventDefault()}
         style={{ touchAction: "manipulation" }}
         className={[
-          "relative aspect-square w-full overflow-hidden rounded-md",
-          "ring-1 ring-hairline/50 hover:ring-hairline transition-all",
+          "relative aspect-square w-full overflow-hidden rounded-md transition-all",
+          ringClasses,
           "no-callout",
           busy && "opacity-60 cursor-wait",
+          blendMode && !isSelected && selectionDisabledReason
+            ? "opacity-40 cursor-not-allowed"
+            : "",
         ]
           .filter(Boolean)
           .join(" ")}
-        aria-label={`Style painting: ${captionText}`}
+        aria-label={
+          blendMode
+            ? isSelected
+              ? `Selected: ${captionText} (position ${selectionIndex})`
+              : selectionDisabledReason
+                ? `${captionText} (${selectionDisabledReason})`
+                : `Select for blend: ${captionText}`
+            : `Style painting: ${captionText}`
+        }
+        aria-pressed={blendMode ? isSelected : undefined}
+        title={
+          blendMode && !isSelected && selectionDisabledReason
+            ? selectionDisabledReason
+            : undefined
+        }
         disabled={busy}
       >
         {url ? (
@@ -179,6 +248,24 @@ function StylePaintingCard({
               className="h-5 w-5 animate-spin text-foreground"
               strokeWidth={1.75}
             />
+          </div>
+        )}
+        {/* Selection badge — only in blend mode + when selected. Brass
+            ring + filled circle in accent color, white numeral. Top-
+            right placement mirrors a checkmark affordance the eye scans
+            for during multi-select. */}
+        {blendMode && isSelected && (
+          <div
+            className={[
+              "absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center",
+              "rounded-full bg-accent text-accent-foreground",
+              "text-xs font-medium tabular-nums",
+              "ring-2 ring-background",
+              "shadow-sm",
+            ].join(" ")}
+            aria-hidden
+          >
+            {selectionIndex}
           </div>
         )}
       </button>
@@ -217,25 +304,48 @@ export function StylesPanel() {
   const lightboxTileId = useCanvas((s) => s.lightboxTileId);
   const lightboxSnapshot = useCanvas((s) => s.lightboxSnapshot);
   const rows = useCanvas((s) => s.stylePaintings);
+  // v3.0 blend-mode tier inheritance: take the current InputBar tier
+  // (Pro default), per the UX agent's "drill is a stream-level commit"
+  // rationale. ExploreSheet's local Flash default doesn't apply here.
+  const modelTier = useCanvas((s) => s.modelTier);
 
   const { loading, error, uploading, uploadFile, deleteForever } =
     useStylePaintings();
+  const { generate } = useIterations();
 
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
+  // v3.0 Blend mode state — local to the panel. Selection order is
+  // preserved (array, not Set) because the order maps to the parts
+  // array sent to Gemini; future iterations of the blend directive may
+  // use slot-based language so the order needs to stay user-controlled.
+  const [blendMode, setBlendMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [blendInFlight, setBlendInFlight] = useState(false);
+  const [blendError, setBlendError] = useState<string | null>(null);
+
   // Esc-to-close. Same lightbox-deference pattern as FavoritesPanel +
   // ArchivedSourcesPanel: if a lightbox is open in either mode, let its
-  // handler consume the Esc.
+  // handler consume the Esc. In blend mode, Esc exits blend mode first
+  // instead of closing the panel — gives the user a less-destructive
+  // out from an accidental blend-mode entry.
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
       if (lightboxTileId !== null || lightboxSnapshot !== null) return;
-      if (e.key === "Escape") setOpen(false);
+      if (e.key !== "Escape") return;
+      if (blendMode) {
+        setBlendMode(false);
+        setSelectedIds([]);
+        setBlendError(null);
+        return;
+      }
+      setOpen(false);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, setOpen, lightboxTileId, lightboxSnapshot]);
+  }, [open, setOpen, lightboxTileId, lightboxSnapshot, blendMode]);
 
   // Auto-clear transient upload errors so the header doesn't get stuck.
   useEffect(() => {
@@ -243,6 +353,29 @@ export function StylesPanel() {
     const t = window.setTimeout(() => setUploadError(null), 4000);
     return () => window.clearTimeout(t);
   }, [uploadError]);
+
+  // Reset blend selection when the library list changes underneath us
+  // (e.g., a delete removed a selected style; an upload added a new
+  // one). Drop any selected ids that are no longer in the library so
+  // the action bar never tries to blend a ghost id.
+  useEffect(() => {
+    setSelectedIds((prev) => {
+      const valid = new Set(rows.map((r) => r.id));
+      const next = prev.filter((id) => valid.has(id));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [rows]);
+
+  // Reset blend state whenever the panel closes so the next open is
+  // clean (no stale selection persisting across opens).
+  useEffect(() => {
+    if (!open) {
+      setBlendMode(false);
+      setSelectedIds([]);
+      setBlendError(null);
+      setBlendInFlight(false);
+    }
+  }, [open]);
 
   if (!open) return null;
 
@@ -262,6 +395,81 @@ export function StylesPanel() {
       );
     }
   };
+
+  // ---- v3.0 blend-mode helpers ----
+
+  const handleToggleSelect = useCallback(
+    (id: string) => {
+      setSelectedIds((prev) => {
+        const at = prev.indexOf(id);
+        if (at >= 0) {
+          // Deselect: remove the id; remaining selection re-numbers
+          // automatically since the badge reads from the array index.
+          return prev.filter((x) => x !== id);
+        }
+        if (prev.length >= MAX_BLEND_STYLES) return prev; // capped — no-op
+        return [...prev, id];
+      });
+    },
+    [],
+  );
+
+  const handleEnterBlendMode = () => {
+    setBlendMode(true);
+    setBlendError(null);
+  };
+
+  const handleExitBlendMode = () => {
+    setBlendMode(false);
+    setSelectedIds([]);
+    setBlendError(null);
+  };
+
+  const handleFireBlend = async () => {
+    if (blendInFlight) return;
+    if (selectedIds.length < 2) return;
+    setBlendInFlight(true);
+    setBlendError(null);
+    try {
+      const result = await generate({
+        mode: "style_blend",
+        blendStylePaintingIds: selectedIds,
+        // Tier inherits from the InputBar (modelTier from canvas store).
+        // Resolution is locked to 1K for v3.0 — blend's cost surface
+        // is already higher (multi-image input); 4K is opt-in via a
+        // future per-iteration upgrade flow.
+        modelTier,
+        resolution: "1k",
+      });
+      if (!result) {
+        setBlendError(
+          "Couldn't start the blend — check the input bar for the error.",
+        );
+        return;
+      }
+      // Land back in Studio watching the new iteration arrive. Exit
+      // blend mode + close the panel.
+      handleExitBlendMode();
+      setOpen(false);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setBlendError(`Couldn't blend — ${msg}`);
+    } finally {
+      setBlendInFlight(false);
+    }
+  };
+
+  // Per-tile cost preview. count × pricePerImage(tier, '1k'). The
+  // actual call is one Gemini request per tile with multi-image input —
+  // pricePerImage in lib/cost.ts is per output image so this is the
+  // floor; real cost may run slightly higher per Gemini's multi-image
+  // input pricing. Treat this as an approximation; the cap check is
+  // server-authoritative.
+  const blendCostUsd =
+    pricePerImage(modelTier, "1k") * TILE_COUNT_DEFAULT;
+  const selectionCount = selectedIds.length;
+  const atCap = selectionCount >= MAX_BLEND_STYLES;
+  const canFire = selectionCount >= 2 && !blendInFlight;
 
   return (
     <div
@@ -287,32 +495,70 @@ export function StylesPanel() {
       >
         <header className="flex items-center gap-3 border-b border-hairline px-5 py-4">
           <h2 className="flex-1 font-display text-2xl tracking-tight text-foreground">
-            Style library
+            {blendMode ? "Pick styles to blend" : "Style library"}
           </h2>
-          <button
-            type="button"
-            onClick={() => fileRef.current?.click()}
-            disabled={uploading}
-            className={[
-              "flex items-center gap-2 rounded-md px-3 py-2",
-              "border border-hairline/60 bg-card",
-              "text-sm text-foreground hover:bg-secondary",
-              "transition-colors no-callout",
-              "disabled:opacity-50 disabled:cursor-wait",
-            ].join(" ")}
-            aria-label="Add style paintings"
-          >
-            {uploading ? (
-              <Loader2 className="h-4 w-4 animate-spin" strokeWidth={1.75} />
-            ) : (
-              <ImagePlus className="h-4 w-4" strokeWidth={1.75} />
-            )}
-            <span>{uploading ? "Adding…" : "Add"}</span>
-          </button>
+          {/* v3.0: Blend toggle. Available whenever the library has at
+              least 2 paintings (one isn't enough to blend; an empty
+              library has no Blend affordance to show). The button
+              flips both the panel's mode + acts as the cancel when
+              blend mode is on (handleExitBlendMode). */}
+          {rows.length >= 2 && (
+            <button
+              type="button"
+              onClick={
+                blendMode ? handleExitBlendMode : handleEnterBlendMode
+              }
+              disabled={blendInFlight}
+              className={[
+                "flex items-center gap-2 rounded-md px-3 py-2",
+                "border text-sm transition-colors no-callout",
+                blendMode
+                  ? "border-accent/60 bg-accent/15 text-accent hover:bg-accent/20"
+                  : "border-hairline/60 bg-card text-foreground hover:bg-secondary",
+                "disabled:opacity-50 disabled:cursor-wait",
+              ].join(" ")}
+              aria-label={blendMode ? "Exit blend mode" : "Enter blend mode"}
+              aria-pressed={blendMode}
+            >
+              <Layers className="h-4 w-4" strokeWidth={1.75} />
+              <span>{blendMode ? "Cancel" : "Blend"}</span>
+            </button>
+          )}
+          {/* Add is hidden during blend mode — the surface is focused
+              on the selection task; uploads would dilute attention.
+              Exit blend mode to upload more styles. */}
+          {!blendMode && (
+            <button
+              type="button"
+              onClick={() => fileRef.current?.click()}
+              disabled={uploading}
+              className={[
+                "flex items-center gap-2 rounded-md px-3 py-2",
+                "border border-hairline/60 bg-card",
+                "text-sm text-foreground hover:bg-secondary",
+                "transition-colors no-callout",
+                "disabled:opacity-50 disabled:cursor-wait",
+              ].join(" ")}
+              aria-label="Add style paintings"
+            >
+              {uploading ? (
+                <Loader2 className="h-4 w-4 animate-spin" strokeWidth={1.75} />
+              ) : (
+                <ImagePlus className="h-4 w-4" strokeWidth={1.75} />
+              )}
+              <span>{uploading ? "Adding…" : "Add"}</span>
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setOpen(false)}
-            className="rounded-full p-2 text-text-mute hover:text-foreground hover:bg-secondary transition-colors no-callout"
+            disabled={blendInFlight}
+            className={[
+              "rounded-full p-2 transition-colors no-callout",
+              blendInFlight
+                ? "text-text-mute/40 cursor-wait"
+                : "text-text-mute hover:text-foreground hover:bg-secondary",
+            ].join(" ")}
             aria-label="Close style library"
           >
             <X className="h-5 w-5" strokeWidth={1.5} />
@@ -371,16 +617,86 @@ export function StylesPanel() {
           )}
           {rows.length > 0 && (
             <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
-              {rows.map((row) => (
-                <StylePaintingCard
-                  key={row.id}
-                  row={row}
-                  onDelete={() => deleteForever(row.id)}
-                />
-              ))}
+              {rows.map((row) => {
+                const sel = selectedIds.indexOf(row.id);
+                const selectionIndex = sel >= 0 ? sel + 1 : null;
+                const selectionDisabledReason =
+                  blendMode && sel < 0 && atCap
+                    ? `Pick at most ${MAX_BLEND_STYLES} styles`
+                    : null;
+                return (
+                  <StylePaintingCard
+                    key={row.id}
+                    row={row}
+                    onDelete={() => deleteForever(row.id)}
+                    blendMode={blendMode}
+                    selectionIndex={selectionIndex}
+                    onToggleSelect={() => handleToggleSelect(row.id)}
+                    selectionDisabledReason={selectionDisabledReason}
+                  />
+                );
+              })}
             </ul>
           )}
         </div>
+
+        {/* v3.0 blend action bar — slides up from the bottom when blend
+            mode is active. Shows live selection count + cost preview +
+            the fire button. Disabled until 2+ selected. */}
+        {blendMode && (
+          <footer
+            className={[
+              "border-t border-hairline bg-background",
+              "flex flex-wrap items-center gap-3 px-5 py-4",
+            ].join(" ")}
+          >
+            <div className="flex flex-1 flex-col">
+              <p className="text-sm tabular-nums text-foreground">
+                <span className="font-medium">{selectionCount}</span>{" "}
+                {selectionCount === 1 ? "style" : "styles"} selected
+                {atCap && (
+                  <span className="ml-1 text-text-mute">
+                    (max {MAX_BLEND_STYLES})
+                  </span>
+                )}
+              </p>
+              <p className="caption-display text-xs text-text-mute">
+                {selectionCount < 2
+                  ? `Pick at least 2 styles to blend.`
+                  : `Will spend up to $${blendCostUsd.toFixed(2)} (${TILE_COUNT_DEFAULT} × ${
+                      modelTier === "flash" ? "Flash" : "Pro"
+                    } 1K).`}
+              </p>
+              {blendError && (
+                <p className="mt-1 text-xs text-destructive">{blendError}</p>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => void handleFireBlend()}
+              disabled={!canFire}
+              className={[
+                "inline-flex items-center gap-2 rounded-full",
+                "px-5 py-2 text-sm font-medium no-callout",
+                "bg-accent text-accent-foreground",
+                "transition-opacity",
+                !canFire ? "opacity-50 cursor-not-allowed" : "hover:opacity-90",
+              ].join(" ")}
+            >
+              {blendInFlight ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" strokeWidth={1.75} />
+                  Blending…
+                </>
+              ) : (
+                <>
+                  <Layers className="h-4 w-4" strokeWidth={1.5} />
+                  Blend {selectionCount > 0 ? selectionCount : ""}
+                </>
+              )}
+            </button>
+          </footer>
+        )}
       </aside>
     </div>
   );

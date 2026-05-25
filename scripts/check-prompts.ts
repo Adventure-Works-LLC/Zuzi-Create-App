@@ -58,7 +58,9 @@
 
 import {
   buildPrompt,
+  buildStyleBlendPrompt,
   buildStyleExplorePrompt,
+  STYLE_BLEND_DIRECTIVE,
   STYLE_EXPLORE_DIRECTIVE,
 } from "../lib/gemini/imagePrompts";
 import { PRESETS, type Preset } from "../lib/db/schema";
@@ -214,6 +216,33 @@ if (styleExploreViaBuild !== styleExplore) {
   );
 }
 
+// Style Blend v1 — verbatim user-supplied directive. Locked in code
+// alongside STYLE_EXPLORE_DIRECTIVE; the canary catches the same
+// paraphrase-by-edit failure mode (someone "improves" the wording
+// without re-validating in production). Three checks:
+//   1. The constant matches the byte-for-byte intent
+//   2. The full prompt includes the aspect-ratio sentence
+//   3. buildStyleBlendPrompt returns the constant + the sentence
+const styleBlend = buildStyleBlendPrompt("4:5");
+if (!styleBlend.startsWith("Make a new painting using the best aspects")) {
+  fail(
+    "[style_blend]",
+    "STYLE_BLEND_DIRECTIVE regressed (opener 'Make a new painting using the best aspects' canary missing)",
+  );
+}
+if (!styleBlend.includes(STYLE_BLEND_DIRECTIVE)) {
+  fail(
+    "[style_blend]",
+    "buildStyleBlendPrompt no longer emits the canonical STYLE_BLEND_DIRECTIVE constant",
+  );
+}
+if (!styleBlend.includes("Match the output aspect ratio exactly (4:5)")) {
+  fail(
+    "[style_blend]",
+    "buildStyleBlendPrompt dropped the aspect-ratio sentence",
+  );
+}
+
 // --- 4: dominator routing must fire when combined with other presets ---
 const ambColor = buildPrompt({ presets: ["color", "ambiance"], aspectRatio: "4:5" });
 if (!ambColor.startsWith("This painting is the artist's work-in-progress.")) {
@@ -256,5 +285,5 @@ if (failures.length > 0) {
 }
 
 console.log(
-  `[check-prompts] ok — ${totalRenders} prompt renders across ${combos.length} preset combos × ${RATIOS.length} aspect ratios + 25 canary checks all green.`,
+  `[check-prompts] ok — ${totalRenders} prompt renders across ${combos.length} preset combos × ${RATIOS.length} aspect ratios + 28 canary checks all green.`,
 );

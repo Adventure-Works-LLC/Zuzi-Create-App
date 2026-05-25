@@ -519,6 +519,68 @@ export function buildStyleExplorePrompt(aspectRatio: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// STYLE_BLEND — v1 locked. Pure multi-style fusion (no sketch).
+//
+// Used by `mode: 'style_blend'` iterations. Pro receives N (2..MAX_BLEND_STYLES)
+// style painting images as the parts array — NO sketch — plus this fixed
+// directive. The output is a brand-new painting that fuses the references'
+// best aspects per Pro's own judgment.
+//
+// Differs from style_explore in two load-bearing ways:
+//   1. NO sketch input. Pro invents subject + composition from the
+//      references alone. There is no "image one" to preserve.
+//   2. NO sketch aspect. Output aspect is the FIRST style painting's
+//      snapped aspect (per AGENTS.md §3 — this is the documented
+//      exception to "output aspect == sketch aspect"; blend mode is the
+//      user's explicit opt-out by entering this mode at all).
+//
+// Wording is the user's verbatim feature description — Jeff's call to
+// trust Pro's judgment of "best combination" without elaborate
+// constraint language. If outputs drift toward generic / averaged /
+// collaged results, the next iteration would add anti-language per the
+// pattern in Color v4 + Background v5; for v1 it ships minimal.
+//
+// Smoke gate (`scripts/smoke-blend.ts`) is OPTIONAL for v1 because the
+// directive is short enough that Jeff can iterate in production directly
+// without a separate ground-truth disk artifact. If outputs are bad in
+// production, add the smoke script as a v3.1+ task.
+// ---------------------------------------------------------------------------
+
+/**
+ * Maximum number of style references per blend iteration. Capped at 4
+ * because Pro's reasoning over more than 4 reference inputs is
+ * unexplored territory and likely to produce muddy averaging. The route
+ * validates this at request time; the UI's selection tray rejects taps
+ * past the cap. If Jeff finds N=4 outputs unusable in production, drop
+ * to 3.
+ */
+export const MAX_BLEND_STYLES = 4;
+
+/**
+ * The locked Krea-validated directive for Style Blend mode. Verbatim
+ * from Jeff's feature description. Sent alongside N style painting
+ * inputs (no sketch) — Pro invents subject + composition from the
+ * references alone, blending their best aspects per its own judgment.
+ *
+ * The wording trusts Pro to decide what "best aspects" means and what
+ * "maintaining their styles and intent" entails. No image-anchoring
+ * language ("image one", "image two") — the references are
+ * collectively addressed.
+ */
+export const STYLE_BLEND_DIRECTIVE =
+  "Make a new painting using the best aspects of these reference paintings, maintaining their styles and intent.";
+
+/**
+ * Render the full style_blend prompt with the aspect-ratio sentence
+ * appended. Output aspect uses the FIRST blend style's snapped aspect
+ * per AGENTS.md §3 (blend mode is the documented exception to the
+ * sketch-aspect invariant — there is no sketch).
+ */
+export function buildStyleBlendPrompt(aspectRatio: string): string {
+  return `${STYLE_BLEND_DIRECTIVE}\n\nMatch the output aspect ratio exactly (${aspectRatio}).`;
+}
+
+// ---------------------------------------------------------------------------
 // Templated path — for Lighting solo and Color+Lighting combos.
 // ---------------------------------------------------------------------------
 

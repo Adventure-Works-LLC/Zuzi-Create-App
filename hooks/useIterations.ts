@@ -52,6 +52,10 @@ interface IterationResponseRow {
    *  client falls back to 'prompt' / null. */
   mode?: IterationMode;
   parentTileId?: string | null;
+  /** v3.0 style_blend: the N style ids that drove this iteration.
+   *  Present + non-empty only when mode='style_blend'. Empty / absent
+   *  for every other mode. */
+  blendStyleIds?: string[];
   status: Iteration["status"];
   createdAt: number;
   completedAt: number | null;
@@ -83,6 +87,7 @@ function rowToIteration(r: IterationResponseRow): Iteration {
     presets: r.presets,
     mode: r.mode ?? "prompt",
     parentTileId: r.parentTileId ?? null,
+    blendStyleIds: r.blendStyleIds ?? [],
     status: r.status,
     createdAt: r.createdAt,
     tiles: r.tiles.map((t) => ({
@@ -142,6 +147,14 @@ export interface GenerateOptions {
    *  if mode !== 'prompt'. Used by the Lightbox's "Iterate on this
    *  direction" handler. */
   stylePaintingId?: string;
+  /** v3.0 style_blend mode: array of N (2..MAX_BLEND_STYLES) style
+   *  painting ids. ALL tiles in the spawned iteration use the SAME N
+   *  styles (variation across tiles comes from temperature 1.0
+   *  stochasticity, not input swap). No sketch is sent — Pro invents
+   *  subject + composition from the references alone. Duplicates are
+   *  REJECTED by the server (distinct from stylePaintingIds where
+   *  duplicates are intentional for "More like this"). */
+  blendStylePaintingIds?: ReadonlyArray<string>;
   parentTileId?: string | null;
   modelTier?: ModelTier;
   resolution?: Resolution;
@@ -259,6 +272,7 @@ export function useIterations(): UseIterationsResult {
     const mode: IterationMode = opts?.mode ?? "prompt";
     const stylePaintingIds = opts?.stylePaintingIds ?? null;
     const stylePaintingId = opts?.stylePaintingId ?? null;
+    const blendStylePaintingIds = opts?.blendStylePaintingIds ?? null;
     const parentTileId = opts?.parentTileId ?? null;
     // Per-call tier / resolution overrides (ExploreSheet uses its own
     // Flash-default toggle rather than the InputBar's Pro-default). Falls
@@ -284,14 +298,23 @@ export function useIterations(): UseIterationsResult {
       aspectRatioMode,
       tileCount: effectiveCount,
       // Per-mode preset shape: prompt mode uses the store's presets;
-      // style_explore mode renders as the locked directive on server,
-      // so the iteration's `presets` is meaningless. Persist the empty
-      // array to match what the server stores (the route's parsePresets
-      // returns [] when presets is absent + the iteration row's
-      // `presets` is just JSON storage).
-      presets: mode === "style_explore" ? [] : presets,
+      // style_explore + style_blend modes render as locked directives
+      // on server, so the iteration's `presets` is meaningless. Persist
+      // the empty array to match what the server stores (the route's
+      // parsePresets returns [] when presets is absent + the iteration
+      // row's `presets` is just JSON storage).
+      presets:
+        mode === "style_explore" || mode === "style_blend" ? [] : presets,
       mode,
       parentTileId,
+      // v3.0 style_blend: persist the chosen blend style ids on the
+      // optimistic iteration so the StyleAttributionThumb row can
+      // render attribution chips immediately (before /api/iterations
+      // refetch). Empty for every other mode.
+      blendStyleIds:
+        mode === "style_blend" && blendStylePaintingIds
+          ? [...blendStylePaintingIds]
+          : [],
       status: "pending",
       createdAt: now,
       tiles: Array.from({ length: effectiveCount }, (_, idx) => ({
@@ -347,27 +370,31 @@ export function useIterations(): UseIterationsResult {
           // (computes from stylePaintingIds.length). Send the effective
           // count anyway so the body's intent is unambiguous in logs.
           count: effectiveCount,
-          // For style_explore, send empty presets — the worker bypasses
-          // the dominator ladder via mode='style_explore'. Sending the
+          // For style_explore + style_blend, send empty presets — the
+          // worker bypasses the dominator ladder via mode. Sending the
           // store's `presets` (e.g. the default ['avery']) would
           // serialize to the iterations.presets column and the
           // idempotent-replay reconcile path below would then OVERWRITE
           // the optimistic empty array with the persisted preset — the
-          // result is a style_explore iteration that visually
-          // contradicts its own mode (preset chips on a directive-only
-          // run). Empty array matches both the worker's behavior and
-          // the optimistic skeleton above.
-          presets: mode === "style_explore" ? [] : presets,
-          // v2 fields — server accepts mode default 'prompt'. Omit
-          // stylePaintingIds for prompt mode (server rejects it there
-          // explicitly) and stylePaintingId for style_explore mode
-          // (server rejects it there too). Omit parentTileId when null
-          // so the body stays clean.
+          // result is an iteration that visually contradicts its own
+          // mode (preset chips on a directive-only run).
+          presets:
+            mode === "style_explore" || mode === "style_blend" ? [] : presets,
+          // v2/v3 fields — server accepts mode default 'prompt'. Each
+          // mode owns its own style field; the route's cross-field
+          // validation 400s if the wrong one is sent.
+          //   - style_explore: stylePaintingIds (per-tile array)
+          //   - style_blend:   blendStylePaintingIds (N=2..4 unique)
+          //   - prompt:        stylePaintingId (single, handoff only)
+          //   - prompt:        parentTileId (single, handoff only)
+          // Omit parentTileId when null so the body stays clean.
           ...(mode === "style_explore" && stylePaintingIds
             ? { mode, stylePaintingIds }
-            : mode !== "prompt"
-              ? { mode }
-              : {}),
+            : mode === "style_blend" && blendStylePaintingIds
+              ? { mode, blendStylePaintingIds }
+              : mode !== "prompt"
+                ? { mode }
+                : {}),
           ...(mode === "prompt" && stylePaintingId
             ? { stylePaintingId }
             : {}),
@@ -389,6 +416,10 @@ export function useIterations(): UseIterationsResult {
         count?: number;
         presets?: Preset[];
         aspectRatioMode?: AspectRatioMode;
+        // v3.0 style_blend: echo of the blend style ids array. Present
+        // only when the original row was a style_blend iteration; empty
+        // / absent otherwise.
+        blendStyleIds?: string[];
         error?: string;
         detail?: string;
         currentUsd?: number;

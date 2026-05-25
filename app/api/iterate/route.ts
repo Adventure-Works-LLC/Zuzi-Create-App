@@ -77,10 +77,14 @@ import {
 import { PRESETS, type Preset } from "@/lib/db/schema";
 import { runIteration } from "@/lib/gemini/runIteration";
 import {
+  MAX_BLEND_STYLES,
   TILE_COUNT_DEFAULT,
   TILE_COUNT_MAX,
 } from "@/lib/gemini/imagePrompts";
-import { parseStoredPresets } from "@/lib/gemini/presets";
+import {
+  parseBlendStyleIdsJson,
+  parseStoredPresets,
+} from "@/lib/gemini/presets";
 import { costFor } from "@/lib/cost";
 
 export const runtime = "nodejs";
@@ -163,6 +167,41 @@ function parseStylePaintingIds(raw: unknown): string[] | null {
   return out;
 }
 
+/** Parse + validate `blendStylePaintingIds` for `mode: 'style_blend'`.
+ * Returns string[] of length [2, MAX_BLEND_STYLES], or null when absent.
+ * Distinct rules from `parseStylePaintingIds`:
+ *   - Minimum 2 entries (1 is degenerate → use style_explore).
+ *   - Maximum is MAX_BLEND_STYLES (currently 4) — Pro's reasoning at
+ *     N>4 reference inputs is unexplored territory and likely muddy.
+ *   - DUPLICATES REJECTED — blend is "fuse N distinct references";
+ *     a duplicate is a no-op user error, surface as 400 not silent dedup.
+ *     This is the opposite policy from `parseStylePaintingIds`, where
+ *     duplicates are the documented mechanism for "More like this".
+ */
+function parseBlendStylePaintingIds(raw: unknown): string[] | null {
+  if (raw === undefined || raw === null) return null;
+  if (!Array.isArray(raw)) throw new Error("blendStylePaintingIds_must_be_array");
+  if (raw.length < 2) {
+    throw new Error("blendStylePaintingIds_need_min_2");
+  }
+  if (raw.length > MAX_BLEND_STYLES) {
+    throw new Error(`blendStylePaintingIds_too_many:max_${MAX_BLEND_STYLES}`);
+  }
+  const out: string[] = [];
+  for (const v of raw) {
+    if (typeof v !== "string" || v.length === 0 || v.length > 64) {
+      throw new Error(
+        `invalid_blendStylePaintingId:${String(v).slice(0, 40)}`,
+      );
+    }
+    out.push(v);
+  }
+  if (new Set(out).size !== out.length) {
+    throw new Error("blendStylePaintingIds_must_be_unique");
+  }
+  return out;
+}
+
 export async function POST(req: Request): Promise<Response> {
   if (!(await requireAuth())) {
     return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
@@ -183,6 +222,12 @@ export async function POST(req: Request): Promise<Response> {
      *  style_explore mode). One field per mode = cleanest cross-field
      *  validation: each is allowed only in its mode, never both. */
     stylePaintingId?: unknown;
+    /** v3.0: array of style_painting ids for the style_blend mode —
+     *  pure multi-style fusion. Length [2, MAX_BLEND_STYLES]. Distinct
+     *  from `stylePaintingIds` (which is per-tile, allows duplicates).
+     *  Duplicates here are REJECTED because blend = N distinct
+     *  references. */
+    blendStylePaintingIds?: unknown;
     parentTileId?: unknown;
   };
   try {
@@ -208,9 +253,14 @@ export async function POST(req: Request): Promise<Response> {
   const aspectRatioMode =
     body.aspectRatioMode === "flip" ? "flip" : "match";
   // mode default 'prompt' preserves v1 behavior for any client/request
-  // that doesn't know about the new field.
+  // that doesn't know about the new field. Three valid values; anything
+  // else falls through to 'prompt' as a defensive default.
   const mode =
-    body.mode === "style_explore" ? "style_explore" : "prompt";
+    body.mode === "style_explore"
+      ? "style_explore"
+      : body.mode === "style_blend"
+        ? "style_blend"
+        : "prompt";
   const parentTileId =
     typeof body.parentTileId === "string" && body.parentTileId.length > 0
       ? body.parentTileId
@@ -246,10 +296,12 @@ export async function POST(req: Request): Promise<Response> {
   let count: number;
   let presets: Preset[];
   let stylePaintingIds: string[] | null;
+  let blendStylePaintingIds: string[] | null;
   try {
     count = parseCount(body.count);
     presets = parsePresets(body.presets);
     stylePaintingIds = parseStylePaintingIds(body.stylePaintingIds);
+    blendStylePaintingIds = parseBlendStylePaintingIds(body.blendStylePaintingIds);
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "invalid_input" },
@@ -278,19 +330,85 @@ export async function POST(req: Request): Promise<Response> {
         { status: 400 },
       );
     }
+    if (blendStylePaintingIds) {
+      return NextResponse.json(
+        {
+          error: "blendStylePaintingIds_requires_style_blend_mode",
+          detail:
+            "blendStylePaintingIds is only valid when mode='style_blend'.",
+        },
+        { status: 400 },
+      );
+    }
     // The array length is authoritative — overrides any `count` the
     // client also sent. This way the worker's tilesFor() count and the
     // route's tile materialization always agree.
     count = stylePaintingIds.length;
+  } else if (mode === "style_blend") {
+    // v3.0 Style Blend — pure multi-style fusion. The route requires
+    // blendStylePaintingIds (2..MAX_BLEND_STYLES, no dupes) + rejects
+    // every other style/prompt field. count comes from the body (NOT
+    // from the array length — blend's array is the INPUTS, count is
+    // how many output tiles the user wants).
+    if (!blendStylePaintingIds) {
+      return NextResponse.json(
+        {
+          error: "missing_blendStylePaintingIds",
+          detail: "mode='style_blend' requires blendStylePaintingIds[]",
+        },
+        { status: 400 },
+      );
+    }
+    if (stylePaintingIds) {
+      return NextResponse.json(
+        {
+          error: "stylePaintingIds_requires_style_explore_mode",
+          detail:
+            "stylePaintingIds is only valid when mode='style_explore'.",
+        },
+        { status: 400 },
+      );
+    }
+    if (stylePaintingId !== null) {
+      return NextResponse.json(
+        {
+          error: "stylePaintingId_requires_prompt_mode",
+          detail:
+            "stylePaintingId is only valid when mode='prompt'.",
+        },
+        { status: 400 },
+      );
+    }
+    if (parentTileId !== null) {
+      return NextResponse.json(
+        {
+          error: "parentTileId_requires_prompt_mode",
+          detail:
+            "parentTileId provenance is only valid when mode='prompt'. Blend iterations are curatorial; they have no single parent tile.",
+        },
+        { status: 400 },
+      );
+    }
   } else {
     // prompt mode: stylePaintingIds (the array) is rejected — clients
-    // should use the single stylePaintingId field instead.
+    // should use the single stylePaintingId field instead. Same for
+    // blendStylePaintingIds.
     if (stylePaintingIds) {
       return NextResponse.json(
         {
           error: "stylePaintingIds_requires_style_explore_mode",
           detail:
             "stylePaintingIds is only valid when mode='style_explore'. For prompt mode use the single stylePaintingId field.",
+        },
+        { status: 400 },
+      );
+    }
+    if (blendStylePaintingIds) {
+      return NextResponse.json(
+        {
+          error: "blendStylePaintingIds_requires_style_blend_mode",
+          detail:
+            "blendStylePaintingIds is only valid when mode='style_blend'.",
         },
         { status: 400 },
       );
@@ -313,6 +431,26 @@ export async function POST(req: Request): Promise<Response> {
         },
         { status: 404 },
       );
+    }
+  }
+
+  // v3.0: validate every blendStylePaintingId references an existing
+  // row. The JSON column isn't a FK at all (it's a stringified array),
+  // so the worker would otherwise discover missing rows only when
+  // trying to fetch their R2 bytes — by then the iteration is
+  // half-created. Pre-flight 404 keeps the user-visible failure clean.
+  if (blendStylePaintingIds) {
+    for (const sid of blendStylePaintingIds) {
+      const sp = getStylePainting(sid);
+      if (!sp) {
+        return NextResponse.json(
+          {
+            error: "style_painting_not_found",
+            detail: `no style_painting with id ${sid}`,
+          },
+          { status: 404 },
+        );
+      }
     }
   }
 
@@ -381,6 +519,10 @@ export async function POST(req: Request): Promise<Response> {
         // hydrate the per-tile attribution on a fresh tab).
         mode: existing.mode,
         parentTileId: existing.parent_tile_id,
+        // v3.0: echo blend style ids for style_blend iterations. JSON
+        // parse here so the client gets a string[] not a stringified
+        // JSON array. Empty array for non-blend modes (client ignores).
+        blendStyleIds: parseBlendStyleIdsJson(existing.blend_style_ids),
       },
       { status: 200 },
     );
@@ -413,6 +555,13 @@ export async function POST(req: Request): Promise<Response> {
   const iterationId = ulid();
   const now = Date.now();
   const presetsJson = JSON.stringify(presets);
+  // v3.0: serialize the blend style ids array on style_blend iterations.
+  // For every other mode, store the column's default value '[]' explicitly
+  // so the worker's downstream JSON.parse can stay branch-free.
+  const blendStyleIdsJson =
+    mode === "style_blend" && blendStylePaintingIds
+      ? JSON.stringify(blendStylePaintingIds)
+      : "[]";
   try {
     insertIterationAndTiles(
       {
@@ -426,6 +575,7 @@ export async function POST(req: Request): Promise<Response> {
         presets: presetsJson,
         mode,
         parent_tile_id: parentTileId,
+        blend_style_ids: blendStyleIdsJson,
         status: "pending",
         created_at: now,
         completed_at: null,

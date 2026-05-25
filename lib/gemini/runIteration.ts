@@ -21,11 +21,15 @@ import sharp from "sharp";
 
 import { genai, IMAGE_MODEL_FLASH, IMAGE_MODEL_PRO } from "./client";
 import { flipAspectRatio } from "./aspectRatio";
-import { buildPrompt, buildStyleExplorePrompt } from "./imagePrompts";
+import {
+  buildPrompt,
+  buildStyleBlendPrompt,
+  buildStyleExplorePrompt,
+} from "./imagePrompts";
 import { callWithRetry } from "./callWithRetry";
 import { extractImageBytes } from "./extract";
 import { classifyError } from "./errors";
-import { parseStoredPresets } from "./presets";
+import { parseBlendStyleIdsJson, parseStoredPresets } from "./presets";
 import * as bus from "../bus";
 import { costForCompletedIteration } from "../cost";
 import {
@@ -49,24 +53,54 @@ interface TileRunResult {
   ok: boolean;
 }
 
+/**
+ * v3.0 Style Blend: resolve the output aspect ratio. Uses the FIRST
+ * blend style's snapped aspect_ratio (per AGENTS.md §3 documented
+ * exception — blend has no sketch, the sketch-aspect invariant doesn't
+ * apply). Returns null if the first style row is missing — caller
+ * hard-fails the iteration.
+ */
+async function resolveBlendAspectRatio(
+  blendStyleIds: string[],
+  iterationId: string,
+): Promise<string | null> {
+  if (blendStyleIds.length === 0) {
+    console.error(
+      `[runIteration ${iterationId}] style_blend with empty blend_style_ids — failing`,
+    );
+    return null;
+  }
+  const first = getStylePainting(blendStyleIds[0]);
+  if (!first) {
+    console.error(
+      `[runIteration ${iterationId}] first blend style ${blendStyleIds[0]} missing — failing`,
+    );
+    return null;
+  }
+  return first.aspect_ratio;
+}
+
 async function runOneTile(
   iterationId: string,
   tileId: string,
   idx: number,
-  inputBase64: string,
+  /**
+   * Ordered image inputs that go into the parts array BEFORE the
+   * directive text. Mode-dependent composition:
+   *   - prompt (no handoff):       [sketchBase64]
+   *   - prompt + style handoff:    [sketchBase64, styleBase64]
+   *   - style_explore:             [sketchBase64, styleBase64]
+   *   - style_blend (v3.0):        [style1Base64, style2Base64, ..., styleNBase64]
+   * The order is LOAD-BEARING — locked directives reference inputs by
+   * position (e.g. STYLE_EXPLORE_DIRECTIVE references "image one / image
+   * two"). Caller is responsible for composing the right ordering.
+   */
+  imageBase64s: string[],
   modelId: string,
   aspectRatio: string,
   imageSize: string,
   promptText: string,
   recoveryHit: { r2_key: string; thumb_key?: string } | undefined,
-  /**
-   * When set, this tile is a style_explore tile and `styleBase64` is the
-   * SECOND image input (the style painting). The parts array gets built as
-   * [sketch, style, text] in that fixed order — the directive's "image
-   * one / image two" wording depends on it. NULL for prompt-mode tiles
-   * (parts is just [sketch, text] as before).
-   */
-  styleBase64: string | null,
 ): Promise<TileRunResult> {
   // If recovery has bytes for this tile, hydrate without calling Gemini.
   if (recoveryHit) {
@@ -99,18 +133,18 @@ async function runOneTile(
   }
 
   try {
-    // Parts assembly: sketch first (image one). For style_explore tiles
-    // the style painting is appended as image two BEFORE the directive
-    // text — order is FIXED and load-bearing because the directive
-    // explicitly references "image one" and "image two". A reorder
-    // would silently invert the preserve target.
+    // Parts assembly: the caller-provided imageBase64s array first (in
+    // its composition order — see runOneTile docstring on the param),
+    // then the directive text. Order is FIXED and load-bearing because
+    // locked directives reference inputs positionally (e.g.
+    // STYLE_EXPLORE_DIRECTIVE: "image one / image two"). Reordering
+    // the caller's array would silently invert the preserve target.
     const parts: Array<
       | { inlineData: { mimeType: string; data: string } }
       | { text: string }
-    > = [{ inlineData: { mimeType: "image/jpeg", data: inputBase64 } }];
-    if (styleBase64) {
-      parts.push({ inlineData: { mimeType: "image/jpeg", data: styleBase64 } });
-    }
+    > = imageBase64s.map((data) => ({
+      inlineData: { mimeType: "image/jpeg", data },
+    }));
     parts.push({ text: promptText });
 
     const resp = await callWithRetry(
@@ -231,18 +265,37 @@ export async function runIteration(iterationId: string): Promise<void> {
       return;
     }
 
-    let inputBuffer: Buffer;
-    try {
-      inputBuffer = await getObject(source.input_image_key);
-    } catch (e) {
-      console.error(
-        `[runIteration ${iterationId}] r2.getObject failed:`,
-        e instanceof Error ? e.message : e,
-      );
-      updateIterationStatus(iterationId, "failed", Date.now());
-      return;
+    // v3.0: parse blend_style_ids for style_blend iterations. Empty
+    // array for every other mode (the column defaults to '[]'). The
+    // worker fetches these styles' bytes below; the route guarantees
+    // length ≥ 2 for valid style_blend iterations.
+    const blendStyleIds =
+      iter.mode === "style_blend"
+        ? parseBlendStyleIdsJson(iter.blend_style_ids, iterationId)
+        : [];
+
+    // Source bytes are fetched for every mode EXCEPT style_blend —
+    // blend is "pure style fusion, no sketch input" so the source
+    // bytes are irrelevant to the Gemini call (the iteration row still
+    // anchors to source_id for cascade + history, but the source is
+    // not in parts[]). Skipping the fetch saves an R2 GET on every
+    // blend iteration.
+    let inputBase64: string | null = null;
+    if (iter.mode !== "style_blend") {
+      let inputBuffer: Buffer;
+      try {
+        inputBuffer = await getObject(source.input_image_key);
+      } catch (e) {
+        console.error(
+          `[runIteration ${iterationId}] r2.getObject failed:`,
+          e instanceof Error ? e.message : e,
+        );
+        updateIterationStatus(iterationId, "failed", Date.now());
+        return;
+      }
+      inputBase64 = inputBuffer.toString("base64");
     }
-    const inputBase64 = inputBuffer.toString("base64");
+
     const modelId =
       iter.model_tier === "flash" ? IMAGE_MODEL_FLASH : IMAGE_MODEL_PRO;
     // Source aspect ratio is the one snapped at upload (one of the 10
@@ -257,10 +310,24 @@ export async function runIteration(iterationId: string): Promise<void> {
     // For style_explore iterations the SKETCH wins — `source.aspect_ratio`
     // is still the canvas being completed, the style painting is the
     // reference whose own aspect is irrelevant to output dimensions.
+    //
+    // For style_blend (v3.0): no sketch exists. The output aspect comes
+    // from the FIRST blend style painting's snapped aspect — this is
+    // the documented exception to AGENTS.md §3's "output aspect ==
+    // sketch aspect" invariant. Resolved a few lines below after we
+    // pre-flight-check the blend styles exist.
     const aspectRatio =
-      iter.aspect_ratio_mode === "flip"
-        ? flipAspectRatio(source.aspect_ratio)
-        : source.aspect_ratio;
+      iter.mode === "style_blend"
+        ? await resolveBlendAspectRatio(blendStyleIds, iterationId)
+        : iter.aspect_ratio_mode === "flip"
+          ? flipAspectRatio(source.aspect_ratio)
+          : source.aspect_ratio;
+    if (aspectRatio === null) {
+      // Couldn't resolve a blend aspect (first style missing). Hard-fail
+      // the iteration — blend with no usable references is meaningless.
+      updateIterationStatus(iterationId, "failed", Date.now());
+      return;
+    }
     // SDK expects "1K" | "2K" | "4K" (uppercase). DB column is "1k" | "4k".
     const imageSize = iter.resolution.toUpperCase();
 
@@ -295,11 +362,13 @@ export async function runIteration(iterationId: string): Promise<void> {
     const promptText =
       iter.mode === "style_explore"
         ? buildStyleExplorePrompt(aspectRatio)
-        : buildPrompt({
-            presets,
-            aspectRatio,
-            withStyleReference: promptModeHasStyleRef,
-          });
+        : iter.mode === "style_blend"
+          ? buildStyleBlendPrompt(aspectRatio)
+          : buildPrompt({
+              presets,
+              aspectRatio,
+              withStyleReference: promptModeHasStyleRef,
+            });
 
     // TEMP DEBUG (remove after Ambiance v8 deploy verification): on any iteration
     // that includes 'ambiance', log the Railway commit SHA + the rendered prompt
@@ -381,39 +450,76 @@ export async function runIteration(iterationId: string): Promise<void> {
       }
     }
 
+    // v3.0 Style Blend: pre-fetch ALL N blend style bytes in order.
+    // Different failure mode from style_explore — blend is a single
+    // creative operation that needs every reference to make sense, so
+    // if ANY blend style is missing or its R2 GET fails, we hard-fail
+    // the iteration (vs style_explore's per-tile graceful skip).
+    const blendStyleBase64s: string[] = [];
+    if (iter.mode === "style_blend") {
+      for (const sid of blendStyleIds) {
+        const sp = getStylePainting(sid);
+        if (!sp) {
+          console.error(
+            `[runIteration ${iterationId}] blend_style ${sid} missing — failing iteration`,
+          );
+          updateIterationStatus(iterationId, "failed", Date.now());
+          return;
+        }
+        try {
+          const bytes = await getObject(sp.input_image_key);
+          blendStyleBase64s.push(bytes.toString("base64"));
+        } catch (e) {
+          console.error(
+            `[runIteration ${iterationId}] r2.getObject failed for blend style ${sid}:`,
+            e instanceof Error ? e.message : e,
+          );
+          updateIterationStatus(iterationId, "failed", Date.now());
+          return;
+        }
+      }
+    }
+
     updateIterationStatus(iterationId, "running");
     bus.emit(iterationId, { type: "started" });
 
     const results = await Promise.all(
       tileRows.map((t) => {
-        // Resolve the per-tile second-image bytes (style painting). NULL
-        // for prompt-mode tiles WITHOUT a style_painting_id (the inner
-        // runOneTile then builds the single-image parts array — the v1
-        // default behavior). For style_explore tiles AND prompt-mode
-        // tiles spawned from the "Iterate on this direction" handoff,
-        // tile.style_painting_id drives the second image input.
-        // For tiles that lost their style ref between materialization
-        // and worker run (style was hard-deleted mid-flight), fall
-        // through with NULL too — the prompt's "image two" anchor then
-        // has no image to bind, and Pro's response will most often fail
-        // extraction at the bytes-sniff step (caught by classifyError).
-        // Cleaner alternative would be a pre-flight failure mark, but
-        // the fall-through is one less branch + the error_message will
-        // surface to the user either way.
-        const styleBase64 = t.style_painting_id
-          ? styleBytesByPainting.get(t.style_painting_id) ?? null
-          : null;
+        // Compose the per-tile imageBase64s array. Three branches:
+        //   1. style_blend: every tile uses the SAME N blend style
+        //      bytes (sketch is irrelevant; not in parts[]). Pre-
+        //      fetched above; just reuse.
+        //   2. style_explore / prompt-handoff: [sketch, style] — sketch
+        //      first, style second per the locked directive's "image
+        //      one / image two" anchoring.
+        //   3. plain prompt mode: [sketch] only.
+        // For tiles whose style ref was hard-deleted mid-flight (case 2
+        // only — case 1 hard-fails the iteration above), fall through
+        // with sketch-only. Pro will likely fail extraction at the
+        // bytes-sniff step (caught by classifyError) but the
+        // error_message surfaces to the user either way.
+        let imageBase64s: string[];
+        if (iter.mode === "style_blend") {
+          imageBase64s = blendStyleBase64s;
+        } else {
+          // inputBase64 is guaranteed non-null here (we hard-returned
+          // above if the source bytes fetch failed for non-blend modes).
+          const sketchB64 = inputBase64 as string;
+          const styleB64 = t.style_painting_id
+            ? styleBytesByPainting.get(t.style_painting_id) ?? null
+            : null;
+          imageBase64s = styleB64 ? [sketchB64, styleB64] : [sketchB64];
+        }
         return runOneTile(
           iterationId,
           t.id,
           t.idx,
-          inputBase64,
+          imageBase64s,
           modelId,
           aspectRatio,
           imageSize,
           promptText,
           recoveryHits.get(t.idx),
-          styleBase64,
         ).catch((e): TileRunResult => {
           // Defensive: runOneTile already swallows its own errors. This is for the
           // truly unexpected (e.g., the catch handler itself throwing).

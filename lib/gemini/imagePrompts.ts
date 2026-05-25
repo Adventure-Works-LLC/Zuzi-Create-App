@@ -630,11 +630,14 @@ export interface BuildPromptArgs {
    * Iteration mode. 'prompt' (default) runs the existing preset-driven
    * dominator ladder; 'style_explore' returns the locked Krea-validated
    * multi-image directive (see `STYLE_EXPLORE_DIRECTIVE` above) and
-   * IGNORES the presets array entirely. Variation in style_explore mode
-   * comes from swapping the second image input per tile, not from text.
+   * IGNORES the presets array entirely. 'style_blend' (v3.0) returns
+   * the locked STYLE_BLEND_DIRECTIVE — same short-circuit pattern,
+   * also ignores presets. Variation across tiles comes from swapping
+   * the second image input (style_explore) or pure temperature 1.0
+   * stochasticity (style_blend), not from text.
    * See AGENTS.md §13 for the mode contract.
    */
-  mode?: "prompt" | "style_explore";
+  mode?: "prompt" | "style_explore" | "style_blend";
   /**
    * v2.4: when true (mode='prompt' only), prepends a single sentence
    * acknowledging the second image input is a style reference. Set on
@@ -674,6 +677,18 @@ export function buildPrompt({
   //    pass the smoke gate are the bytes production serves.
   if (mode === "style_explore") {
     return buildStyleExplorePrompt(aspectRatio);
+  }
+
+  // 0b. v3.0 Style Blend mode — same short-circuit pattern. Presets
+  //     ignored; variation comes from temperature 1.0 stochasticity
+  //     across tiles that share the same N style inputs. Worker also
+  //     calls buildStyleBlendPrompt directly without routing through
+  //     buildPrompt (see runIteration.ts), so this branch is the
+  //     defense-in-depth path against any future "unified entry"
+  //     refactor — without it, mode='style_blend' would fall through
+  //     to the v0 freeform "make this beautiful" prompt silently.
+  if (mode === "style_blend") {
+    return buildStyleBlendPrompt(aspectRatio);
   }
 
   // Helper that wraps the existing body-output with the optional

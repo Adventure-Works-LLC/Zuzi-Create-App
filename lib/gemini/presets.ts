@@ -45,8 +45,28 @@ export function parseBlendStyleIdsJson(
 ): string[] {
   try {
     const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter((v): v is string => typeof v === "string");
+    if (!Array.isArray(parsed)) {
+      if (context) {
+        console.warn(
+          `[parseBlendStyleIdsJson ${context}] blend_style_ids JSON was not an array (got ${typeof parsed}); falling back to []`,
+        );
+      }
+      return [];
+    }
+    const filtered = parsed.filter(
+      (v): v is string => typeof v === "string",
+    );
+    // Surface partial corruption: route input validation rejects
+    // non-string entries up front, so this branch only fires for
+    // manually-edited or backup-restored rows. Logging here makes
+    // corruption visible in tails so it doesn't silently change the
+    // worker's behavior.
+    if (context && filtered.length !== parsed.length) {
+      console.warn(
+        `[parseBlendStyleIdsJson ${context}] dropped ${parsed.length - filtered.length} non-string entries from blend_style_ids; corrupted DB row?`,
+      );
+    }
+    return filtered;
   } catch (e) {
     if (context) {
       console.warn(

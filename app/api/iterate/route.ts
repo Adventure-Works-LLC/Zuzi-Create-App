@@ -252,15 +252,32 @@ export async function POST(req: Request): Promise<Response> {
   // InputBar's Aspect toggle.
   const aspectRatioMode =
     body.aspectRatioMode === "flip" ? "flip" : "match";
-  // mode default 'prompt' preserves v1 behavior for any client/request
-  // that doesn't know about the new field. Three valid values; anything
-  // else falls through to 'prompt' as a defensive default.
-  const mode =
-    body.mode === "style_explore"
-      ? "style_explore"
-      : body.mode === "style_blend"
-        ? "style_blend"
-        : "prompt";
+  // mode default 'prompt' preserves v1 behavior for clients that don't
+  // know about the new field (missing mode → 'prompt'). But an
+  // explicitly-present unknown value (e.g. typo 'style_blanded') gets
+  // rejected with a clear 400 instead of silently coercing to 'prompt'
+  // — the prior silent-coerce path produced a misleading cascade where
+  // the user got an "X requires mode=Y" error mentioning the mode they
+  // thought they sent. Use the body's presence (vs missing) to
+  // distinguish defaults from typos.
+  let mode: "prompt" | "style_explore" | "style_blend";
+  if (body.mode === undefined || body.mode === null) {
+    mode = "prompt";
+  } else if (
+    body.mode === "prompt" ||
+    body.mode === "style_explore" ||
+    body.mode === "style_blend"
+  ) {
+    mode = body.mode;
+  } else {
+    return NextResponse.json(
+      {
+        error: "invalid_mode",
+        detail: `mode must be one of: prompt, style_explore, style_blend (got ${JSON.stringify(body.mode).slice(0, 60)})`,
+      },
+      { status: 400 },
+    );
+  }
   const parentTileId =
     typeof body.parentTileId === "string" && body.parentTileId.length > 0
       ? body.parentTileId
@@ -415,85 +432,21 @@ export async function POST(req: Request): Promise<Response> {
     }
   }
 
-  // v2.4: validate stylePaintingId references an existing row (same
-  // RESTRICT-default concern as parentTileId — the FK was added via
-  // ALTER ADD COLUMN so SQLite WON'T reject an unknown id at insert
-  // time; a typo'd id would dangle on every tile of the iteration and
-  // surface as worker R2 fetch failures. Do the existence check up
-  // front so the user sees a clean 404 instead.
-  if (stylePaintingId !== null) {
-    const sp = getStylePainting(stylePaintingId);
-    if (!sp) {
-      return NextResponse.json(
-        {
-          error: "style_painting_not_found",
-          detail: `no style_painting with id ${stylePaintingId}`,
-        },
-        { status: 404 },
-      );
-    }
-  }
-
-  // v3.0: validate every blendStylePaintingId references an existing
-  // row. The JSON column isn't a FK at all (it's a stringified array),
-  // so the worker would otherwise discover missing rows only when
-  // trying to fetch their R2 bytes — by then the iteration is
-  // half-created. Pre-flight 404 keeps the user-visible failure clean.
-  if (blendStylePaintingIds) {
-    for (const sid of blendStylePaintingIds) {
-      const sp = getStylePainting(sid);
-      if (!sp) {
-        return NextResponse.json(
-          {
-            error: "style_painting_not_found",
-            detail: `no style_painting with id ${sid}`,
-          },
-          { status: 404 },
-        );
-      }
-    }
-  }
-
-  // Validate parentTileId references an existing tile if set. The FK on
-  // iterations.parent_tile_id was added via ALTER TABLE ADD COLUMN so
-  // SQLite WON'T reject a bad reference at insert time (FK enforcement
-  // for ALTER-added FKs is best-effort in SQLite). The route does the
-  // existence check explicitly so a typo'd id surfaces as a clean 400
-  // rather than a dangling DB pointer.
+  // Check ordering rationale: cheap checks first, expensive last.
+  //   1. Idempotency       — fast-exit on retry
+  //   2. Source existence  — 1 DB read; required by every mode
+  //   3. Cap check         — 1 DB read (usage sum); reject capped users
+  //                          before they pay for style-id existence reads
+  //   4. Style id existence — N DB reads (up to 4 for blend); validates
+  //                          FK targets that the schema can't enforce
+  //                          (parent_tile_id + blend JSON aren't real FKs)
+  //   5. Insert
   //
-  // Three constraints, all checked here:
-  //   1. The tile row exists.
-  //   2. The tile is ACTIVE (not soft-deleted) — otherwise the
-  //      provenance link points at a tile every UI surface filters
-  //      out. The lightbox breadcrumb would dereference to nothing.
-  //   3. The parent tile's iteration lives on the same `sourceId` we're
-  //      iterating against. The "Iterate on this direction" handoff UI
-  //      always fires intra-source (the spawned iteration uses the
-  //      current source); cross-source provenance creates a graph the
-  //      UI can't render coherently.
-  if (parentTileId !== null) {
-    const parent = getTile(parentTileId);
-    if (!parent || parent.deleted_at !== null) {
-      return NextResponse.json(
-        {
-          error: "parent_tile_not_found",
-          detail: `no active tile with id ${parentTileId}`,
-        },
-        { status: 404 },
-      );
-    }
-    const parentIter = getIteration(parent.iteration_id);
-    if (!parentIter || parentIter.source_id !== sourceId) {
-      return NextResponse.json(
-        {
-          error: "parent_tile_cross_source",
-          detail:
-            "parentTileId must reference a tile whose iteration is on the same sourceId",
-        },
-        { status: 400 },
-      );
-    }
-  }
+  // Earlier versions of this route did the style-id existence checks
+  // BEFORE the cap check. A capped user pays N+1 DB reads to learn they
+  // can't generate — wasteful and confusing if the response is "you're
+  // capped" while the route just spent time validating ids that never
+  // get used.
 
   // Idempotency: if a row already exists for this request_id, return it.
   const existing = findIterationByRequestId(requestId);
@@ -548,6 +501,80 @@ export async function POST(req: Request): Promise<Response> {
       },
       { status: 429 },
     );
+  }
+
+  // Style-id existence checks. These run AFTER the cap check so capped
+  // users don't pay N DB reads. The FK targets aren't enforced by
+  // SQLite (parent_tile_id added via ALTER → no SET NULL enforcement;
+  // blend_style_ids is JSON not a real FK), so we check at the route
+  // layer — otherwise a typo'd id dangles on every tile of the
+  // iteration and surfaces as worker R2 fetch failures.
+
+  // v2.4: single stylePaintingId for the prompt-mode handoff.
+  if (stylePaintingId !== null) {
+    const sp = getStylePainting(stylePaintingId);
+    if (!sp) {
+      return NextResponse.json(
+        {
+          error: "style_painting_not_found",
+          detail: `no style_painting with id ${stylePaintingId}`,
+        },
+        { status: 404 },
+      );
+    }
+  }
+
+  // v3.0: validate every blendStylePaintingId references an existing
+  // row. Pre-flight 404 keeps the user-visible failure clean — vs the
+  // worker discovering missing rows mid-flight.
+  if (blendStylePaintingIds) {
+    for (const sid of blendStylePaintingIds) {
+      const sp = getStylePainting(sid);
+      if (!sp) {
+        return NextResponse.json(
+          {
+            error: "style_painting_not_found",
+            detail: `no style_painting with id ${sid}`,
+          },
+          { status: 404 },
+        );
+      }
+    }
+  }
+
+  // v2.4: parentTileId existence + soft-delete + cross-source check.
+  // Three constraints, all checked here:
+  //   1. The tile row exists.
+  //   2. The tile is ACTIVE (not soft-deleted) — otherwise the
+  //      provenance link points at a tile every UI surface filters
+  //      out. The lightbox breadcrumb would dereference to nothing.
+  //   3. The parent tile's iteration lives on the same `sourceId` we're
+  //      iterating against. The "Iterate on this direction" handoff UI
+  //      always fires intra-source (the spawned iteration uses the
+  //      current source); cross-source provenance creates a graph the
+  //      UI can't render coherently.
+  if (parentTileId !== null) {
+    const parent = getTile(parentTileId);
+    if (!parent || parent.deleted_at !== null) {
+      return NextResponse.json(
+        {
+          error: "parent_tile_not_found",
+          detail: `no active tile with id ${parentTileId}`,
+        },
+        { status: 404 },
+      );
+    }
+    const parentIter = getIteration(parent.iteration_id);
+    if (!parentIter || parentIter.source_id !== sourceId) {
+      return NextResponse.json(
+        {
+          error: "parent_tile_cross_source",
+          detail:
+            "parentTileId must reference a tile whose iteration is on the same sourceId",
+        },
+        { status: 400 },
+      );
+    }
   }
 
   // Insert iteration + N pending tiles atomically. UNIQUE on request_id catches
@@ -624,6 +651,12 @@ export async function POST(req: Request): Promise<Response> {
           aspectRatioMode: reread.aspect_ratio_mode,
           mode: reread.mode,
           parentTileId: reread.parent_tile_id,
+          // v3.0 blend echo — must mirror the early-return branch above.
+          // Asymmetric replay shapes (one branch echoes, the other
+          // doesn't) were flagged by reviewer; the comment above
+          // ("Both replay paths must echo the SAME field set") was
+          // load-bearing — this catch branch was missing it.
+          blendStyleIds: parseBlendStyleIdsJson(reread.blend_style_ids),
         },
         { status: 200 },
       );

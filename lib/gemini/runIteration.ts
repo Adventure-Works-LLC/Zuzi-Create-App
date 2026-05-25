@@ -33,6 +33,7 @@ import { parseBlendStyleIdsJson, parseStoredPresets } from "./presets";
 import * as bus from "../bus";
 import { costForCompletedIteration } from "../cost";
 import {
+  failPendingTilesForIteration,
   getIteration,
   getSource,
   getStylePainting,
@@ -51,6 +52,39 @@ const THUMB_WEBP_QUALITY = 80;
 interface TileRunResult {
   idx: number;
   ok: boolean;
+}
+
+/**
+ * Mark an iteration's status as 'failed' AND sweep every still-pending
+ * tile to 'failed' with the same error message. Used by every worker
+ * hard-fail early-return so the UI never sees an iteration='failed' +
+ * tiles='pending' combination (which renders as permanently-loading
+ * tiles under a terminal-status row — looks broken).
+ *
+ * Also emits a per-tile bus event for every swept tile so any
+ * subscribed SSE client updates without waiting for the next /api/
+ * iterations refetch. Idempotent — re-running on an already-failed
+ * iteration is safe (failPendingTilesForIteration filters on
+ * status='pending').
+ */
+function hardFailIteration(iterationId: string, errorMessage: string): void {
+  // Snapshot the pending tiles BEFORE the DB sweep so we know which
+  // ids to emit events for.
+  const pendingTiles = tilesFor(iterationId).filter(
+    (t) => t.status === "pending",
+  );
+  failPendingTilesForIteration(iterationId, errorMessage);
+  updateIterationStatus(iterationId, "failed", Date.now());
+  const truncated = errorMessage.slice(0, 500);
+  for (const t of pendingTiles) {
+    bus.emit(iterationId, {
+      type: "tile",
+      id: t.id,
+      idx: t.idx,
+      status: "failed",
+      error: truncated,
+    });
+  }
 }
 
 /**
@@ -261,7 +295,10 @@ export async function runIteration(iterationId: string): Promise<void> {
       console.error(
         `[runIteration ${iterationId}] source not found: ${iter.source_id}`,
       );
-      updateIterationStatus(iterationId, "failed", Date.now());
+      hardFailIteration(
+        iterationId,
+        `source not found: ${iter.source_id}`,
+      );
       return;
     }
 
@@ -286,11 +323,12 @@ export async function runIteration(iterationId: string): Promise<void> {
       try {
         inputBuffer = await getObject(source.input_image_key);
       } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
         console.error(
           `[runIteration ${iterationId}] r2.getObject failed:`,
-          e instanceof Error ? e.message : e,
+          msg,
         );
-        updateIterationStatus(iterationId, "failed", Date.now());
+        hardFailIteration(iterationId, `source r2 fetch failed: ${msg}`);
         return;
       }
       inputBase64 = inputBuffer.toString("base64");
@@ -325,7 +363,10 @@ export async function runIteration(iterationId: string): Promise<void> {
     if (aspectRatio === null) {
       // Couldn't resolve a blend aspect (first style missing). Hard-fail
       // the iteration — blend with no usable references is meaningless.
-      updateIterationStatus(iterationId, "failed", Date.now());
+      hardFailIteration(
+        iterationId,
+        "blend style missing (could not resolve output aspect ratio)",
+      );
       return;
     }
     // SDK expects "1K" | "2K" | "4K" (uppercase). DB column is "1k" | "4k".
@@ -455,26 +496,44 @@ export async function runIteration(iterationId: string): Promise<void> {
     // creative operation that needs every reference to make sense, so
     // if ANY blend style is missing or its R2 GET fails, we hard-fail
     // the iteration (vs style_explore's per-tile graceful skip).
+    //
+    // Skip the prefetch entirely when no tile actually needs to call
+    // Gemini — i.e. every pending tile is in recoveryHits (boot-time
+    // replay where R2 puts + recovery.jsonl appends succeeded but the
+    // DB updates never landed; rehydration bypasses Gemini). Saves
+    // N R2 GETs on every full-recovery boot replay of a blend
+    // iteration. Mirrors the `if (recoveryHits.has(t.idx)) continue`
+    // guard in the style_explore prefetch loop above.
+    const blendPendingNonRecoveredCount = tileRows.filter(
+      (t) => t.status === "pending" && !recoveryHits.has(t.idx),
+    ).length;
     const blendStyleBase64s: string[] = [];
-    if (iter.mode === "style_blend") {
+    if (iter.mode === "style_blend" && blendPendingNonRecoveredCount > 0) {
       for (const sid of blendStyleIds) {
         const sp = getStylePainting(sid);
         if (!sp) {
           console.error(
             `[runIteration ${iterationId}] blend_style ${sid} missing — failing iteration`,
           );
-          updateIterationStatus(iterationId, "failed", Date.now());
+          hardFailIteration(
+            iterationId,
+            `blend style ${sid} missing at worker time`,
+          );
           return;
         }
         try {
           const bytes = await getObject(sp.input_image_key);
           blendStyleBase64s.push(bytes.toString("base64"));
         } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
           console.error(
             `[runIteration ${iterationId}] r2.getObject failed for blend style ${sid}:`,
-            e instanceof Error ? e.message : e,
+            msg,
           );
-          updateIterationStatus(iterationId, "failed", Date.now());
+          hardFailIteration(
+            iterationId,
+            `blend style ${sid} r2 fetch failed: ${msg}`,
+          );
           return;
         }
       }
@@ -564,7 +623,16 @@ export async function runIteration(iterationId: string): Promise<void> {
       e instanceof Error ? e.message : e,
     );
     try {
-      updateIterationStatus(iterationId, "failed", Date.now());
+      // Use the helper so any still-pending tile rows are also swept to
+      // 'failed' — the orchestration catch fires when the iteration
+      // setup itself crashed (e.g., tilesFor threw), in which case the
+      // per-tile try/catch in runOneTile never got to mark tiles
+      // failed. Without the sweep the UI shows iteration='failed' +
+      // tiles='pending' = permanent loading animation.
+      hardFailIteration(
+        iterationId,
+        e instanceof Error ? e.message : String(e),
+      );
     } catch (innerErr) {
       console.error(
         `[runIteration ${iterationId}] failed to mark iteration failed in cleanup:`,

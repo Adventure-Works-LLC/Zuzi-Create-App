@@ -73,6 +73,10 @@ export async function GET(req: Request): Promise<Response> {
         // prompt-mode tiles spawned via the handoff). NULL for plain
         // prompt-mode tiles, in which case the v1 toolbar applies.
         stylePaintingId: r.style_painting_id,
+        // v3.1: iteration mode. Lightbox uses this to detect blend
+        // tiles (style_blend) and hide Compare — blend doesn't use
+        // the source as input, so a before/after pair is misleading.
+        iterationMode: r.mode,
       })),
     },
     { status: 200 },

@@ -52,6 +52,10 @@ interface FavoriteRow {
    *  builds against new servers don't crash; missing = null (the v1
    *  default, no swap). */
   stylePaintingId?: string | null;
+  /** v3.1: iteration mode. Threaded into LightboxSnapshot so the
+   *  Lightbox can detect blend tiles (style_blend) and hide Compare
+   *  (no source-based transform relationship exists for blend). */
+  iterationMode?: "prompt" | "style_explore" | "style_blend";
 }
 
 /** Effective aspect ratio for a favorite — flips if the iteration was
@@ -252,6 +256,13 @@ export function FavoritesPanel() {
                       // for plain prompt-mode favorites, in which case
                       // the v1 toolbar applies.
                       stylePaintingId: fav.stylePaintingId ?? null,
+                      // v3.1: thread iteration mode through so the
+                      // Lightbox can hide Compare for blend tiles
+                      // (mode='style_blend' has no source-input
+                      // relationship). Default 'prompt' for missing
+                      // / pre-v3 server responses — preserves v2
+                      // behavior on older builds.
+                      iterationMode: fav.iterationMode ?? "prompt",
                     });
                   }}
                   className="block focus:outline-none focus:ring-2 focus:ring-accent rounded-md no-callout"

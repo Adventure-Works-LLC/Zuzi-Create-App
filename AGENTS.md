@@ -47,6 +47,15 @@ For every image generation call:
 
 Any image-generation entry point that calls Gemini without all three steps is a bug.
 
+**v3.0 exception — Style Blend mode.** The `style_blend` iteration mode
+(see §14) takes N style paintings as input but no sketch — there's no
+"input image" whose aspect should be preserved. The output aspect comes
+from the FIRST blend style's snapped aspect (`resolveBlendAspectRatio`
+in `lib/gemini/runIteration.ts`). The user opts into this exception by
+entering blend mode at all — the operation is "create something new",
+not "transform this painting". Steps 1-3 still hold for the resolved
+aspect; only the source of the aspect changes.
+
 ## 4. "Make this beautiful" tool — and the session loop
 
 This is a "make this beautiful" tool. The model is given the input painting and asked to
@@ -919,7 +928,114 @@ sticky red banner and auto-fires Stop.
   - `scripts/smoke-style.ts` — the v2.0 standalone gate; re-imports
     `STYLE_EXPLORE_DIRECTIVE` so smoke bytes equal production bytes.
 
-## 14. When changing this file
+## 14. Style Blend mode (v3.0)
+
+Third creative-direction surface in Studio. Where prompt mode is preset-
+driven and Style Explore (§13) is sketch + ONE style per tile, Style
+Blend is N styles (2..MAX_BLEND_STYLES) → ONE new painting that fuses
+their best aspects. **No sketch input.** Pro invents subject + composition
++ palette from the references alone.
+
+Plan source-of-truth: `/Users/jeff/.claude/plans/i-want-to-make-cheerful-orbit.md`.
+
+### Schema delta (migration 0007)
+
+- **`iterations.mode`** grows `'style_blend'` (text enum column;
+  enum lives in Drizzle types + the route's body parser).
+- **`iterations.blend_style_ids`** — TEXT JSON array. Stored on the
+  iteration (not per-tile) because every tile in a blend run uses the
+  SAME N styles. `tiles.style_painting_id` stays NULL for blend tiles.
+  No FK enforcement (JSON column); existence is checked at the route +
+  the worker hard-fails if any style is missing at run time.
+
+### The locked directive
+
+```
+Make a new painting using the best aspects of these reference paintings,
+maintaining their styles and intent.
+```
+
+Lives in `lib/gemini/imagePrompts.ts` as `STYLE_BLEND_DIRECTIVE`.
+Verbatim from Jeff's feature request — intentionally trusts Pro's
+judgment of "best combination" without the elaborate constraint
+language Color v4 / Background v5 use. If outputs drift toward
+generic / averaged / collaged results in production, the next
+iteration can add anti-language per the lesson-#1 pattern.
+
+Build canary in `scripts/check-prompts.ts` locks the opener phrase
+"Make a new painting using the best aspects" + asserts the constant
+appears in `buildStyleBlendPrompt`'s output.
+
+### Mode contract — invariants
+
+1. **No sketch input.** The parts array sent to Gemini is
+   `[style1, style2, ..., styleN, text]` — N styles in user-selection
+   order, then the directive. The worker skips the source bytes fetch
+   entirely for blend iterations (the iteration row still anchors to
+   `source_id` for cascade + history, but the source bytes are not in
+   `parts[]`).
+2. **Output aspect = first blend style's aspect** — documented
+   exception to §3 (no sketch exists). `resolveBlendAspectRatio` is
+   the single place this decision lives.
+3. **Per-iteration attribution, not per-tile.** `tiles.style_painting_id`
+   is always NULL for blend tiles. The N styles live on
+   `iterations.blend_style_ids`. IterationRow renders a "Blend of
+   [N thumbs]" row above the tile grid.
+4. **Lightbox hides Compare for blend tiles.** Blend doesn't have a
+   single source-input relationship — Compare-with-source would
+   render a misleading before/after pair. Use-as-source still
+   available (a blend tile can become a new sketch). "Iterate on
+   this direction" + "More like this" hide because `stylePaintingId`
+   is null.
+5. **Hard-fail iteration if any blend style is missing at worker
+   time.** Different from style_explore's per-tile graceful skip —
+   blend with a missing reference is meaningless. `hardFailIteration`
+   sweeps every pending tile to `'failed'` with the same error
+   message so the UI never shows iteration=failed + tiles=pending.
+6. **Cross-field validation at the route.** `mode='style_blend'`
+   REQUIRES `blendStylePaintingIds: string[]` length [2, MAX_BLEND_STYLES],
+   no duplicates. REJECTS `stylePaintingIds`, `stylePaintingId`,
+   `parentTileId`.
+
+### Cost
+
+`MAX_BLEND_STYLES = 4` (defined in `lib/gemini/imagePrompts.ts`). Cap
+chosen because Pro's reasoning over N>4 reference inputs is unexplored
++ likely muddy. Per-tile cost = `pricePerImage(tier, '1k')`; default
+3 tiles per blend submission. Multi-image input may carry additional
+Gemini token cost not currently modeled in `lib/cost.ts` — re-verify
+against pricing docs if production usage feels expensive.
+
+### Critical files
+
+- `lib/gemini/imagePrompts.ts` — `STYLE_BLEND_DIRECTIVE`,
+  `buildStyleBlendPrompt(aspectRatio)`, `MAX_BLEND_STYLES`,
+  `buildPrompt` early-return on mode='style_blend'.
+- `lib/gemini/runIteration.ts` — mode branch, no-sketch path,
+  `resolveBlendAspectRatio`, blend bytes prefetch with full-recovery
+  skip, `hardFailIteration` sweep.
+- `lib/db/queries.ts` — `failPendingTilesForIteration` helper for the
+  hard-fail sweep + `FavoriteRow.mode` field.
+- `lib/gemini/presets.ts` — `parseBlendStyleIdsJson` shared parser
+  with corruption-warning logs.
+- `app/api/iterate/route.ts` — request body grows
+  `blendStylePaintingIds` + `parseBlendStylePaintingIds` validator
+  (reject duplicates, length [2, MAX_BLEND_STYLES]) + cross-field
+  validation matrix + idempotent replay echo on both branches +
+  ordering: idempotency → source check → cap → existence checks.
+- `app/api/iterations/route.ts` + `app/api/favorites/route.ts` —
+  responses grow `iteration.blendStyleIds` and `favorite.iterationMode`.
+- `components/krea/StylesPanel.tsx` — blend-mode state machine
+  (selection + cap + action bar), tap-to-select cards with numbered
+  badges.
+- `components/krea/IterationRow.tsx` — per-iteration blend
+  attribution row.
+- `components/krea/Lightbox.tsx` — Compare hides for blend tiles via
+  `view.iterationMode === 'style_blend'` short-circuit.
+- `scripts/check-prompts.ts` — 3 new canaries for the locked
+  directive (opener, constant-equality, aspect sentence).
+
+## 15. When changing this file
 
   - If you're adding a new architectural contract: add a numbered section
     at the bottom. Keep each section focused on one durable rule.

@@ -385,6 +385,35 @@ export const IterationRow = memo(function IterationRow({
         </p>
       )}
 
+      {/* v3.1: per-iteration blend attribution. Blend iterations
+          carry their N style ids on `iteration.blendStyleIds`, not
+          on individual tiles (every tile in a blend run uses the
+          SAME N styles — the variation comes from temperature
+          stochasticity). Render the attribution ONCE per iteration
+          above the tile row so the user can see what styles drove
+          the blend. Same "no overlay on the painting surface" rule
+          (see Tile.tsx header) — sits in its own slot. */}
+      {iteration.mode === "style_blend" &&
+        iteration.blendStyleIds.length > 0 && (
+          <div
+            className="flex flex-wrap items-center gap-2 px-1"
+            aria-label="Blend reference styles"
+          >
+            <span className="caption-display text-xs uppercase tracking-[0.18em] text-text-mute">
+              Blend of
+            </span>
+            <div className="flex flex-wrap gap-2">
+              {iteration.blendStyleIds.map((spId) => (
+                <StyleAttributionThumb
+                  key={spId}
+                  stylePaintingId={spId}
+                  size={32}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
       <div className="flex flex-wrap gap-3">
         {iteration.tiles.map((tile) => (
           <div key={tile.id} className="flex-none" style={TILE_WIDTH_STYLE}>
@@ -400,7 +429,10 @@ export const IterationRow = memo(function IterationRow({
                 the "Iterate on this direction" handoff (the handoff
                 copies the single stylePaintingId onto every tile of
                 the new iteration). Sits BELOW the tile's action row
-                per the no-overlay rule (see Tile.tsx header). */}
+                per the no-overlay rule (see Tile.tsx header).
+                Blend tiles always have stylePaintingId=null —
+                their attribution is rendered ONCE for the whole
+                iteration row above. */}
             {tile.stylePaintingId && (
               <StyleAttributionThumb
                 stylePaintingId={tile.stylePaintingId}

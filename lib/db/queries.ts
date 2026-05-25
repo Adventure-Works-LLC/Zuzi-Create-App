@@ -307,6 +307,37 @@ export function markStalePendingFailed(thresholdMs: number): number {
   return result.changes;
 }
 
+/**
+ * Sweep every pending tile of an iteration to `failed` with the given
+ * error message. Used by worker hard-fail paths (source missing, blend
+ * style missing, etc.) so the iteration row's terminal `'failed'`
+ * status isn't paired with tile rows stuck in `'pending'` forever —
+ * the UI would show an iteration that's officially failed but whose
+ * tiles still pulse with the loading animation, looking permanently
+ * broken. Returns the number of tile rows touched.
+ *
+ * Idempotent: tiles already in done/failed/blocked are left alone (the
+ * `eq(tiles.status, "pending")` filter). Safe to call multiple times.
+ */
+export function failPendingTilesForIteration(
+  iterationId: string,
+  errorMessage: string,
+): number {
+  const now = Date.now();
+  const result = db()
+    .update(tiles)
+    .set({
+      status: "failed",
+      error_message: errorMessage.slice(0, 500),
+      completed_at: now,
+    })
+    .where(
+      and(eq(tiles.iteration_id, iterationId), eq(tiles.status, "pending")),
+    )
+    .run();
+  return result.changes;
+}
+
 // ---------- tiles ----------
 
 /**
@@ -585,6 +616,12 @@ export interface FavoriteRow {
    *  (and favorited prompt-mode tiles spawned via the handoff). NULL
    *  for plain prompt-mode tiles. */
   style_painting_id: string | null;
+  /** v3.1: iteration mode this tile belongs to. Needed by the
+   *  Lightbox snapshot path to detect blend tiles (style_blend) and
+   *  hide Compare — blend doesn't use the source as input so a
+   *  before/after pair would render a misleading transform
+   *  relationship. */
+  mode: "prompt" | "style_explore" | "style_blend";
 }
 
 /**
@@ -621,6 +658,7 @@ export function listFavorites(opts: {
       resolution: iterations.resolution,
       aspect_ratio_mode: iterations.aspect_ratio_mode,
       style_painting_id: tiles.style_painting_id,
+      mode: iterations.mode,
     })
     .from(tiles)
     .innerJoin(iterations, eq(iterations.id, tiles.iteration_id))

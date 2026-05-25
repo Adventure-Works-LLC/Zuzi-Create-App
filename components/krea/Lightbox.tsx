@@ -71,6 +71,12 @@ interface LightboxView {
    *  v1-style prompt-mode tiles. Resolved from tile.stylePaintingId
    *  in both by-id and snapshot paths. */
   stylePaintingId: string | null;
+  /** v3.0: iteration mode this tile belongs to. Needed to detect
+   *  blend tiles (where the iteration doesn't use the source as
+   *  input — Compare-with-source would render a misleading "before /
+   *  after" pair that has no actual transform relationship). Compare
+   *  button hides for blend tiles. */
+  iterationMode: "prompt" | "style_explore" | "style_blend";
 }
 
 export function Lightbox() {
@@ -120,6 +126,10 @@ export function Lightbox() {
         // needed; the snapshot path is self-contained.
         sourceInputKey: lightboxSnapshot.sourceInputKey,
         stylePaintingId: lightboxSnapshot.stylePaintingId,
+        // Snapshot grows iterationMode in v3.1 (defaults to 'prompt'
+        // for back-compat with older client builds opening favorites
+        // generated before the field existed).
+        iterationMode: lightboxSnapshot.iterationMode ?? "prompt",
       };
     }
     if (lightboxTileId !== null) {
@@ -143,6 +153,7 @@ export function Lightbox() {
             isFavorite: t.isFavorite,
             sourceInputKey: src?.inputKey ?? null,
             stylePaintingId: t.stylePaintingId,
+            iterationMode: it.mode,
           };
         }
       }
@@ -167,9 +178,20 @@ export function Lightbox() {
   // attribution. Falls back to source for v1-style tiles. The fallback
   // path also handles the "style painting deleted mid-view" case —
   // stylePaintingForView is null and we revert to source-compare.
-  const compareKey: string | null = view?.stylePaintingId
-    ? stylePaintingForView?.inputKey ?? view.sourceInputKey
-    : view?.sourceInputKey ?? null;
+  //
+  // v3.1: blend tiles (mode='style_blend') return NULL — no Compare
+  // button at all. Blend doesn't use the source as input + has no
+  // single style painting to anchor on (it has N), so a "before /
+  // after" pair would render a misleading transform relationship that
+  // doesn't exist. A future v3.x could show an N-thumb side-by-side
+  // panel of the blend's style references; for v3.1 we just hide
+  // Compare.
+  const compareKey: string | null =
+    view?.iterationMode === "style_blend"
+      ? null
+      : view?.stylePaintingId
+        ? stylePaintingForView?.inputKey ?? view.sourceInputKey
+        : view?.sourceInputKey ?? null;
   // useImageUrl no-ops cleanly when the key is null (returns
   // { url: null }), so threading the same hook here is safe even when
   // there's nothing to compare against.

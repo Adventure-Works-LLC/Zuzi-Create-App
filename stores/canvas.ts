@@ -136,6 +136,13 @@ export interface LightboxSnapshot {
    *  painting (not the source). NULL for prompt-mode-without-handoff
    *  tiles. The favorites query joins this column from `tiles`. */
   stylePaintingId: string | null;
+  /** v3.1: iteration mode this tile belongs to. Required by the
+   *  Lightbox to detect blend tiles (mode='style_blend') and hide
+   *  Compare — blend doesn't use the source as input, so a
+   *  before/after pair would be misleading. Optional in the type
+   *  to tolerate older clients opening favorites generated before
+   *  the field existed (Lightbox defaults missing to 'prompt'). */
+  iterationMode?: "prompt" | "style_explore" | "style_blend";
 }
 
 export interface Iteration {

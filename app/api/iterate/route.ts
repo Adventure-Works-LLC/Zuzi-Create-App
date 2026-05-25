@@ -132,7 +132,16 @@ function parseCount(raw: unknown): number {
  * of length [1, TILE_COUNT_MAX], or null when absent. Strings are NOT
  * format-validated as ulids — the worker handles missing rows gracefully
  * via getStylePainting + skip-on-miss, so the validation cost here would
- * mostly be defensive vs. typos. Throws on bad type / out-of-range size. */
+ * mostly be defensive vs. typos. Throws on bad type / out-of-range size.
+ *
+ * Duplicates are INTENTIONALLY accepted, NOT rejected. The v2.7 "More
+ * like this" Lightbox button uses this path with `[id, id, id]` to fire
+ * N pure-variation tiles against the same (sketch + style) pair (the
+ * locked STYLE_EXPLORE_DIRECTIVE produces different outputs at
+ * temperature 1.0 even for identical inputs). The worker already
+ * dedupes the R2 prefetch via Set<string>, so an N-tile drill against
+ * the same style makes ONE R2 GET regardless of N. Don't add a
+ * uniqueness check here — it would break "More like this". */
 function parseStylePaintingIds(raw: unknown): string[] | null {
   if (raw === undefined || raw === null) return null;
   if (!Array.isArray(raw)) throw new Error("stylePaintingIds_must_be_array");

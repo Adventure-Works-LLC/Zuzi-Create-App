@@ -30,7 +30,16 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { Loader2, Star, Share2, X, ArrowUpFromLine, Columns2, Wand2 } from "lucide-react";
+import {
+  ArrowUpFromLine,
+  Columns2,
+  Loader2,
+  Share2,
+  Sparkles,
+  Star,
+  Wand2,
+  X,
+} from "lucide-react";
 
 import { useCanvas } from "@/stores/canvas";
 import { useImageUrl } from "@/hooks/useImageUrl";
@@ -39,6 +48,7 @@ import { useIterations } from "@/hooks/useIterations";
 import { useShare } from "@/hooks/useShare";
 import { useSources } from "@/hooks/useSources";
 import { authFetch } from "@/lib/auth/authFetch";
+import { TILE_COUNT_DEFAULT } from "@/lib/gemini/imagePrompts";
 
 /** Flat view used by the rendering layer regardless of how the lightbox was
  *  opened. `byId` mode (Tile.tsx → walk iterations[]) and `snapshot` mode
@@ -168,7 +178,9 @@ export function Lightbox() {
   const { canShare } = useShare();
   const { promoteFromTile } = useSources();
   const { generate } = useIterations();
-  const [busyAction, setBusyAction] = useState<"share" | "use" | "iterate" | null>(null);
+  const [busyAction, setBusyAction] = useState<
+    "share" | "use" | "iterate" | "more" | null
+  >(null);
   /** Compare-with-Original split layout toggle. Off by default — most
    *  lightbox opens are "tap a tile to look at it", and forcing the user
    *  to dismiss a split view they didn't ask for would be hostile. Resets
@@ -640,6 +652,77 @@ export function Lightbox() {
     }
   };
 
+  /**
+   * v2.7: "More like this" — sibling to "Iterate on this direction"
+   * with a different semantic. Same (sketch + style) pair, but routed
+   * through `mode: 'style_explore'` so the worker uses the locked
+   * Krea-validated directive verbatim — no preset overlay, pure
+   * variation. The duplicate-id array (`[id, id, id]`) is intentional:
+   * the route + worker already handle it (route accepts duplicates by
+   * design — see comment in app/api/iterate/route.ts; worker dedupes
+   * the R2 prefetch via Set so one style image is fetched once
+   * regardless of how many tiles reference it).
+   *
+   * Why distinct from "Iterate on this direction":
+   *   - That fires `mode: 'prompt'` with presets=['avery'] + style as
+   *     second image input → refinement through the Avery painter
+   *     preset on top of the style.
+   *   - This fires `mode: 'style_explore'` with the same style → pure
+   *     variation, no preset. Same prompt bytes Zuzi originally saw +
+   *     liked from the Explore grid.
+   * Both are reachable side-by-side when `view.stylePaintingId` is set;
+   * the user picks "refine" vs "more of the same" per tile.
+   *
+   * Lands in the main Studio TileStream as a fresh style_explore
+   * iteration. parent_tile_id is NOT set — that field is reserved for
+   * the prompt-mode handoff per AGENTS.md §13 invariant 4. Provenance
+   * for "all the tiles I generated against this style" lives on
+   * `tiles.style_painting_id` (every tile of every "more" iteration
+   * carries the same id, so the join is trivial).
+   *
+   * Count = `TILE_COUNT_DEFAULT` (3). Tier inherits from the
+   * InputBar's current setting (Pro by default) — the drill is a
+   * stream-level action, so it takes the stream-level tier choice,
+   * not the ExploreSheet's discovery-oriented Flash default.
+   */
+  const onMoreLikeThis = async () => {
+    if (!view) return;
+    if (!view.stylePaintingId) return;
+    if (view.tileId.startsWith("opt-")) {
+      setActionError(
+        "Optimistic tile not yet finalized — wait a moment and try again.",
+      );
+      return;
+    }
+    setBusyAction("more");
+    setActionError(null);
+    try {
+      const result = await generate({
+        mode: "style_explore",
+        stylePaintingIds: Array(TILE_COUNT_DEFAULT).fill(view.stylePaintingId),
+      });
+      if (!result) {
+        setActionError(
+          "Couldn't start the run — check the input bar for the error.",
+        );
+        return;
+      }
+      // Same dismiss pattern as onIterateOnThisDirection so the user
+      // lands back in the Studio stream watching the new iteration
+      // arrive. Both surfaces close: Lightbox + ExploreSheet (if open
+      // behind) + FavoritesPanel (if the lightbox was opened from a
+      // favorited tile in snapshot mode).
+      closeLightbox();
+      useCanvas.getState().setExploreSheetOpen(false);
+      setFavoritesOpen(false);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setActionError(`Couldn't generate more — ${msg}`);
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
   return (
     <div
       role="dialog"
@@ -771,24 +854,44 @@ export function Lightbox() {
         style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 1rem)" }}
       >
         {view.stylePaintingId ? (
-          // v2.4: style_explore tiles (and prompt-mode tiles spawned
-          // from the prior handoff) get "Iterate on this direction"
-          // instead of "Use as source". The semantic difference is
-          // "carry the style forward + refine" vs. "make this tile the
-          // new sketch". Matches the plan's lightbox contract.
-          <button
-            type="button"
-            onClick={() => void onIterateOnThisDirection()}
-            disabled={!url || busyAction !== null}
-            className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/5 px-4 py-2 text-sm text-white hover:bg-white/10 transition-colors disabled:opacity-50 no-callout"
-          >
-            {busyAction === "iterate" ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Wand2 className="h-4 w-4" strokeWidth={1.5} />
-            )}
-            Iterate on this direction
-          </button>
+          // v2.4 + v2.7: style_explore tiles (and prompt-mode tiles
+          // spawned via prior handoff) get TWO paired toolbar actions
+          // instead of "Use as source". The semantic split is
+          // intentional: "Iterate on this direction" is refinement
+          // (Avery painter preset on top of the style); "More like
+          // this" is pure variation (same locked directive, no
+          // preset). Both reuse the same (sketch + style) inputs;
+          // they differ only in whether the preset ladder fires.
+          // Match the plan's lightbox contract + AGENTS.md §13.
+          <>
+            <button
+              type="button"
+              onClick={() => void onIterateOnThisDirection()}
+              disabled={!url || busyAction !== null}
+              className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/5 px-4 py-2 text-sm text-white hover:bg-white/10 transition-colors disabled:opacity-50 no-callout"
+            >
+              {busyAction === "iterate" ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Wand2 className="h-4 w-4" strokeWidth={1.5} />
+              )}
+              Iterate on this direction
+            </button>
+            <button
+              type="button"
+              onClick={() => void onMoreLikeThis()}
+              disabled={!url || busyAction !== null}
+              className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/5 px-4 py-2 text-sm text-white hover:bg-white/10 transition-colors disabled:opacity-50 no-callout"
+              title={`Generate ${TILE_COUNT_DEFAULT} more tiles using the same sketch + style — pure variation, no preset.`}
+            >
+              {busyAction === "more" ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Sparkles className="h-4 w-4" strokeWidth={1.5} />
+              )}
+              More like this
+            </button>
+          </>
         ) : (
           <button
             type="button"

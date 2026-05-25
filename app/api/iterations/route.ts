@@ -94,8 +94,10 @@ export async function GET(req: Request): Promise<Response> {
         // array for every non-blend iteration. The client uses this to
         // render attribution chips on blend tiles (per-iteration; every
         // tile in a blend run shares the same N styles, so there's no
-        // per-tile style_painting_id to read).
-        blendStyleIds: parseBlendStyleIdsJson(it.blend_style_ids),
+        // per-tile style_painting_id to read). `it.id` is passed as
+        // context so corrupted rows surface in tails (matches the
+        // parseStoredPresets context-passing pattern at line 83).
+        blendStyleIds: parseBlendStyleIdsJson(it.blend_style_ids, it.id),
         status: it.status,
         createdAt: it.created_at,
         completedAt: it.completed_at,

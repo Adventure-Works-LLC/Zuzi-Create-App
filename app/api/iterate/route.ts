@@ -475,7 +475,13 @@ export async function POST(req: Request): Promise<Response> {
         // v3.0: echo blend style ids for style_blend iterations. JSON
         // parse here so the client gets a string[] not a stringified
         // JSON array. Empty array for non-blend modes (client ignores).
-        blendStyleIds: parseBlendStyleIdsJson(existing.blend_style_ids),
+        // `existing.id` context is passed so any corrupted JSON in the
+        // DB row surfaces as a warn-log with the iteration id (matches
+        // the parseStoredPresets pattern above).
+        blendStyleIds: parseBlendStyleIdsJson(
+          existing.blend_style_ids,
+          existing.id,
+        ),
       },
       { status: 200 },
     );
@@ -656,7 +662,12 @@ export async function POST(req: Request): Promise<Response> {
           // doesn't) were flagged by reviewer; the comment above
           // ("Both replay paths must echo the SAME field set") was
           // load-bearing — this catch branch was missing it.
-          blendStyleIds: parseBlendStyleIdsJson(reread.blend_style_ids),
+          // Same context-arg rationale as the early-return branch
+          // above — corruption warn-logs reference the iteration id.
+          blendStyleIds: parseBlendStyleIdsJson(
+            reread.blend_style_ids,
+            reread.id,
+          ),
         },
         { status: 200 },
       );

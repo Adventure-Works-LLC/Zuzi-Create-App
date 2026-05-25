@@ -470,6 +470,17 @@ export function useIterations(): UseIterationsResult {
         data.aspectRatioMode === "match" || data.aspectRatioMode === "flip"
           ? data.aspectRatioMode
           : aspectRatioMode;
+      // v3.1: reconcile blendStyleIds on idempotent replay. Server now
+      // echoes the ORIGINAL row's blend selection (both replay branches
+      // post-fix). If the user's retry selected different styles, the
+      // server's selection wins — without this the attribution row in
+      // IterationRow would show the user's intent rather than what the
+      // worker actually used until a /api/iterations refetch.
+      const canonicalBlendStyleIds = Array.isArray(data.blendStyleIds)
+        ? (data.blendStyleIds as string[])
+        : mode === "style_blend" && blendStylePaintingIds
+          ? [...blendStylePaintingIds]
+          : [];
 
       // Swap optimistic id → canonical id, and resize the tile array if the
       // echoed count differs. SSE will replace each tile's synthetic id with
@@ -483,6 +494,7 @@ export function useIterations(): UseIterationsResult {
                 tileCount: canonicalCount,
                 presets: canonicalPresets,
                 aspectRatioMode: canonicalAspectRatioMode,
+                blendStyleIds: canonicalBlendStyleIds,
                 tiles: Array.from({ length: canonicalCount }, (_, idx) => {
                   const existing = it.tiles[idx];
                   return existing

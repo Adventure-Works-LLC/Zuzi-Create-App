@@ -243,6 +243,27 @@ if (!styleBlend.includes("Match the output aspect ratio exactly (4:5)")) {
   );
 }
 
+// And via the unified buildPrompt entrypoint with mode='style_blend' —
+// the presets array must be IGNORED (passing a contradictory preset
+// should not change the output bytes). Parallel to the style_explore
+// equivalence check above. Defense-in-depth: runIteration currently
+// short-circuits BEFORE buildPrompt, but any future "unified entry
+// point" refactor must still route mode='style_blend' to the locked
+// directive — without this canary, a silent re-order of the ladder
+// could fall through to the v0 freeform prompt for blend iterations
+// and the build would still pass.
+const styleBlendViaBuild = buildPrompt({
+  presets: ["color"],
+  aspectRatio: "4:5",
+  mode: "style_blend",
+});
+if (styleBlendViaBuild !== styleBlend) {
+  fail(
+    "[mode=style_blend]",
+    "buildPrompt with mode='style_blend' must equal buildStyleBlendPrompt — presets must be ignored when mode is style_blend",
+  );
+}
+
 // --- 4: dominator routing must fire when combined with other presets ---
 const ambColor = buildPrompt({ presets: ["color", "ambiance"], aspectRatio: "4:5" });
 if (!ambColor.startsWith("This painting is the artist's work-in-progress.")) {
@@ -285,5 +306,5 @@ if (failures.length > 0) {
 }
 
 console.log(
-  `[check-prompts] ok — ${totalRenders} prompt renders across ${combos.length} preset combos × ${RATIOS.length} aspect ratios + 28 canary checks all green.`,
+  `[check-prompts] ok — ${totalRenders} prompt renders across ${combos.length} preset combos × ${RATIOS.length} aspect ratios + 29 canary checks all green.`,
 );

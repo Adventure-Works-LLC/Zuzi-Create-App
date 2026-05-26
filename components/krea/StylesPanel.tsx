@@ -31,7 +31,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ImagePlus, Loader2, Trash2, X } from "lucide-react";
 
 import { useImageUrl } from "@/hooks/useImageUrl";
+import { useIterations } from "@/hooks/useIterations";
 import { useStylePaintings } from "@/hooks/useStylePaintings";
+import { TILE_COUNT_DEFAULT } from "@/lib/gemini/imagePrompts";
 import { useCanvas, type StylePainting } from "@/stores/canvas";
 import { ActionMenu } from "./ActionMenu";
 
@@ -42,24 +44,37 @@ const LONG_PRESS_MS = 450;
 const LONG_PRESS_MOVE_TOLERANCE = 10;
 
 /** One painting in the grid — square thumbnail + optional title caption
- *  underneath. Long-press opens an ActionMenu anchored to the thumb. The
- *  card owns its own busy/error state so a slow Delete on one card
+ *  underneath. Long-press opens an ActionMenu anchored to the thumb (the
+ *  delete-forever destructive path). Tap fires a single-style Explore
+ *  iteration against the current source (v3.7 — see onFire prop). The
+ *  card owns its own busy/error state so a slow operation on one card
  *  doesn't freeze the rest of the grid. */
 function StylePaintingCard({
   row,
   onDelete,
+  onFire,
+  fireDisabled,
+  fireDisabledReason,
 }: {
   row: StylePainting;
   onDelete: () => Promise<void>;
+  /** Called on tap (NOT long-press). Resolves when the iteration POST
+   *  returns + the panel will close. Throws on error. Caller surfaces. */
+  onFire: () => Promise<void>;
+  /** When true, taps are no-ops + the card renders disabled. Reasons:
+   *  no current source, another fire already in-flight. */
+  fireDisabled: boolean;
+  /** Tooltip / aria text explaining why the tap is disabled. */
+  fireDisabledReason?: string;
 }) {
   const { url } = useImageUrl(row.inputKey);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const timerRef = useRef<number | null>(null);
-  // (No longPressFiredRef here — the StylesPanel card has no tap
-  // action in v2.x, so there's no click-after-long-press to suppress.
-  // Compare with SourceStrip's SourceThumb which DOES need this ref
-  // because tap = setCurrentSource. Add the ref back if a v0.2 tap
-  // action lands.)
+  // v3.7: re-added after the v2.7 → v3.0 → v3.4 path landed tap-to-fire.
+  // Once a long-press fires (menu opens at 450ms), the subsequent
+  // pointerup → click bubble must NOT also trigger the fire handler.
+  // Mirrors SourceStrip's SourceThumb gesture pattern.
+  const longPressFiredRef = useRef(false);
   const startPosRef = useRef<{ x: number; y: number } | null>(null);
 
   const [menuOpen, setMenuOpen] = useState(false);
@@ -93,9 +108,11 @@ function StylePaintingCard({
   };
 
   const startPress = (e: React.PointerEvent) => {
+    longPressFiredRef.current = false;
     startPosRef.current = { x: e.clientX, y: e.clientY };
     cancelTimer();
     timerRef.current = window.setTimeout(() => {
+      longPressFiredRef.current = true;
       openMenu();
     }, LONG_PRESS_MS);
   };
@@ -114,6 +131,25 @@ function StylePaintingCard({
   const endPress = () => {
     cancelTimer();
     startPosRef.current = null;
+  };
+
+  // v3.7: tap-to-fire handler. Skips when long-press fired (menu
+  // opened) since the pointerup → click bubble would otherwise also
+  // fire the iteration. Skips when fire is disabled (no source, busy,
+  // or another in-flight). The async onFire is awaited here so a
+  // slow R2 + DB roundtrip surfaces visibly via setBusy.
+  const handleFire = async () => {
+    if (longPressFiredRef.current) return;
+    if (fireDisabled || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await onFire();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
   };
 
   const handleDelete = async () => {
@@ -146,22 +182,30 @@ function StylePaintingCard({
         onPointerUp={endPress}
         onPointerLeave={endPress}
         onPointerCancel={endPress}
-        // Tap (without long-press) is a no-op in v2.1 — there's no
-        // "tap = use this style" affordance yet (that lives in the
-        // ExploreSheet in v2.2). Prevent the implicit click highlight.
-        onClick={(e) => e.preventDefault()}
+        // v3.7: tap fires single-style Explore against current source.
+        // handleFire is async-safe (awaits + catches); the panel-level
+        // onFire prop closes the panel on success.
+        onClick={() => void handleFire()}
         onContextMenu={(e) => e.preventDefault()}
         style={{ touchAction: "manipulation" }}
         className={[
           "relative aspect-square w-full overflow-hidden rounded-md",
-          "ring-1 ring-hairline/50 hover:ring-hairline transition-all",
+          "ring-1 transition-all",
+          fireDisabled
+            ? "ring-hairline/30 cursor-not-allowed opacity-60"
+            : "ring-hairline/50 hover:ring-accent cursor-pointer",
           "no-callout",
           busy && "opacity-60 cursor-wait",
         ]
           .filter(Boolean)
           .join(" ")}
-        aria-label={`Style painting: ${captionText}`}
-        disabled={busy}
+        aria-label={
+          fireDisabled
+            ? `Style painting: ${captionText} (${fireDisabledReason ?? "tap disabled"})`
+            : `Generate current source in style: ${captionText}`
+        }
+        title={fireDisabled ? fireDisabledReason : undefined}
+        disabled={busy || fireDisabled}
       >
         {url ? (
           <img
@@ -217,9 +261,19 @@ export function StylesPanel() {
   const lightboxTileId = useCanvas((s) => s.lightboxTileId);
   const lightboxSnapshot = useCanvas((s) => s.lightboxSnapshot);
   const rows = useCanvas((s) => s.stylePaintings);
+  // v3.7 tap-to-fire: gates on having a current source. Without one
+  // (cold start / archived all sources) the cards render disabled
+  // because generate() needs a sourceId.
+  const currentSourceId = useCanvas((s) => s.currentSourceId);
 
   const { loading, error, uploading, uploadFile, deleteForever } =
     useStylePaintings();
+  const { generate } = useIterations();
+  // Panel-level in-flight: only one tap-to-fire at a time across the
+  // grid. Without this gate, rapid taps on multiple cards would queue
+  // multiple iterations + race the panel-close (the second tap would
+  // fire after the first closes the panel, leaving an orphan generate).
+  const [fireInFlight, setFireInFlight] = useState(false);
 
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -245,6 +299,47 @@ export function StylesPanel() {
   }, [uploadError]);
 
   if (!open) return null;
+
+  // v3.7: tap-to-fire handler. Spins a single-style Explore iteration
+  // against the current source using THIS card's style id, then closes
+  // the panel so the user lands back in Studio watching the new tiles
+  // arrive. 3 tiles (TILE_COUNT_DEFAULT) matches the "More like this"
+  // Lightbox shortcut + the rest of the system. modelTier inherits
+  // from the canvas store (Pro default; user can toggle in InputBar
+  // before opening the panel if they want Flash).
+  const handleFireStyle = async (stylePaintingId: string): Promise<void> => {
+    if (fireInFlight) return;
+    if (!currentSourceId) {
+      // Defensive: card is disabled when no current source, so we
+      // shouldn't reach this branch, but throw a clean error if we do.
+      throw new Error("No current source — pick a sketch first.");
+    }
+    setFireInFlight(true);
+    try {
+      const ids = Array(TILE_COUNT_DEFAULT).fill(stylePaintingId);
+      const result = await generate({
+        mode: "style_explore",
+        stylePaintingIds: ids,
+      });
+      if (!result) {
+        // generate() set its own error string in useIterations; throw
+        // so the card surfaces "couldn't start" inline.
+        throw new Error("Couldn't start — see input bar for the error.");
+      }
+      // Success: close the panel. The optimistic iteration is already
+      // prepended to iterations[] so the user lands in Studio with
+      // the placeholders pulsing.
+      setOpen(false);
+    } finally {
+      setFireInFlight(false);
+    }
+  };
+
+  const fireDisabledReason = !currentSourceId
+    ? "Pick a sketch first"
+    : fireInFlight
+      ? "Another tap is in flight"
+      : undefined;
 
   const handleFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -376,6 +471,9 @@ export function StylesPanel() {
                   key={row.id}
                   row={row}
                   onDelete={() => deleteForever(row.id)}
+                  onFire={() => handleFireStyle(row.id)}
+                  fireDisabled={!currentSourceId || fireInFlight}
+                  fireDisabledReason={fireDisabledReason}
                 />
               ))}
             </ul>

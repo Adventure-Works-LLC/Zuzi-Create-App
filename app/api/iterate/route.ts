@@ -222,11 +222,15 @@ export async function POST(req: Request): Promise<Response> {
      *  style_explore mode). One field per mode = cleanest cross-field
      *  validation: each is allowed only in its mode, never both. */
     stylePaintingId?: unknown;
-    /** v3.0: array of style_painting ids for the style_blend mode —
-     *  pure multi-style fusion. Length [2, MAX_BLEND_TILES]. Distinct
-     *  from `stylePaintingIds` (which is per-tile, allows duplicates).
-     *  Duplicates here are REJECTED because blend = N distinct
-     *  references. */
+    /** v3.4: array of TILE ids for the style_blend mode — blend the
+     *  outputs of N (2..MAX_BLEND_TILES) tiles she's already
+     *  generated from this source's Explore runs. Each id must
+     *  reference an active 'done' tile whose iteration belongs to
+     *  the same source as this iteration (same-source rule).
+     *  Duplicates REJECTED — blend = N distinct inputs. Distinct
+     *  from `stylePaintingIds` (style_explore array, allows
+     *  duplicates) and `stylePaintingId` (prompt-mode handoff
+     *  single). */
     blendTileIds?: unknown;
     parentTileId?: unknown;
   };

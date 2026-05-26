@@ -484,25 +484,43 @@ function BlendTileAttributionRow({ tileIds }: { tileIds: string[] }) {
   // Build a flat map of tile id → thumbKey from the current source's
   // iterations.
   //
-  // Selector hygiene: the naive `useCanvas((s) => new Map(...))` would
-  // return a fresh Map every store update (Zustand uses Object.is by
-  // default) → this component re-renders on EVERY mutation in the
-  // store (every SSE tile event, every favorite toggle, every blend-
-  // mode flip). Use `useShallow` on a stable `[id, thumbKey][]`
-  // projection so the equality check is element-by-element, then
-  // useMemo to build the Map exactly once per real change. Matches
-  // the pattern documented in TileStream.tsx file header.
-  const pairs = useCanvas(
+  // Selector hygiene (v3.6 — corrected from v3.5):
+  //
+  // The naive `useCanvas((s) => new Map(...))` would return a fresh
+  // Map every store update (zustand uses Object.is by default) → this
+  // component re-renders on EVERY mutation in the store.
+  //
+  // v3.5 tried to fix that with `useShallow` over an array of
+  // `[id, thumbKey] as const` tuples — but zustand's `shallow`
+  // compares each ARRAY ELEMENT with Object.is. Each tuple is a
+  // freshly-allocated object on every selector run, so Object.is
+  // returns false → shallow comparison fails → re-render still
+  // fires. Same wart, just hidden.
+  //
+  // v3.6: project to PRIMITIVES — a flat `string[]` of joined
+  // `"id|thumbKey"` strings. shallow's per-element Object.is works on
+  // strings (interned), so the comparison correctly says "same" when
+  // no tile actually changed. Then split inside the useMemo to build
+  // the Map. The `` delimiter (a control character) is unused
+  // in any ulid + R2 key, so splitting is unambiguous even if the
+  // thumbKey contains pipes.
+  const tilePairs = useCanvas(
     useShallow((s) =>
       s.iterations.flatMap((it) =>
-        it.tiles.map((t) => [t.id, t.thumbKey] as const),
+        it.tiles.map((t) => `${t.id}${t.thumbKey ?? ""}`),
       ),
     ),
   );
-  const tileThumbByIdMap = useMemo(
-    () => new Map<string, string | null>(pairs),
-    [pairs],
-  );
+  const tileThumbByIdMap = useMemo(() => {
+    const m = new Map<string, string | null>();
+    for (const pair of tilePairs) {
+      const sep = pair.indexOf("");
+      const id = pair.slice(0, sep);
+      const thumb = pair.slice(sep + 1);
+      m.set(id, thumb === "" ? null : thumb);
+    }
+    return m;
+  }, [tilePairs]);
   return (
     <div
       className="flex flex-wrap items-center gap-2 px-1"

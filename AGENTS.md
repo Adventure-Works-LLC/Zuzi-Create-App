@@ -47,14 +47,14 @@ For every image generation call:
 
 Any image-generation entry point that calls Gemini without all three steps is a bug.
 
-**v3.0 exception — Style Blend mode.** The `style_blend` iteration mode
-(see §14) takes N style paintings as input but no sketch — there's no
-"input image" whose aspect should be preserved. The output aspect comes
-from the FIRST blend style's snapped aspect (`resolveBlendAspectRatio`
-in `lib/gemini/runIteration.ts`). The user opts into this exception by
-entering blend mode at all — the operation is "create something new",
-not "transform this painting". Steps 1-3 still hold for the resolved
-aspect; only the source of the aspect changes.
+**No exceptions in the current codebase.** A historical v3.0 exception
+existed for Style Blend mode (used the first blend style painting's
+aspect) but was removed in v3.4 when blend's interpretation was
+corrected — blend inputs are now tiles generated FROM the current
+source, so the source's snapped aspect is the natural output aspect
+for every mode (prompt, style_explore, style_blend). The aspect
+resolution lives inline in `lib/gemini/runIteration.ts` and reads
+the source row directly. See §14 for the Style Blend contract.
 
 ## 4. "Make this beautiful" tool — and the session loop
 

@@ -105,7 +105,7 @@ async function runOneTile(
    *   - prompt (no handoff):       [sketchBase64]
    *   - prompt + style handoff:    [sketchBase64, styleBase64]
    *   - style_explore:             [sketchBase64, styleBase64]
-   *   - style_blend (v3.0):        [style1Base64, style2Base64, ..., styleNBase64]
+   *   - style_blend (v3.4):        [tile1OutBytes, tile2OutBytes, ..., tileNOutBytes]
    * The order is LOAD-BEARING — locked directives reference inputs by
    * position (e.g. STYLE_EXPLORE_DIRECTIVE references "image one / image
    * two"). Caller is responsible for composing the right ordering.
@@ -283,10 +283,11 @@ export async function runIteration(iterationId: string): Promise<void> {
       return;
     }
 
-    // v3.0: parse blend_tile_ids for style_blend iterations. Empty
+    // v3.4: parse blend_tile_ids for style_blend iterations. Empty
     // array for every other mode (the column defaults to '[]'). The
-    // worker fetches these styles' bytes below; the route guarantees
-    // length ≥ 2 for valid style_blend iterations.
+    // worker fetches each input tile's output_image_key bytes below;
+    // the route guarantees length ≥ 2 + same-source + 'done' status
+    // for valid style_blend iterations.
     const blendTileIds =
       iter.mode === "style_blend"
         ? parseBlendTileIdsJson(iter.blend_tile_ids, iterationId)
@@ -330,12 +331,11 @@ export async function runIteration(iterationId: string): Promise<void> {
     // is still the canvas being completed, the style painting is the
     // reference whose own aspect is irrelevant to output dimensions.
     //
-    // For style_blend (v3.0): no sketch exists. The output aspect comes
-    // from the FIRST blend style painting's snapped aspect — this is
-    // Output aspect = source's snapped aspect (per AGENTS.md §3
-    // invariant) for every mode, blend included — v3.4 blend inputs
-    // are tiles generated FROM this source, so the source aspect is
-    // the natural output aspect with no exception needed.
+    // For style_blend (v3.4) the source still wins — blend inputs are
+    // tiles that were themselves generated FROM this source, so the
+    // source's aspect is the natural output aspect. No exception to §3
+    // (the v3.0 "first blend style's aspect" exception was removed in
+    // v3.4 along with the misconceived blend_style_ids column).
     const aspectRatio =
       iter.aspect_ratio_mode === "flip"
         ? flipAspectRatio(source.aspect_ratio)
@@ -462,11 +462,12 @@ export async function runIteration(iterationId: string): Promise<void> {
       }
     }
 
-    // v3.0 Style Blend: pre-fetch ALL N blend style bytes in order.
-    // Different failure mode from style_explore — blend is a single
-    // creative operation that needs every reference to make sense, so
-    // if ANY blend style is missing or its R2 GET fails, we hard-fail
-    // the iteration (vs style_explore's per-tile graceful skip).
+    // v3.4 Style Blend: pre-fetch ALL N blend INPUT TILE output bytes
+    // in order. Different failure mode from style_explore — blend is
+    // a single creative operation that needs every input to make
+    // sense, so if ANY input tile is missing / no longer 'done' / R2
+    // GET fails, we hard-fail the iteration (vs style_explore's
+    // per-tile graceful skip).
     //
     // Skip the prefetch entirely when no tile actually needs to call
     // Gemini — i.e. every pending tile is in recoveryHits (boot-time

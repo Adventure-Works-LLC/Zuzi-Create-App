@@ -534,6 +534,32 @@ export async function POST(req: Request): Promise<Response> {
     }
   }
 
+  // v3.9: array stylePaintingIds for style_explore mode. Mirrors the
+  // single-id check above but iterates the unique set so "More like
+  // this" (N copies of the same id) is one DB read, not N. Without
+  // this pre-flight, a hard-deleted style between StylesPanel render
+  // and tap-to-fire sailed past the route — the worker null-skipped
+  // the second image bytes fetch and every tile generated against
+  // sketch-only input + a directive referencing "image two" that no
+  // longer existed. Net effect: 3 wasted Gemini calls (~$0.40 on Pro
+  // 1K) producing garbage tiles, with no clear failure signal until
+  // the tiles came back broken. Cap discipline = surface the 404 here.
+  if (stylePaintingIds) {
+    const uniqueStyleIds = new Set(stylePaintingIds);
+    for (const sid of uniqueStyleIds) {
+      const sp = getStylePainting(sid);
+      if (!sp) {
+        return NextResponse.json(
+          {
+            error: "style_painting_not_found",
+            detail: `no style_painting with id ${sid}`,
+          },
+          { status: 404 },
+        );
+      }
+    }
+  }
+
   // v3.4: validate every blendTileId references an existing, active
   // tile whose iteration is on the SAME source as this new iteration
   // (same-source rule per the v3.4 product spec). Pre-flight 404/400

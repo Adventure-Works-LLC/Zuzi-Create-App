@@ -33,6 +33,7 @@ import { ImagePlus, Loader2, Trash2, X } from "lucide-react";
 import { useImageUrl } from "@/hooks/useImageUrl";
 import { useIterations } from "@/hooks/useIterations";
 import { useStylePaintings } from "@/hooks/useStylePaintings";
+import { costFor } from "@/lib/cost";
 import { TILE_COUNT_DEFAULT } from "@/lib/gemini/imagePrompts";
 import { useCanvas, type StylePainting } from "@/stores/canvas";
 import { ActionMenu } from "./ActionMenu";
@@ -57,6 +58,7 @@ function StylePaintingCard({
   isArmed,
   fireDisabled,
   fireDisabledReason,
+  submitCostUsd,
 }: {
   row: StylePainting;
   onDelete: () => Promise<void>;
@@ -77,6 +79,12 @@ function StylePaintingCard({
   fireDisabled: boolean;
   /** Tooltip / aria text explaining why the tap is disabled. */
   fireDisabledReason?: string;
+  /** v3.9: projected USD cost of the iteration that fires on tap-again.
+   *  Computed at the panel level from current modelTier × 1k × default
+   *  tile count. Surfaced in the armed-card caption so the user sees the
+   *  cost number at confirmation time (cap-aware Submit shouldn't be the
+   *  only place she sees the spend). */
+  submitCostUsd: number;
 }) {
   const { url } = useImageUrl(row.inputKey);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -160,12 +168,16 @@ function StylePaintingCard({
   const handleTap = async () => {
     if (longPressFiredRef.current) return;
     if (fireDisabled || busy) return;
+    // v3.9: clear any prior error before the next arm/fire. Without
+    // this, a failed fire leaves the red text under the card until
+    // panel close — which then survives across tap-arm-on-different-
+    // card. Tapping anywhere should clean the slate visually.
+    setError(null);
     if (!isArmed) {
       onArm();
       return;
     }
     setBusy(true);
-    setError(null);
     try {
       await onFire();
     } catch (e) {
@@ -230,7 +242,7 @@ function StylePaintingCard({
           fireDisabled
             ? `Style painting: ${captionText} (${fireDisabledReason ?? "tap disabled"})`
             : isArmed
-              ? `Tap again to generate current source in style: ${captionText}`
+              ? `Tap again to generate current source in style: ${captionText} (approximately $${submitCostUsd.toFixed(2)} USD)`
               : `Select style: ${captionText} (tap again to generate)`
         }
         aria-pressed={isArmed ? true : undefined}
@@ -263,10 +275,16 @@ function StylePaintingCard({
           // accent color + non-italic to read as a call-to-action,
           // not a styled label. Truncation still applies in case
           // the hint text would wrap the row's clamp.
+          // v3.9: surface the cost number at confirmation time. The
+          // "Tap again · $X.XX" format mirrors the InputBar's cost-
+          // annotation convention. Keeping the verb short ("Tap
+          // again") leaves headroom for the cost at 218px card width.
           isArmed ? "text-accent font-medium" : "text-text-mute",
         ].join(" ")}
       >
-        {isArmed ? "Tap again to generate" : captionText}
+        {isArmed
+          ? `Tap again · $${submitCostUsd.toFixed(2)}`
+          : captionText}
       </p>
       {error && (
         <p className="px-1 text-xs text-destructive">{error}</p>
@@ -304,6 +322,11 @@ export function StylesPanel() {
   // (cold start / archived all sources) the cards render disabled
   // because generate() needs a sourceId.
   const currentSourceId = useCanvas((s) => s.currentSourceId);
+  // v3.9: modelTier feeds the per-card cost preview. Resolution is
+  // always 1k for style_explore (the panel doesn't expose a res
+  // toggle), and count is TILE_COUNT_DEFAULT (3) — same as the rest
+  // of the system. Pro 1K × 3 = $0.40; Flash 1K × 3 = $0.20.
+  const modelTier = useCanvas((s) => s.modelTier);
 
   const { loading, error, uploading, uploadFile, deleteForever } =
     useStylePaintings();
@@ -373,6 +396,12 @@ export function StylesPanel() {
 
   if (!open) return null;
 
+  // v3.9: projected cost per fire. Computed AFTER the early return —
+  // it's a derived value, not a hook, so the early-return-before-hook
+  // rule doesn't apply. Recomputing on every render is cheap (one
+  // multiplication via lib/cost.ts).
+  const submitCostUsd = costFor(modelTier, "1k", TILE_COUNT_DEFAULT);
+
   // v3.7: tap-to-fire handler. Spins a single-style Explore iteration
   // against the current source using THIS card's style id, then closes
   // the panel so the user lands back in Studio watching the new tiles
@@ -441,7 +470,17 @@ export function StylesPanel() {
         if (e.target === e.currentTarget) setOpen(false);
       }}
     >
-      <div className="flex-1 bg-black/40" />
+      {/* v3.9: scrim dismiss. The outer dialog's `target===currentTarget`
+          test never fires for taps on this child div, so the backdrop
+          itself needs an onClick to honor the "tap-outside closes" contract
+          the comment at top of the file promises. Also restores the
+          v3.8 "panel close = disarm" invariant — without this, scrim-tap
+          was silently swallowed and the armed card stayed hot until the
+          4s timer or the X button. */}
+      <div
+        className="flex-1 bg-black/40"
+        onClick={() => setOpen(false)}
+      />
       <aside
         className={[
           "h-dvh w-full max-w-[640px] shrink-0",
@@ -556,6 +595,7 @@ export function StylesPanel() {
                   isArmed={armedCardId === row.id}
                   fireDisabled={!currentSourceId || fireInFlight}
                   fireDisabledReason={fireDisabledReason}
+                  submitCostUsd={submitCostUsd}
                 />
               ))}
             </ul>

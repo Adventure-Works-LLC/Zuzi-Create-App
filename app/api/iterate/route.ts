@@ -544,6 +544,19 @@ export async function POST(req: Request): Promise<Response> {
   // longer existed. Net effect: 3 wasted Gemini calls (~$0.40 on Pro
   // 1K) producing garbage tiles, with no clear failure signal until
   // the tiles came back broken. Cap discipline = surface the 404 here.
+  //
+  // ARCHIVE-PERMISSIVE: `getStylePainting` (in lib/db/queries.ts)
+  // returns rows regardless of `archived_at` — asymmetric with
+  // `listStylePaintings` which filters archived from the UI's
+  // discoverable view. This is deliberate. Archive is a soft-delete
+  // ("hide from the main grid") not a usability gate. Older
+  // provenance links — a lightbox "Iterate on this direction" against
+  // a tile whose style was since archived, or a hand-crafted "More
+  // like this" against an archived id — must still resolve, otherwise
+  // archiving would silently break historical iterations' refinement
+  // paths. Only HARD delete (DELETE /api/style-paintings/:id?
+  // permanent=true) is the failure mode this check guards. The
+  // single-id check at line ~524 follows the same convention.
   if (stylePaintingIds) {
     const uniqueStyleIds = new Set(stylePaintingIds);
     for (const sid of uniqueStyleIds) {

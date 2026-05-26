@@ -20,7 +20,7 @@
  * the server's cap check is authoritative.
  */
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Layers, Loader2, X } from "lucide-react";
 
 import { useIterations } from "@/hooks/useIterations";
@@ -33,9 +33,48 @@ export function BlendActionBar() {
   const blendSelectedTileIds = useCanvas((s) => s.blendSelectedTileIds);
   const setBlendMode = useCanvas((s) => s.setBlendMode);
   const modelTier = useCanvas((s) => s.modelTier);
+  // v3.5: auto-exit blend mode when the current source's iterations[]
+  // is empty. Happens when the user deletes every iteration mid-blend
+  // or the iteration list refetches into an empty state. Without
+  // this the BlendActionBar hovers over the empty-canvas cue with
+  // nothing to act on. Stable iterations-length selector (number, not
+  // object) keeps the subscription cheap.
+  const iterationCount = useCanvas((s) => s.iterations.length);
   const { generate } = useIterations();
   const [inFlight, setInFlight] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    if (blendMode && !inFlight && iterationCount === 0) {
+      setBlendMode(false);
+    }
+  }, [blendMode, inFlight, iterationCount, setBlendMode]);
+  // Publish the bar's height into --blendbar-h on the document root
+  // so TileStream can pad its bottom by (--inputbar-h + --blendbar-h),
+  // preventing the last iteration row from being clipped by the
+  // floating action bar. Mirrors the InputBar.tsx ResizeObserver
+  // pattern. The effect runs only while blendMode is true (the bar
+  // exists in the DOM); cleanup clears the var so non-blend renders
+  // don't pay extra bottom padding. The cleanup runs both on unmount
+  // (blendMode → false) and on dep change (it's stable so only the
+  // unmount path matters in practice).
+  const barRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!blendMode) return;
+    const el = barRef.current;
+    if (!el) return;
+    const root = document.documentElement;
+    const publish = () => {
+      root.style.setProperty("--blendbar-h", `${el.offsetHeight}px`);
+    };
+    publish();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => publish());
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+      root.style.removeProperty("--blendbar-h");
+    };
+  }, [blendMode]);
 
   if (!blendMode) return null;
 
@@ -81,6 +120,7 @@ export function BlendActionBar() {
 
   return (
     <div
+      ref={barRef}
       role="region"
       aria-label="Blend selection"
       // z-30 sits below z-40 panels (Favorites, Styles, ArchivedSources)

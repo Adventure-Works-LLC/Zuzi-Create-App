@@ -332,11 +332,10 @@ export async function runIteration(iterationId: string): Promise<void> {
     //
     // For style_blend (v3.0): no sketch exists. The output aspect comes
     // from the FIRST blend style painting's snapped aspect — this is
-    // v3.4: blend output aspect = source's aspect (under AGENTS.md §3
-    // invariant, like every other mode). The v3.0 first-style exception
-    // is gone — blend now operates on tiles that themselves were
-    // generated FROM this source, so the source aspect is the natural
-    // output aspect.
+    // Output aspect = source's snapped aspect (per AGENTS.md §3
+    // invariant) for every mode, blend included — v3.4 blend inputs
+    // are tiles generated FROM this source, so the source aspect is
+    // the natural output aspect with no exception needed.
     const aspectRatio =
       iter.aspect_ratio_mode === "flip"
         ? flipAspectRatio(source.aspect_ratio)

@@ -244,8 +244,19 @@ export const Tile = memo(function Tile({
   // so an iteration mid-stream doesn't have its tiles bouncing baseline
   // as completions land — `actionsAvailable` decides between rendering
   // real controls or a same-height hidden spacer.
+  //
+  // v3.5: in blend mode the action row is suppressed entirely (still
+  // renders the same-height spacer for layout stability). Reason: the
+  // delete-tile menu would orphan a selected tile if tapped mid-
+  // selection (the store mutators do scrub the selection now per
+  // v3.5 fix, but the destructive action in the middle of a "pick
+  // tiles to fuse" flow is jarring). Favorite-star + ... menu hide;
+  // tile tap remains the only interaction = tap-to-select.
   const actionsAvailable =
-    tile.status === "done" && !optimistic && !tile.id.startsWith("opt-");
+    tile.status === "done" &&
+    !optimistic &&
+    !tile.id.startsWith("opt-") &&
+    !blendMode;
 
   return (
     <>

@@ -148,14 +148,24 @@ export function TileStream() {
         "flex-1 overflow-y-auto",
         "px-4 sm:px-6 md:px-8",
         // Top padding clears the source strip; bottom padding clears the
-        // sticky InputBar. --inputbar-h is published by InputBar via a
-        // ResizeObserver so this tracks wraps, error rows, and PWA safe-area-
-        // inset additions. Fallback 280px keeps SSR / first-paint correct.
+        // sticky InputBar plus (in v3.4 blend mode) the floating
+        // BlendActionBar that overlays the InputBar.
+        //
+        // --inputbar-h is published by InputBar via a ResizeObserver so
+        // this tracks wraps, error rows, and PWA safe-area-inset
+        // additions. Fallback 280px keeps SSR / first-paint correct.
+        //
+        // --blendbar-h is published by BlendActionBar (also via
+        // ResizeObserver) ONLY while blend mode is active; falls back
+        // to 0px otherwise so non-blend renders don't pay extra
+        // bottom padding. Without this term the last iteration row
+        // gets clipped by the blend bar's ~60-80px overlay.
         "pt-6",
         "scroll-smooth",
       ].join(" ")}
       style={{
-        paddingBottom: "calc(var(--inputbar-h, 280px) + 1.5rem)",
+        paddingBottom:
+          "calc(var(--inputbar-h, 280px) + var(--blendbar-h, 0px) + 1.5rem)",
       }}
     >
       <div className="mx-auto flex w-full max-w-[1100px] flex-col gap-10">

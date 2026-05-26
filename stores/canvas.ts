@@ -420,6 +420,13 @@ export const useCanvas = create<CanvasState>((set) => ({
         sources: remaining,
         currentSourceId: wasCurrent ? pickCurrent(null, remaining) : s.currentSourceId,
         iterations: wasCurrent ? [] : s.iterations,
+        // v3.5: if the archived source was current, its iterations got
+        // blanked above. Any in-flight blend selection referenced ids
+        // from those iterations — scrub it so the user doesn't fire a
+        // blend with ids that no longer resolve client-side AND would
+        // server-side fail the same-source check.
+        blendMode: wasCurrent ? false : s.blendMode,
+        blendSelectedTileIds: wasCurrent ? [] : s.blendSelectedTileIds,
       };
     }),
   removeSource: (sourceId) =>
@@ -433,6 +440,8 @@ export const useCanvas = create<CanvasState>((set) => ({
         sources: remaining,
         currentSourceId: wasCurrent ? pickCurrent(null, remaining) : s.currentSourceId,
         iterations: wasCurrent ? [] : s.iterations,
+        blendMode: wasCurrent ? false : s.blendMode,
+        blendSelectedTileIds: wasCurrent ? [] : s.blendSelectedTileIds,
       };
     }),
 
@@ -512,6 +521,12 @@ export const useCanvas = create<CanvasState>((set) => ({
         iterations: nextIters,
         lightboxTileId,
         lightboxSnapshot,
+        // v3.5: scrub the deleted tile from any in-flight blend
+        // selection. Without this, firing a blend with the orphan id
+        // produces a 404 blend_tile_not_found from the route.
+        blendSelectedTileIds: s.blendSelectedTileIds.filter(
+          (x) => x !== tileId,
+        ),
       };
     }),
   removeIteration: (iterationId) =>
@@ -534,6 +549,11 @@ export const useCanvas = create<CanvasState>((set) => ({
         iterations: nextIters,
         lightboxTileId,
         lightboxSnapshot,
+        // v3.5: scrub every tile of the deleted iteration from any
+        // in-flight blend selection. Same rationale as removeTile.
+        blendSelectedTileIds: s.blendSelectedTileIds.filter(
+          (x) => !targetTileIds.has(x),
+        ),
       };
     }),
 

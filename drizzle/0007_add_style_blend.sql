@@ -1,3 +1,13 @@
+-- NOTE (v3.4): The `blend_style_ids` column this migration adds was
+-- SUPERSEDED by migration 0008, which dropped it and replaced it
+-- with `blend_tile_ids`. The v3.0 column held style_painting_ids
+-- under the misconception that "blend" meant fusing style library
+-- references. Zuzi's real intent (clarified after v3.0 shipped):
+-- blend the TILE OUTPUTS of her own Explore runs. See AGENTS.md §14
+-- for the corrected contract. This file kept verbatim for migration
+-- history; future readers should expect that `blend_style_ids`
+-- doesn't exist on the live schema.
+--
 -- v3 Style Blend mode — schema addition.
 --
 -- Adds a single column to support pure multi-style fusion iterations

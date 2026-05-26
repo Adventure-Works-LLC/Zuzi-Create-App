@@ -557,6 +557,25 @@ export async function POST(req: Request): Promise<Response> {
           { status: 404 },
         );
       }
+      // v3.5: reject inputs that aren't 'done' (and therefore don't
+      // have output_image_key bytes for the worker to fetch). The UI
+      // gates this client-side (only 'done' tiles selectable in blend
+      // mode) but defense-in-depth: a hand-crafted POST or a race
+      // between selection + tile-status-change would otherwise sail
+      // past the route + hard-fail at worker time, which is a worse
+      // UX than a clean 400 here.
+      if (
+        inputTile.status !== "done" ||
+        inputTile.output_image_key === null
+      ) {
+        return NextResponse.json(
+          {
+            error: "blend_tile_not_ready",
+            detail: `blend tile ${tid} is not yet a completed tile (status=${inputTile.status})`,
+          },
+          { status: 400 },
+        );
+      }
       const inputIter = getIteration(inputTile.iteration_id);
       if (!inputIter || inputIter.source_id !== sourceId) {
         return NextResponse.json(

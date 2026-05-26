@@ -66,6 +66,7 @@ import { ActionMenu } from "./ActionMenu";
 import { StyleAttributionThumb } from "./StyleAttributionThumb";
 import { useImageUrl } from "@/hooks/useImageUrl";
 import { useCanvas } from "@/stores/canvas";
+import { useShallow } from "zustand/react/shallow";
 import { useIterations } from "@/hooks/useIterations";
 
 // Mirrors VISIBLE_PRESETS + hidden presets in InputBar.tsx — labels for
@@ -140,10 +141,21 @@ export const IterationRow = memo(function IterationRow({
   const optimistic = iteration?.id.startsWith("opt-") ?? false;
 
   const presets = iteration?.presets;
+  const mode = iteration?.mode;
+  const blendInputCount = iteration?.blendTileIds?.length ?? 0;
   const presetLabel = useMemo(() => {
+    // v3.5: blend iterations get their own caption. The "Blend of N
+    // [thumbs]" attribution row above the tile grid shows which
+    // inputs drove the blend; this caption gives the iteration its
+    // type-label so the user doesn't see "(make beautiful)" — which
+    // is technically true (the blend directive IS the freeform v0
+    // mood) but misleading next to "Blend of …".
+    if (mode === "style_blend") {
+      return blendInputCount > 0 ? `blend of ${blendInputCount}` : "blend";
+    }
     if (!presets || presets.length === 0) return "make beautiful";
     return presets.map((p) => PRESET_LABEL[p]).join(" · ");
-  }, [presets]);
+  }, [presets, mode, blendInputCount]);
 
   // Stuck detection: pending/running iteration past STUCK_THRESHOLD_MS
   // since createdAt. Timer-driven so the UI updates even when no SSE
@@ -470,17 +482,27 @@ export const IterationRow = memo(function IterationRow({
  *  fallback — matches StyleAttributionThumb's missing-row behavior. */
 function BlendTileAttributionRow({ tileIds }: { tileIds: string[] }) {
   // Build a flat map of tile id → thumbKey from the current source's
-  // iterations. Cheap O(iterations × tiles) — typical session is ≤
-  // a few dozen tiles total.
-  const tileThumbByIdMap = useCanvas((s) => {
-    const m = new Map<string, string | null>();
-    for (const it of s.iterations) {
-      for (const t of it.tiles) {
-        m.set(t.id, t.thumbKey);
-      }
-    }
-    return m;
-  });
+  // iterations.
+  //
+  // Selector hygiene: the naive `useCanvas((s) => new Map(...))` would
+  // return a fresh Map every store update (Zustand uses Object.is by
+  // default) → this component re-renders on EVERY mutation in the
+  // store (every SSE tile event, every favorite toggle, every blend-
+  // mode flip). Use `useShallow` on a stable `[id, thumbKey][]`
+  // projection so the equality check is element-by-element, then
+  // useMemo to build the Map exactly once per real change. Matches
+  // the pattern documented in TileStream.tsx file header.
+  const pairs = useCanvas(
+    useShallow((s) =>
+      s.iterations.flatMap((it) =>
+        it.tiles.map((t) => [t.id, t.thumbKey] as const),
+      ),
+    ),
+  );
+  const tileThumbByIdMap = useMemo(
+    () => new Map<string, string | null>(pairs),
+    [pairs],
+  );
   return (
     <div
       className="flex flex-wrap items-center gap-2 px-1"

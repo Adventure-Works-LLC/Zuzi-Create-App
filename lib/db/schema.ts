@@ -130,16 +130,23 @@ export const iterations = sqliteTable(
       .notNull()
       .default("prompt"),
     /**
-     * v3 Style Blend: JSON array of style_painting ids that drove this
-     * iteration. Populated only when mode='style_blend'; '[]' for every
+     * v3.4 Style Blend (REWORKED — supersedes the v3.0 blend_style_ids
+     * column which was dropped in migration 0008 after the user
+     * clarified that "blend" means fusing TILE OUTPUTS, not style
+     * library references). JSON array of TILE ids (from previously-
+     * generated tiles in this iteration's source) that drove this
+     * blend. Populated only when mode='style_blend'; '[]' for every
      * other mode. Stored on the iteration (not per-tile) because every
-     * tile in a blend run uses the SAME N styles — the variation across
-     * tiles comes from Pro's temp 1.0 stochasticity, not from input
-     * swap. No FK enforcement (JSON column); existence is checked at
-     * route time + the lightbox renders "deleted" gracefully if a style
-     * was hard-deleted between iteration creation and read.
+     * tile in a blend run uses the SAME N input tiles — the variation
+     * across blend output tiles comes from Pro's temp 1.0 stochasticity,
+     * not from input swap. No FK enforcement (JSON column); the route
+     * validates: each id exists, is active (not soft-deleted), AND its
+     * iteration belongs to the SAME source as the blend iteration
+     * being created (same-source rule). The IterationRow blend
+     * attribution looks ids up in the current source's iterations[],
+     * which always hits per the same-source rule.
      */
-    blend_style_ids: text("blend_style_ids").notNull().default("[]"),
+    blend_tile_ids: text("blend_tile_ids").notNull().default("[]"),
     /**
      * Re-added in migration 0006 (was dropped in v1 cleanup per
      * AGENTS.md §6 as dead weight; now load-bearing again). Set on

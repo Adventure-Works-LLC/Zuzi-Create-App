@@ -34,7 +34,7 @@ import {
   tilesForIterations,
 } from "@/lib/db/queries";
 import {
-  parseBlendStyleIdsJson,
+  parseBlendTileIdsJson,
   parseStoredPresets,
 } from "@/lib/gemini/presets";
 
@@ -97,7 +97,7 @@ export async function GET(req: Request): Promise<Response> {
         // per-tile style_painting_id to read). `it.id` is passed as
         // context so corrupted rows surface in tails (matches the
         // parseStoredPresets context-passing pattern at line 83).
-        blendStyleIds: parseBlendStyleIdsJson(it.blend_style_ids, it.id),
+        blendTileIds: parseBlendTileIdsJson(it.blend_tile_ids, it.id),
         status: it.status,
         createdAt: it.created_at,
         completedAt: it.completed_at,

@@ -29,7 +29,7 @@ import {
 import { callWithRetry } from "./callWithRetry";
 import { extractImageBytes } from "./extract";
 import { classifyError } from "./errors";
-import { parseBlendStyleIdsJson, parseStoredPresets } from "./presets";
+import { parseBlendTileIdsJson, parseStoredPresets } from "./presets";
 import * as bus from "../bus";
 import { costForCompletedIteration } from "../cost";
 import {
@@ -37,6 +37,7 @@ import {
   getIteration,
   getSource,
   getStylePainting,
+  getTile,
   insertUsageLog,
   tilesFor,
   updateIterationStatus,
@@ -87,32 +88,12 @@ function hardFailIteration(iterationId: string, errorMessage: string): void {
   }
 }
 
-/**
- * v3.0 Style Blend: resolve the output aspect ratio. Uses the FIRST
- * blend style's snapped aspect_ratio (per AGENTS.md §3 documented
- * exception — blend has no sketch, the sketch-aspect invariant doesn't
- * apply). Returns null if the first style row is missing — caller
- * hard-fails the iteration.
- */
-async function resolveBlendAspectRatio(
-  blendStyleIds: string[],
-  iterationId: string,
-): Promise<string | null> {
-  if (blendStyleIds.length === 0) {
-    console.error(
-      `[runIteration ${iterationId}] style_blend with empty blend_style_ids — failing`,
-    );
-    return null;
-  }
-  const first = getStylePainting(blendStyleIds[0]);
-  if (!first) {
-    console.error(
-      `[runIteration ${iterationId}] first blend style ${blendStyleIds[0]} missing — failing`,
-    );
-    return null;
-  }
-  return first.aspect_ratio;
-}
+// v3.4 — resolveBlendAspectRatio was removed. Blend output aspect is
+// now the SOURCE's aspect (under §3 invariant), same as every other
+// mode, computed inline in the orchestration block. The v3.0
+// "first style painting's aspect" exception is gone since blend now
+// operates on tiles that were generated FROM the source (so the
+// blend output naturally shares that aspect).
 
 async function runOneTile(
   iterationId: string,
@@ -302,13 +283,13 @@ export async function runIteration(iterationId: string): Promise<void> {
       return;
     }
 
-    // v3.0: parse blend_style_ids for style_blend iterations. Empty
+    // v3.0: parse blend_tile_ids for style_blend iterations. Empty
     // array for every other mode (the column defaults to '[]'). The
     // worker fetches these styles' bytes below; the route guarantees
     // length ≥ 2 for valid style_blend iterations.
-    const blendStyleIds =
+    const blendTileIds =
       iter.mode === "style_blend"
-        ? parseBlendStyleIdsJson(iter.blend_style_ids, iterationId)
+        ? parseBlendTileIdsJson(iter.blend_tile_ids, iterationId)
         : [];
 
     // Source bytes are fetched for every mode EXCEPT style_blend —
@@ -351,24 +332,15 @@ export async function runIteration(iterationId: string): Promise<void> {
     //
     // For style_blend (v3.0): no sketch exists. The output aspect comes
     // from the FIRST blend style painting's snapped aspect — this is
-    // the documented exception to AGENTS.md §3's "output aspect ==
-    // sketch aspect" invariant. Resolved a few lines below after we
-    // pre-flight-check the blend styles exist.
+    // v3.4: blend output aspect = source's aspect (under AGENTS.md §3
+    // invariant, like every other mode). The v3.0 first-style exception
+    // is gone — blend now operates on tiles that themselves were
+    // generated FROM this source, so the source aspect is the natural
+    // output aspect.
     const aspectRatio =
-      iter.mode === "style_blend"
-        ? await resolveBlendAspectRatio(blendStyleIds, iterationId)
-        : iter.aspect_ratio_mode === "flip"
-          ? flipAspectRatio(source.aspect_ratio)
-          : source.aspect_ratio;
-    if (aspectRatio === null) {
-      // Couldn't resolve a blend aspect (first style missing). Hard-fail
-      // the iteration — blend with no usable references is meaningless.
-      hardFailIteration(
-        iterationId,
-        "blend style missing (could not resolve output aspect ratio)",
-      );
-      return;
-    }
+      iter.aspect_ratio_mode === "flip"
+        ? flipAspectRatio(source.aspect_ratio)
+        : source.aspect_ratio;
     // SDK expects "1K" | "2K" | "4K" (uppercase). DB column is "1k" | "4k".
     const imageSize = iter.resolution.toUpperCase();
 
@@ -507,32 +479,42 @@ export async function runIteration(iterationId: string): Promise<void> {
     const blendPendingNonRecoveredCount = tileRows.filter(
       (t) => t.status === "pending" && !recoveryHits.has(t.idx),
     ).length;
-    const blendStyleBase64s: string[] = [];
+    const blendTileBase64s: string[] = [];
     if (iter.mode === "style_blend" && blendPendingNonRecoveredCount > 0) {
-      for (const sid of blendStyleIds) {
-        const sp = getStylePainting(sid);
-        if (!sp) {
+      // v3.4: blend inputs are TILE OUTPUTS (her sketch already
+      // rendered in some style), not raw style library references.
+      // Fetch each tile's output_image_key bytes. The tile rows are
+      // validated at the route layer to exist + be active + belong
+      // to the same source as this iteration, so we just look them
+      // up + fetch.
+      for (const tid of blendTileIds) {
+        const inputTile = getTile(tid);
+        if (
+          !inputTile ||
+          inputTile.deleted_at !== null ||
+          !inputTile.output_image_key
+        ) {
           console.error(
-            `[runIteration ${iterationId}] blend_style ${sid} missing — failing iteration`,
+            `[runIteration ${iterationId}] blend input tile ${tid} missing / soft-deleted / has no output_image_key — failing`,
           );
           hardFailIteration(
             iterationId,
-            `blend style ${sid} missing at worker time`,
+            `blend input tile ${tid} unavailable at worker time`,
           );
           return;
         }
         try {
-          const bytes = await getObject(sp.input_image_key);
-          blendStyleBase64s.push(bytes.toString("base64"));
+          const bytes = await getObject(inputTile.output_image_key);
+          blendTileBase64s.push(bytes.toString("base64"));
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
           console.error(
-            `[runIteration ${iterationId}] r2.getObject failed for blend style ${sid}:`,
+            `[runIteration ${iterationId}] r2.getObject failed for blend tile ${tid}:`,
             msg,
           );
           hardFailIteration(
             iterationId,
-            `blend style ${sid} r2 fetch failed: ${msg}`,
+            `blend tile ${tid} r2 fetch failed: ${msg}`,
           );
           return;
         }
@@ -559,7 +541,7 @@ export async function runIteration(iterationId: string): Promise<void> {
         // error_message surfaces to the user either way.
         let imageBase64s: string[];
         if (iter.mode === "style_blend") {
-          imageBase64s = blendStyleBase64s;
+          imageBase64s = blendTileBase64s;
         } else {
           // inputBase64 is guaranteed non-null here (we hard-returned
           // above if the source bytes fetch failed for non-blend modes).

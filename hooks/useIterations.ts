@@ -55,7 +55,7 @@ interface IterationResponseRow {
   /** v3.0 style_blend: the N style ids that drove this iteration.
    *  Present + non-empty only when mode='style_blend'. Empty / absent
    *  for every other mode. */
-  blendStyleIds?: string[];
+  blendTileIds?: string[];
   status: Iteration["status"];
   createdAt: number;
   completedAt: number | null;
@@ -87,7 +87,7 @@ function rowToIteration(r: IterationResponseRow): Iteration {
     presets: r.presets,
     mode: r.mode ?? "prompt",
     parentTileId: r.parentTileId ?? null,
-    blendStyleIds: r.blendStyleIds ?? [],
+    blendTileIds: r.blendTileIds ?? [],
     status: r.status,
     createdAt: r.createdAt,
     tiles: r.tiles.map((t) => ({
@@ -147,14 +147,14 @@ export interface GenerateOptions {
    *  if mode !== 'prompt'. Used by the Lightbox's "Iterate on this
    *  direction" handler. */
   stylePaintingId?: string;
-  /** v3.0 style_blend mode: array of N (2..MAX_BLEND_STYLES) style
+  /** v3.0 style_blend mode: array of N (2..MAX_BLEND_TILES) style
    *  painting ids. ALL tiles in the spawned iteration use the SAME N
    *  styles (variation across tiles comes from temperature 1.0
    *  stochasticity, not input swap). No sketch is sent — Pro invents
    *  subject + composition from the references alone. Duplicates are
    *  REJECTED by the server (distinct from stylePaintingIds where
    *  duplicates are intentional for "More like this"). */
-  blendStylePaintingIds?: ReadonlyArray<string>;
+  blendTileIds?: ReadonlyArray<string>;
   parentTileId?: string | null;
   modelTier?: ModelTier;
   resolution?: Resolution;
@@ -272,7 +272,7 @@ export function useIterations(): UseIterationsResult {
     const mode: IterationMode = opts?.mode ?? "prompt";
     const stylePaintingIds = opts?.stylePaintingIds ?? null;
     const stylePaintingId = opts?.stylePaintingId ?? null;
-    const blendStylePaintingIds = opts?.blendStylePaintingIds ?? null;
+    const blendTileIds = opts?.blendTileIds ?? null;
     const parentTileId = opts?.parentTileId ?? null;
     // Per-call tier / resolution overrides (ExploreSheet uses its own
     // Flash-default toggle rather than the InputBar's Pro-default). Falls
@@ -311,9 +311,9 @@ export function useIterations(): UseIterationsResult {
       // optimistic iteration so the StyleAttributionThumb row can
       // render attribution chips immediately (before /api/iterations
       // refetch). Empty for every other mode.
-      blendStyleIds:
-        mode === "style_blend" && blendStylePaintingIds
-          ? [...blendStylePaintingIds]
+      blendTileIds:
+        mode === "style_blend" && blendTileIds
+          ? [...blendTileIds]
           : [],
       status: "pending",
       createdAt: now,
@@ -384,14 +384,14 @@ export function useIterations(): UseIterationsResult {
           // mode owns its own style field; the route's cross-field
           // validation 400s if the wrong one is sent.
           //   - style_explore: stylePaintingIds (per-tile array)
-          //   - style_blend:   blendStylePaintingIds (N=2..4 unique)
+          //   - style_blend:   blendTileIds (N=2..4 unique)
           //   - prompt:        stylePaintingId (single, handoff only)
           //   - prompt:        parentTileId (single, handoff only)
           // Omit parentTileId when null so the body stays clean.
           ...(mode === "style_explore" && stylePaintingIds
             ? { mode, stylePaintingIds }
-            : mode === "style_blend" && blendStylePaintingIds
-              ? { mode, blendStylePaintingIds }
+            : mode === "style_blend" && blendTileIds
+              ? { mode, blendTileIds }
               : mode !== "prompt"
                 ? { mode }
                 : {}),
@@ -419,7 +419,7 @@ export function useIterations(): UseIterationsResult {
         // v3.0 style_blend: echo of the blend style ids array. Present
         // only when the original row was a style_blend iteration; empty
         // / absent otherwise.
-        blendStyleIds?: string[];
+        blendTileIds?: string[];
         error?: string;
         detail?: string;
         currentUsd?: number;
@@ -470,16 +470,16 @@ export function useIterations(): UseIterationsResult {
         data.aspectRatioMode === "match" || data.aspectRatioMode === "flip"
           ? data.aspectRatioMode
           : aspectRatioMode;
-      // v3.1: reconcile blendStyleIds on idempotent replay. Server now
+      // v3.1: reconcile blendTileIds on idempotent replay. Server now
       // echoes the ORIGINAL row's blend selection (both replay branches
       // post-fix). If the user's retry selected different styles, the
       // server's selection wins — without this the attribution row in
       // IterationRow would show the user's intent rather than what the
       // worker actually used until a /api/iterations refetch.
-      const canonicalBlendStyleIds = Array.isArray(data.blendStyleIds)
-        ? (data.blendStyleIds as string[])
-        : mode === "style_blend" && blendStylePaintingIds
-          ? [...blendStylePaintingIds]
+      const canonicalBlendStyleIds = Array.isArray(data.blendTileIds)
+        ? (data.blendTileIds as string[])
+        : mode === "style_blend" && blendTileIds
+          ? [...blendTileIds]
           : [];
 
       // Swap optimistic id → canonical id, and resize the tile array if the
@@ -494,7 +494,7 @@ export function useIterations(): UseIterationsResult {
                 tileCount: canonicalCount,
                 presets: canonicalPresets,
                 aspectRatioMode: canonicalAspectRatioMode,
-                blendStyleIds: canonicalBlendStyleIds,
+                blendTileIds: canonicalBlendStyleIds,
                 tiles: Array.from({ length: canonicalCount }, (_, idx) => {
                   const existing = it.tiles[idx];
                   return existing

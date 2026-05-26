@@ -31,7 +31,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { Archive, Palette, Plus, Trash2 } from "lucide-react";
+import { Archive, Layers, Palette, Plus, Trash2 } from "lucide-react";
 
 import { useSources } from "@/hooks/useSources";
 import { useImageUrl } from "@/hooks/useImageUrl";
@@ -217,6 +217,8 @@ export function SourceStrip() {
     (s) => s.setArchivedSourcesPanelOpen,
   );
   const setStylesPanelOpen = useCanvas((s) => s.setStylesPanelOpen);
+  const blendMode = useCanvas((s) => s.blendMode);
+  const setBlendMode = useCanvas((s) => s.setBlendMode);
   const { archive, deleteForever, uploadFile } = useSources();
   const fileRef = useRef<HTMLInputElement>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -329,6 +331,29 @@ export function SourceStrip() {
         >
           <Palette className="h-4 w-4" strokeWidth={1.75} />
           <span>Styles</span>
+        </button>
+        {/* v3.4: Blend mode toggle. Flips the main TileStream into
+            multi-select state — tiles get a selection ring + numbered
+            badge on tap; a floating action bar appears at the bottom
+            with "Blend N tiles" once 2+ are selected. Same-source rule
+            means selection auto-resets on source switch (see
+            setCurrentSource in stores/canvas.ts). */}
+        <button
+          type="button"
+          onClick={() => setBlendMode(!blendMode)}
+          aria-pressed={blendMode}
+          className={[
+            "shrink-0 inline-flex items-center gap-1.5 rounded-md px-3 py-2",
+            "text-xs uppercase tracking-[0.18em]",
+            "transition-colors no-callout",
+            blendMode
+              ? "bg-accent/15 text-accent ring-1 ring-accent/40"
+              : "text-text-mute hover:text-foreground",
+          ].join(" ")}
+          aria-label={blendMode ? "Exit blend mode" : "Enter blend mode"}
+        >
+          <Layers className="h-4 w-4" strokeWidth={1.75} />
+          <span>{blendMode ? "Cancel" : "Blend"}</span>
         </button>
         <button
           type="button"

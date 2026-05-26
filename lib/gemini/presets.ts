@@ -33,13 +33,13 @@ export function parseStoredPresets(raw: string, context?: string): Preset[] {
 }
 
 /**
- * Shared parser for the v3.0 `iterations.blend_style_ids` JSON column.
+ * Shared parser for the v3.0 `iterations.blend_tile_ids` JSON column.
  * Same defense-in-depth contract as parseStoredPresets — tolerates
  * malformed JSON / wrong shape by returning []. Empty array is the
  * canonical "not a blend iteration" signal; callers read
  * `iter.mode === 'style_blend'` for the authoritative discriminator.
  */
-export function parseBlendStyleIdsJson(
+export function parseBlendTileIdsJson(
   raw: string,
   context?: string,
 ): string[] {
@@ -48,7 +48,7 @@ export function parseBlendStyleIdsJson(
     if (!Array.isArray(parsed)) {
       if (context) {
         console.warn(
-          `[parseBlendStyleIdsJson ${context}] blend_style_ids JSON was not an array (got ${typeof parsed}); falling back to []`,
+          `[parseBlendTileIdsJson ${context}] blend_tile_ids JSON was not an array (got ${typeof parsed}); falling back to []`,
         );
       }
       return [];
@@ -63,14 +63,14 @@ export function parseBlendStyleIdsJson(
     // worker's behavior.
     if (context && filtered.length !== parsed.length) {
       console.warn(
-        `[parseBlendStyleIdsJson ${context}] dropped ${parsed.length - filtered.length} non-string entries from blend_style_ids; corrupted DB row?`,
+        `[parseBlendTileIdsJson ${context}] dropped ${parsed.length - filtered.length} non-string entries from blend_tile_ids; corrupted DB row?`,
       );
     }
     return filtered;
   } catch (e) {
     if (context) {
       console.warn(
-        `[parseBlendStyleIdsJson ${context}] blend_style_ids JSON parse failed; falling back to []`,
+        `[parseBlendTileIdsJson ${context}] blend_tile_ids JSON parse failed; falling back to []`,
         e instanceof Error ? e.message : e,
       );
     }

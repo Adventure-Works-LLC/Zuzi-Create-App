@@ -42,6 +42,7 @@ import { MoreHorizontal, ShieldOff, Star, Trash2 } from "lucide-react";
 
 import { useImageUrl } from "@/hooks/useImageUrl";
 import { useFavorites } from "@/hooks/useFavorites";
+import { MAX_BLEND_TILES } from "@/lib/gemini/imagePrompts";
 import { useCanvas, type Tile as TileT } from "@/stores/canvas";
 import { ActionMenu } from "./ActionMenu";
 import { authFetch } from "@/lib/auth/authFetch";
@@ -72,6 +73,10 @@ export const Tile = memo(function Tile({
   frozen = false,
 }: TileProps) {
   const setLightboxTile = useCanvas((s) => s.setLightboxTile);
+  // v3.4 blend mode — tap toggles selection instead of opening lightbox.
+  const blendMode = useCanvas((s) => s.blendMode);
+  const blendSelectedTileIds = useCanvas((s) => s.blendSelectedTileIds);
+  const toggleBlendSelection = useCanvas((s) => s.toggleBlendSelection);
   const removeTile = useCanvas((s) => s.removeTile);
   const { toggle } = useFavorites();
   const { url, loading } = useImageUrl(tile.thumbKey);
@@ -103,7 +108,22 @@ export const Tile = memo(function Tile({
     [aspectRatio],
   );
 
+  // v3.4 blend mode flips the tap semantics: instead of opening the
+  // lightbox, tap toggles the tile into the blend selection.
+  // Pending / blocked / failed tiles + optimistic placeholders are
+  // ignored — only successful 'done' tiles with a real DB id can be
+  // sent to Gemini as a blend input.
+  const blendSelectionIndex = blendMode
+    ? blendSelectedTileIds.indexOf(tile.id)
+    : -1;
+  const isBlendSelected = blendSelectionIndex >= 0;
   const onTap = () => {
+    if (blendMode) {
+      if (tile.status !== "done") return;
+      if (optimistic || tile.id.startsWith("opt-")) return;
+      toggleBlendSelection(tile.id, MAX_BLEND_TILES);
+      return;
+    }
     if (tile.status === "done") setLightboxTile(tile.id);
   };
 
@@ -238,20 +258,33 @@ export const Tile = memo(function Tile({
         className={[
           "relative w-full overflow-hidden rounded-lg",
           "bg-card",
+          // v3.4: blend mode swaps the tile's hover/ring treatment.
+          // Selected tiles get a thick brass ring; unselected (still
+          // tappable) get the standard hairline + a subtle cursor
+          // hint indicating "tap to select" not "tap to zoom".
           tile.status === "done"
-            ? "ring-1 ring-hairline/70 hover:ring-hairline cursor-zoom-in"
+            ? blendMode
+              ? isBlendSelected
+                ? "ring-4 ring-accent cursor-pointer"
+                : "ring-1 ring-hairline/70 hover:ring-accent/60 cursor-pointer"
+              : "ring-1 ring-hairline/70 hover:ring-hairline cursor-zoom-in"
             : "ring-1 ring-hairline/40",
           "transition-all duration-200",
         ].join(" ")}
         aria-label={
-          tile.status === "done"
-            ? "Open tile"
-            : tile.status === "blocked"
-              ? "Tile blocked by safety filter"
-              : tile.status === "failed"
-                ? "Tile failed"
-                : "Tile generating"
+          blendMode && tile.status === "done"
+            ? isBlendSelected
+              ? `Deselect tile ${blendSelectionIndex + 1} from blend`
+              : "Select tile for blend"
+            : tile.status === "done"
+              ? "Open tile"
+              : tile.status === "blocked"
+                ? "Tile blocked by safety filter"
+                : tile.status === "failed"
+                  ? "Tile failed"
+                  : "Tile generating"
         }
+        aria-pressed={blendMode ? isBlendSelected : undefined}
       >
         {/* Pending tile: animated pulse normally, static "stuck"
             indicator when frozen=true. The stuck indicator is a small
@@ -323,6 +356,27 @@ export const Tile = memo(function Tile({
             <span className="caption-display text-xs text-text-mute">
               {tile.status === "blocked" ? "skipped" : "couldn't render"}
             </span>
+          </div>
+        )}
+        {/* v3.4 blend mode selection badge — small brass numbered chip
+            in the top-right showing this tile's position in the blend
+            selection order (1, 2, 3…). Order = the index in the parts
+            array sent to Gemini, so it MIGHT matter if the locked
+            directive ever grows position-anchored wording. For now it
+            also gives the user a visual count. Renders ONLY on
+            selected tiles in blend mode; never overlays the painting
+            on regular tiles per the no-overlay rule.
+
+            Defensible exception to the no-overlay rule: this overlay
+            ONLY appears when the user has explicitly entered blend
+            mode and tapped this specific tile, so it's an intentional
+            response to her action — not unsolicited chrome. */}
+        {blendMode && isBlendSelected && (
+          <div
+            className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-accent text-accent-foreground text-xs font-semibold tabular-nums shadow-md ring-2 ring-background"
+            aria-hidden
+          >
+            {blendSelectionIndex + 1}
           </div>
         )}
       </button>

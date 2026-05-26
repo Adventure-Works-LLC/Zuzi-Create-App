@@ -77,12 +77,12 @@ import {
 import { PRESETS, type Preset } from "@/lib/db/schema";
 import { runIteration } from "@/lib/gemini/runIteration";
 import {
-  MAX_BLEND_STYLES,
+  MAX_BLEND_TILES,
   TILE_COUNT_DEFAULT,
   TILE_COUNT_MAX,
 } from "@/lib/gemini/imagePrompts";
 import {
-  parseBlendStyleIdsJson,
+  parseBlendTileIdsJson,
   parseStoredPresets,
 } from "@/lib/gemini/presets";
 import { costFor } from "@/lib/cost";
@@ -167,25 +167,25 @@ function parseStylePaintingIds(raw: unknown): string[] | null {
   return out;
 }
 
-/** Parse + validate `blendStylePaintingIds` for `mode: 'style_blend'`.
- * Returns string[] of length [2, MAX_BLEND_STYLES], or null when absent.
+/** Parse + validate `blendTileIds` for `mode: 'style_blend'`.
+ * Returns string[] of length [2, MAX_BLEND_TILES], or null when absent.
  * Distinct rules from `parseStylePaintingIds`:
  *   - Minimum 2 entries (1 is degenerate → use style_explore).
- *   - Maximum is MAX_BLEND_STYLES (currently 4) — Pro's reasoning at
+ *   - Maximum is MAX_BLEND_TILES (currently 4) — Pro's reasoning at
  *     N>4 reference inputs is unexplored territory and likely muddy.
  *   - DUPLICATES REJECTED — blend is "fuse N distinct references";
  *     a duplicate is a no-op user error, surface as 400 not silent dedup.
  *     This is the opposite policy from `parseStylePaintingIds`, where
  *     duplicates are the documented mechanism for "More like this".
  */
-function parseBlendStylePaintingIds(raw: unknown): string[] | null {
+function parseBlendTileIds(raw: unknown): string[] | null {
   if (raw === undefined || raw === null) return null;
-  if (!Array.isArray(raw)) throw new Error("blendStylePaintingIds_must_be_array");
+  if (!Array.isArray(raw)) throw new Error("blendTileIds_must_be_array");
   if (raw.length < 2) {
-    throw new Error("blendStylePaintingIds_need_min_2");
+    throw new Error("blendTileIds_need_min_2");
   }
-  if (raw.length > MAX_BLEND_STYLES) {
-    throw new Error(`blendStylePaintingIds_too_many:max_${MAX_BLEND_STYLES}`);
+  if (raw.length > MAX_BLEND_TILES) {
+    throw new Error(`blendTileIds_too_many:max_${MAX_BLEND_TILES}`);
   }
   const out: string[] = [];
   for (const v of raw) {
@@ -197,7 +197,7 @@ function parseBlendStylePaintingIds(raw: unknown): string[] | null {
     out.push(v);
   }
   if (new Set(out).size !== out.length) {
-    throw new Error("blendStylePaintingIds_must_be_unique");
+    throw new Error("blendTileIds_must_be_unique");
   }
   return out;
 }
@@ -223,11 +223,11 @@ export async function POST(req: Request): Promise<Response> {
      *  validation: each is allowed only in its mode, never both. */
     stylePaintingId?: unknown;
     /** v3.0: array of style_painting ids for the style_blend mode —
-     *  pure multi-style fusion. Length [2, MAX_BLEND_STYLES]. Distinct
+     *  pure multi-style fusion. Length [2, MAX_BLEND_TILES]. Distinct
      *  from `stylePaintingIds` (which is per-tile, allows duplicates).
      *  Duplicates here are REJECTED because blend = N distinct
      *  references. */
-    blendStylePaintingIds?: unknown;
+    blendTileIds?: unknown;
     parentTileId?: unknown;
   };
   try {
@@ -313,12 +313,12 @@ export async function POST(req: Request): Promise<Response> {
   let count: number;
   let presets: Preset[];
   let stylePaintingIds: string[] | null;
-  let blendStylePaintingIds: string[] | null;
+  let blendTileIds: string[] | null;
   try {
     count = parseCount(body.count);
     presets = parsePresets(body.presets);
     stylePaintingIds = parseStylePaintingIds(body.stylePaintingIds);
-    blendStylePaintingIds = parseBlendStylePaintingIds(body.blendStylePaintingIds);
+    blendTileIds = parseBlendTileIds(body.blendTileIds);
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "invalid_input" },
@@ -347,12 +347,12 @@ export async function POST(req: Request): Promise<Response> {
         { status: 400 },
       );
     }
-    if (blendStylePaintingIds) {
+    if (blendTileIds) {
       return NextResponse.json(
         {
-          error: "blendStylePaintingIds_requires_style_blend_mode",
+          error: "blendTileIds_requires_style_blend_mode",
           detail:
-            "blendStylePaintingIds is only valid when mode='style_blend'.",
+            "blendTileIds is only valid when mode='style_blend'.",
         },
         { status: 400 },
       );
@@ -363,15 +363,15 @@ export async function POST(req: Request): Promise<Response> {
     count = stylePaintingIds.length;
   } else if (mode === "style_blend") {
     // v3.0 Style Blend — pure multi-style fusion. The route requires
-    // blendStylePaintingIds (2..MAX_BLEND_STYLES, no dupes) + rejects
+    // blendTileIds (2..MAX_BLEND_TILES, no dupes) + rejects
     // every other style/prompt field. count comes from the body (NOT
     // from the array length — blend's array is the INPUTS, count is
     // how many output tiles the user wants).
-    if (!blendStylePaintingIds) {
+    if (!blendTileIds) {
       return NextResponse.json(
         {
-          error: "missing_blendStylePaintingIds",
-          detail: "mode='style_blend' requires blendStylePaintingIds[]",
+          error: "missing_blendTileIds",
+          detail: "mode='style_blend' requires blendTileIds[]",
         },
         { status: 400 },
       );
@@ -409,7 +409,7 @@ export async function POST(req: Request): Promise<Response> {
   } else {
     // prompt mode: stylePaintingIds (the array) is rejected — clients
     // should use the single stylePaintingId field instead. Same for
-    // blendStylePaintingIds.
+    // blendTileIds.
     if (stylePaintingIds) {
       return NextResponse.json(
         {
@@ -420,12 +420,12 @@ export async function POST(req: Request): Promise<Response> {
         { status: 400 },
       );
     }
-    if (blendStylePaintingIds) {
+    if (blendTileIds) {
       return NextResponse.json(
         {
-          error: "blendStylePaintingIds_requires_style_blend_mode",
+          error: "blendTileIds_requires_style_blend_mode",
           detail:
-            "blendStylePaintingIds is only valid when mode='style_blend'.",
+            "blendTileIds is only valid when mode='style_blend'.",
         },
         { status: 400 },
       );
@@ -478,8 +478,8 @@ export async function POST(req: Request): Promise<Response> {
         // `existing.id` context is passed so any corrupted JSON in the
         // DB row surfaces as a warn-log with the iteration id (matches
         // the parseStoredPresets pattern above).
-        blendStyleIds: parseBlendStyleIdsJson(
-          existing.blend_style_ids,
+        blendTileIds: parseBlendTileIdsJson(
+          existing.blend_tile_ids,
           existing.id,
         ),
       },
@@ -512,7 +512,7 @@ export async function POST(req: Request): Promise<Response> {
   // Style-id existence checks. These run AFTER the cap check so capped
   // users don't pay N DB reads. The FK targets aren't enforced by
   // SQLite (parent_tile_id added via ALTER → no SET NULL enforcement;
-  // blend_style_ids is JSON not a real FK), so we check at the route
+  // blend_tile_ids is JSON not a real FK), so we check at the route
   // layer — otherwise a typo'd id dangles on every tile of the
   // iteration and surfaces as worker R2 fetch failures.
 
@@ -530,19 +530,41 @@ export async function POST(req: Request): Promise<Response> {
     }
   }
 
-  // v3.0: validate every blendStylePaintingId references an existing
-  // row. Pre-flight 404 keeps the user-visible failure clean — vs the
-  // worker discovering missing rows mid-flight.
-  if (blendStylePaintingIds) {
-    for (const sid of blendStylePaintingIds) {
-      const sp = getStylePainting(sid);
-      if (!sp) {
+  // v3.4: validate every blendTileId references an existing, active
+  // tile whose iteration is on the SAME source as this new iteration
+  // (same-source rule per the v3.4 product spec). Pre-flight 404/400
+  // keeps the user-visible failure clean — vs the worker discovering
+  // missing rows mid-flight.
+  //
+  // Three constraints per tile id, mirroring the parentTileId checks:
+  //   1. Tile row exists.
+  //   2. Tile is ACTIVE (not soft-deleted) — otherwise the blend would
+  //      use bytes for a tile that's been pruned from every UI surface.
+  //   3. Tile's iteration belongs to the same `sourceId` we're
+  //      iterating against. Cross-source blends are rejected — the
+  //      UI gates this client-side too (selection only available on
+  //      current source's stream) but defense-in-depth here protects
+  //      against a hand-crafted POST.
+  if (blendTileIds) {
+    for (const tid of blendTileIds) {
+      const inputTile = getTile(tid);
+      if (!inputTile || inputTile.deleted_at !== null) {
         return NextResponse.json(
           {
-            error: "style_painting_not_found",
-            detail: `no style_painting with id ${sid}`,
+            error: "blend_tile_not_found",
+            detail: `no active tile with id ${tid}`,
           },
           { status: 404 },
+        );
+      }
+      const inputIter = getIteration(inputTile.iteration_id);
+      if (!inputIter || inputIter.source_id !== sourceId) {
+        return NextResponse.json(
+          {
+            error: "blend_tile_cross_source",
+            detail: `blend tile ${tid} belongs to a different source — same-source rule violated`,
+          },
+          { status: 400 },
         );
       }
     }
@@ -591,9 +613,9 @@ export async function POST(req: Request): Promise<Response> {
   // v3.0: serialize the blend style ids array on style_blend iterations.
   // For every other mode, store the column's default value '[]' explicitly
   // so the worker's downstream JSON.parse can stay branch-free.
-  const blendStyleIdsJson =
-    mode === "style_blend" && blendStylePaintingIds
-      ? JSON.stringify(blendStylePaintingIds)
+  const blendTileIdsJson =
+    mode === "style_blend" && blendTileIds
+      ? JSON.stringify(blendTileIds)
       : "[]";
   try {
     insertIterationAndTiles(
@@ -608,7 +630,7 @@ export async function POST(req: Request): Promise<Response> {
         presets: presetsJson,
         mode,
         parent_tile_id: parentTileId,
-        blend_style_ids: blendStyleIdsJson,
+        blend_tile_ids: blendTileIdsJson,
         status: "pending",
         created_at: now,
         completed_at: null,
@@ -664,8 +686,8 @@ export async function POST(req: Request): Promise<Response> {
           // load-bearing — this catch branch was missing it.
           // Same context-arg rationale as the early-return branch
           // above — corruption warn-logs reference the iteration id.
-          blendStyleIds: parseBlendStyleIdsJson(
-            reread.blend_style_ids,
+          blendTileIds: parseBlendTileIdsJson(
+            reread.blend_tile_ids,
             reread.id,
           ),
         },

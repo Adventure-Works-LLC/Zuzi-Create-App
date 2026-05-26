@@ -521,7 +521,7 @@ export function buildStyleExplorePrompt(aspectRatio: string): string {
 // ---------------------------------------------------------------------------
 // STYLE_BLEND — v1 locked. Pure multi-style fusion (no sketch).
 //
-// Used by `mode: 'style_blend'` iterations. Pro receives N (2..MAX_BLEND_STYLES)
+// Used by `mode: 'style_blend'` iterations. Pro receives N (2..MAX_BLEND_TILES)
 // style painting images as the parts array — NO sketch — plus this fixed
 // directive. The output is a brand-new painting that fuses the references'
 // best aspects per Pro's own judgment.
@@ -554,7 +554,7 @@ export function buildStyleExplorePrompt(aspectRatio: string): string {
  * past the cap. If Jeff finds N=4 outputs unusable in production, drop
  * to 3.
  */
-export const MAX_BLEND_STYLES = 4;
+export const MAX_BLEND_TILES = 4;
 
 /**
  * The locked Krea-validated directive for Style Blend mode. Verbatim
@@ -572,9 +572,12 @@ export const STYLE_BLEND_DIRECTIVE =
 
 /**
  * Render the full style_blend prompt with the aspect-ratio sentence
- * appended. Output aspect uses the FIRST blend style's snapped aspect
- * per AGENTS.md §3 (blend mode is the documented exception to the
- * sketch-aspect invariant — there is no sketch).
+ * appended. Output aspect = the source's snapped aspect (under
+ * AGENTS.md §3 invariant, same as every other mode). v3.4 reworked
+ * the blend semantics so blend inputs are TILES that were generated
+ * FROM this source — the source aspect is the natural output aspect
+ * (no exception to §3 needed; the v3.0 "first style painting's
+ * aspect" exception is gone).
  */
 export function buildStyleBlendPrompt(aspectRatio: string): string {
   return `${STYLE_BLEND_DIRECTIVE}\n\nMatch the output aspect ratio exactly (${aspectRatio}).`;

@@ -57,6 +57,13 @@
       "when": 1779747342507,
       "tag": "0007_add_style_blend",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1779890000000,
+      "tag": "0008_blend_tile_ids",
+      "breakpoints": true
     }
   ]
 }

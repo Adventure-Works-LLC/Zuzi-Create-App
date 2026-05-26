@@ -1,0 +1,31 @@
+-- v3.4 Style Blend rework — corrected interpretation.
+--
+-- The v3.0 column `iterations.blend_style_ids` was built for what we
+-- thought "blend" meant: pick N style library references → Pro fuses
+-- their aesthetics into a new painting (no sketch). After the user
+-- tested v3.0 → v3.3 she clarified the actual intent:
+--
+--   "she wants to no blend the two style images but rather the
+--    OUTPUTs of style images on their output on one of her drawings.
+--    So she may like what image 1 does to her drawing and image 3
+--    does do her drawing and just wanted to see a blend of those two
+--    outputs. it currently blends the painting references which is
+--    useless"
+--
+-- So the blend INPUTS are actual generated TILES (each tile is her
+-- sketch already rendered in some style), not style library entries.
+-- The old column's data shape is semantically wrong — JSON arrays of
+-- style_painting ids — and any rows that exist were test runs that
+-- nobody cares about.
+--
+-- DROP + ADD (NOT RENAME): SQLite 3.35+ supports DROP COLUMN. We
+-- drop because (a) the data is wrong-typed and (b) carrying it under
+-- a renamed column would be confusing for the next reader. The new
+-- column has the same shape (TEXT NOT NULL DEFAULT '[]') so existing
+-- non-blend rows backfill cleanly.
+--
+-- No FK enforcement on the new column either — it's JSON, just like
+-- the dropped one. Existence + same-source validation happens at the
+-- route layer; cross-source blend ids are rejected as 400.
+ALTER TABLE `iterations` DROP COLUMN `blend_style_ids`;--> statement-breakpoint
+ALTER TABLE `iterations` ADD `blend_tile_ids` text DEFAULT '[]' NOT NULL;

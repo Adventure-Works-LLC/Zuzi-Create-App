@@ -64,6 +64,7 @@ import { AlertTriangle, MoreHorizontal, RotateCw, Trash2 } from "lucide-react";
 import { Tile } from "./Tile";
 import { ActionMenu } from "./ActionMenu";
 import { StyleAttributionThumb } from "./StyleAttributionThumb";
+import { useImageUrl } from "@/hooks/useImageUrl";
 import { useCanvas } from "@/stores/canvas";
 import { useIterations } from "@/hooks/useIterations";
 
@@ -385,33 +386,18 @@ export const IterationRow = memo(function IterationRow({
         </p>
       )}
 
-      {/* v3.1: per-iteration blend attribution. Blend iterations
-          carry their N style ids on `iteration.blendStyleIds`, not
-          on individual tiles (every tile in a blend run uses the
-          SAME N styles — the variation comes from temperature
-          stochasticity). Render the attribution ONCE per iteration
-          above the tile row so the user can see what styles drove
-          the blend. Same "no overlay on the painting surface" rule
-          (see Tile.tsx header) — sits in its own slot. */}
+      {/* v3.4: per-iteration blend attribution. Blend iterations carry
+          their N input TILE ids on `iteration.blendTileIds` (NOT
+          style painting ids — v3.4 corrected the interpretation: blend
+          inputs are tiles she generated earlier, not raw style refs).
+          Same-source rule means every input tile id resolves cleanly
+          from the current source's iterations[]. Render attribution
+          ONCE per iteration above the tile row so the user can see
+          which tiles drove the blend. Same "no overlay on the painting
+          surface" rule (see Tile.tsx header). */}
       {iteration.mode === "style_blend" &&
-        iteration.blendStyleIds.length > 0 && (
-          <div
-            className="flex flex-wrap items-center gap-2 px-1"
-            aria-label="Blend reference styles"
-          >
-            <span className="caption-display text-xs uppercase tracking-[0.18em] text-text-mute">
-              Blend of
-            </span>
-            <div className="flex flex-wrap gap-2">
-              {iteration.blendStyleIds.map((spId) => (
-                <StyleAttributionThumb
-                  key={spId}
-                  stylePaintingId={spId}
-                  size={32}
-                />
-              ))}
-            </div>
-          </div>
+        iteration.blendTileIds.length > 0 && (
+          <BlendTileAttributionRow tileIds={iteration.blendTileIds} />
         )}
 
       <div className="flex flex-wrap gap-3">
@@ -474,3 +460,86 @@ export const IterationRow = memo(function IterationRow({
     </section>
   );
 });
+
+/** v3.4 blend attribution row. Renders "Blend of [thumb] [thumb] …"
+ *  where each thumb is the THUMB_KEY of an input tile (looked up
+ *  in the current source's iterations[]). Same-source rule means
+ *  the lookup always hits as long as the iteration is still in
+ *  the store. If an input tile was deleted between blend time and
+ *  view time, the thumb renders an italicized "unavailable"
+ *  fallback — matches StyleAttributionThumb's missing-row behavior. */
+function BlendTileAttributionRow({ tileIds }: { tileIds: string[] }) {
+  // Build a flat map of tile id → thumbKey from the current source's
+  // iterations. Cheap O(iterations × tiles) — typical session is ≤
+  // a few dozen tiles total.
+  const tileThumbByIdMap = useCanvas((s) => {
+    const m = new Map<string, string | null>();
+    for (const it of s.iterations) {
+      for (const t of it.tiles) {
+        m.set(t.id, t.thumbKey);
+      }
+    }
+    return m;
+  });
+  return (
+    <div
+      className="flex flex-wrap items-center gap-2 px-1"
+      aria-label="Blend input tiles"
+    >
+      <span className="caption-display text-xs uppercase tracking-[0.18em] text-text-mute">
+        Blend of
+      </span>
+      <div className="flex flex-wrap gap-2">
+        {tileIds.map((tid, idx) => (
+          <BlendInputTileThumb
+            key={tid}
+            tileId={tid}
+            thumbKey={tileThumbByIdMap.get(tid) ?? null}
+            ordinal={idx + 1}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function BlendInputTileThumb({
+  tileId,
+  thumbKey,
+  ordinal,
+}: {
+  tileId: string;
+  thumbKey: string | null;
+  ordinal: number;
+}) {
+  // useImageUrl tolerates null cleanly → no errant signed-URL fetch
+  // when the input tile isn't in the store (deleted / source
+  // switched away).
+  const { url } = useImageUrl(thumbKey);
+  if (thumbKey === null || !url) {
+    return (
+      <div
+        className="flex h-9 w-9 items-center justify-center rounded-sm ring-1 ring-hairline/50 bg-secondary"
+        title={`Blend input #${ordinal} — tile unavailable (${tileId.slice(0, 8)}…)`}
+        aria-label="Tile unavailable"
+      >
+        <span className="caption-display text-[10px] italic text-text-mute/70">
+          ?
+        </span>
+      </div>
+    );
+  }
+  return (
+    <div
+      className="relative h-9 w-9 shrink-0 overflow-hidden rounded-sm ring-1 ring-hairline/50"
+      title={`Blend input #${ordinal}`}
+    >
+      <img
+        src={url}
+        alt={`Blend input ${ordinal}`}
+        loading="lazy"
+        className="h-full w-full object-cover"
+      />
+    </div>
+  );
+}

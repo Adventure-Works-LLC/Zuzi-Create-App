@@ -177,7 +177,7 @@ export interface Iteration {
    *  (no per-tile style_painting_id is set in blend mode — every tile
    *  shares the same N styles, so the attribution lives on the
    *  iteration). */
-  blendStyleIds: string[];
+  blendTileIds: string[];
   status: IterationStatus;
   createdAt: number;
   tiles: Tile[];
@@ -336,6 +336,27 @@ interface CanvasState {
   // SourceStrip / Generate is intentionally blocked.
   exploreSheetOpen: boolean;
   setExploreSheetOpen: (open: boolean) => void;
+
+  // ---- v3.4 blend mode (multi-select on TileStream) ----
+  // blendMode flag flips the main TileStream into a multi-select state:
+  // tiles get a selection ring + numbered badge on tap, a floating
+  // action bar appears at the bottom with "Blend N tiles". Selection
+  // is scoped to the current source (the only tiles visible). All
+  // local to the canvas store so SourceStrip / Tile / TileStream
+  // share one truth.
+  blendMode: boolean;
+  /** Ordered list of selected tile ids — order = the index in the
+   *  parts array sent to Gemini. Capped client-side at MAX_BLEND_TILES;
+   *  server also enforces. */
+  blendSelectedTileIds: string[];
+  setBlendMode: (on: boolean) => void;
+  /** Tap-toggle a tile id in/out of the selection. No-op if adding
+   *  would exceed MAX_BLEND_TILES; remove always succeeds. Pass the
+   *  max as a runtime arg so the store doesn't import lib/gemini
+   *  (which would pull in Gemini SDK as a dep of the store). */
+  toggleBlendSelection: (tileId: string, maxSelections: number) => void;
+  /** Wipe selection (used on blend-mode exit + on source switch). */
+  clearBlendSelection: () => void;
 }
 
 export const useCanvas = create<CanvasState>((set) => ({
@@ -381,6 +402,14 @@ export const useCanvas = create<CanvasState>((set) => ({
         // doesn't reset.
         presets: isSwitch ? ["avery"] : s.presets,
         aspectRatioMode: isSwitch ? "match" : s.aspectRatioMode,
+        // v3.4: blend selection is source-scoped (same-source rule).
+        // Switching sources wipes any in-flight selection so the
+        // ids don't accidentally fire against a different source.
+        // Also exit blend mode on switch — the new source's stream
+        // is empty until iterations refetch, so blend mode would be
+        // useless anyway until tiles arrive.
+        blendMode: isSwitch ? false : s.blendMode,
+        blendSelectedTileIds: isSwitch ? [] : s.blendSelectedTileIds,
       };
     }),
   archiveSource: (sourceId) =>
@@ -590,6 +619,32 @@ export const useCanvas = create<CanvasState>((set) => ({
   // ---- explore sheet ----
   exploreSheetOpen: false,
   setExploreSheetOpen: (open) => set({ exploreSheetOpen: open }),
+
+  // ---- v3.4 blend mode ----
+  blendMode: false,
+  blendSelectedTileIds: [],
+  setBlendMode: (on) =>
+    set((s) =>
+      on
+        ? { blendMode: true }
+        : { blendMode: false, blendSelectedTileIds: [] },
+    ),
+  toggleBlendSelection: (tileId, maxSelections) =>
+    set((s) => {
+      const at = s.blendSelectedTileIds.indexOf(tileId);
+      if (at >= 0) {
+        return {
+          blendSelectedTileIds: s.blendSelectedTileIds.filter(
+            (x) => x !== tileId,
+          ),
+        };
+      }
+      if (s.blendSelectedTileIds.length >= maxSelections) return {}; // capped
+      return {
+        blendSelectedTileIds: [...s.blendSelectedTileIds, tileId],
+      };
+    }),
+  clearBlendSelection: () => set({ blendSelectedTileIds: [] }),
 }));
 
 /** When the source list changes, decide what currentSourceId should be. Keeps

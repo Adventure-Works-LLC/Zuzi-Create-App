@@ -39,6 +39,7 @@ import { FavoritesPanel } from "@/components/krea/FavoritesPanel";
 import { ArchivedSourcesPanel } from "@/components/krea/ArchivedSourcesPanel";
 import { StylesPanel } from "@/components/krea/StylesPanel";
 import { ExploreSheet } from "@/components/krea/ExploreSheet";
+import { BlendActionBar } from "@/components/krea/BlendActionBar";
 import { useSources } from "@/hooks/useSources";
 import { useIterations } from "@/hooks/useIterations";
 import { useStylePaintings } from "@/hooks/useStylePaintings";
@@ -125,6 +126,7 @@ export default function Studio() {
       <ArchivedSourcesPanel />
       <StylesPanel />
       <ExploreSheet />
+      <BlendActionBar />
     </main>
   );
 }

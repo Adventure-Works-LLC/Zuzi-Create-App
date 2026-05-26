@@ -52,15 +52,26 @@ const LONG_PRESS_MOVE_TOLERANCE = 10;
 function StylePaintingCard({
   row,
   onDelete,
+  onArm,
   onFire,
+  isArmed,
   fireDisabled,
   fireDisabledReason,
 }: {
   row: StylePainting;
   onDelete: () => Promise<void>;
-  /** Called on tap (NOT long-press). Resolves when the iteration POST
-   *  returns + the panel will close. Throws on error. Caller surfaces. */
+  /** v3.8: arm this card (first tap). Panel-level state tracks which
+   *  card is armed; only one at a time. Tapping a different card
+   *  re-arms; tapping the same card again calls onFire. */
+  onArm: () => void;
+  /** Called on the SECOND tap of an armed card. Resolves when the
+   *  iteration POST returns + the panel will close. Throws on error
+   *  (caller surfaces inline). */
   onFire: () => Promise<void>;
+  /** True when this card is the panel's currently-armed card.
+   *  Drives the visual treatment + the tap-to-fire vs tap-to-arm
+   *  branch in handleTap. */
+  isArmed: boolean;
   /** When true, taps are no-ops + the card renders disabled. Reasons:
    *  no current source, another fire already in-flight. */
   fireDisabled: boolean;
@@ -133,14 +144,26 @@ function StylePaintingCard({
     startPosRef.current = null;
   };
 
-  // v3.7: tap-to-fire handler. Skips when long-press fired (menu
-  // opened) since the pointerup → click bubble would otherwise also
-  // fire the iteration. Skips when fire is disabled (no source, busy,
-  // or another in-flight). The async onFire is awaited here so a
-  // slow R2 + DB roundtrip surfaces visibly via setBusy.
-  const handleFire = async () => {
+  // v3.7+v3.8: tap handler with two-tap confirmation.
+  // Skips when long-press fired (menu opened; the pointerup → click
+  // bubble would otherwise also fire the action). Skips when the card
+  // is disabled (no source, another fire already in-flight). When
+  // armed, second tap calls onFire; otherwise first tap calls onArm.
+  // The async onFire is awaited here so a slow R2 + DB roundtrip
+  // surfaces visibly via setBusy + inline error.
+  //
+  // Rationale for two-tap: with single-tap-fires, a stray finger
+  // during scroll could fire a $0.40 Gemini call. Two-tap means a
+  // misfire requires two intentional taps on the same card within
+  // the 4s arm window (set + cleared at the panel level) — much
+  // less likely to happen by accident.
+  const handleTap = async () => {
     if (longPressFiredRef.current) return;
     if (fireDisabled || busy) return;
+    if (!isArmed) {
+      onArm();
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -182,18 +205,22 @@ function StylePaintingCard({
         onPointerUp={endPress}
         onPointerLeave={endPress}
         onPointerCancel={endPress}
-        // v3.7: tap fires single-style Explore against current source.
-        // handleFire is async-safe (awaits + catches); the panel-level
-        // onFire prop closes the panel on success.
-        onClick={() => void handleFire()}
+        // v3.7+v3.8: two-tap confirmation. First tap → arms the card
+        // (visual brass ring + caption swap). Second tap on the
+        // same card → fires. handleTap is async-safe (awaits +
+        // catches); the panel-level onFire prop closes the panel
+        // on success + the panel-level onArm tracks armedCardId.
+        onClick={() => void handleTap()}
         onContextMenu={(e) => e.preventDefault()}
         style={{ touchAction: "manipulation" }}
         className={[
           "relative aspect-square w-full overflow-hidden rounded-md",
-          "ring-1 transition-all",
+          "transition-all",
           fireDisabled
-            ? "ring-hairline/30 cursor-not-allowed opacity-60"
-            : "ring-hairline/50 hover:ring-accent cursor-pointer",
+            ? "ring-1 ring-hairline/30 cursor-not-allowed opacity-60"
+            : isArmed
+              ? "ring-4 ring-accent cursor-pointer"
+              : "ring-1 ring-hairline/50 hover:ring-accent/60 cursor-pointer",
           "no-callout",
           busy && "opacity-60 cursor-wait",
         ]
@@ -202,8 +229,11 @@ function StylePaintingCard({
         aria-label={
           fireDisabled
             ? `Style painting: ${captionText} (${fireDisabledReason ?? "tap disabled"})`
-            : `Generate current source in style: ${captionText}`
+            : isArmed
+              ? `Tap again to generate current source in style: ${captionText}`
+              : `Select style: ${captionText} (tap again to generate)`
         }
+        aria-pressed={isArmed ? true : undefined}
         title={fireDisabled ? fireDisabledReason : undefined}
         disabled={busy || fireDisabled}
       >
@@ -226,8 +256,17 @@ function StylePaintingCard({
           </div>
         )}
       </button>
-      <p className="caption-display truncate px-1 text-xs text-text-mute">
-        {captionText}
+      <p
+        className={[
+          "caption-display truncate px-1 text-xs",
+          // v3.8: swap caption to confirmation hint when armed —
+          // accent color + non-italic to read as a call-to-action,
+          // not a styled label. Truncation still applies in case
+          // the hint text would wrap the row's clamp.
+          isArmed ? "text-accent font-medium" : "text-text-mute",
+        ].join(" ")}
+      >
+        {isArmed ? "Tap again to generate" : captionText}
       </p>
       {error && (
         <p className="px-1 text-xs text-destructive">{error}</p>
@@ -277,6 +316,11 @@ export function StylesPanel() {
 
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  // v3.8: which card (if any) is currently armed for fire on the next
+  // tap. Only one card armed at a time across the grid — tapping a
+  // different card re-arms. 4-second auto-disarm so a stray tap
+  // doesn't sit hot indefinitely (next effect handles that).
+  const [armedCardId, setArmedCardId] = useState<string | null>(null);
 
   // Esc-to-close. Same lightbox-deference pattern as FavoritesPanel +
   // ArchivedSourcesPanel: if a lightbox is open in either mode, let its
@@ -297,6 +341,35 @@ export function StylesPanel() {
     const t = window.setTimeout(() => setUploadError(null), 4000);
     return () => window.clearTimeout(t);
   }, [uploadError]);
+
+  // v3.8: auto-disarm after 4 seconds. A card armed but never
+  // confirmed shouldn't stay hot — the user may have moved on,
+  // closed an adjacent panel, or just changed their mind. The
+  // timeout is generous enough to confirm without rushing but
+  // short enough that a stale armed state can't fire on a
+  // significantly-later stray tap.
+  useEffect(() => {
+    if (armedCardId === null) return;
+    const t = window.setTimeout(() => setArmedCardId(null), 4000);
+    return () => window.clearTimeout(t);
+  }, [armedCardId]);
+
+  // v3.8: auto-disarm when the panel closes. Without this a quickly-
+  // closed-then-reopened panel could resurrect a stale armed state
+  // (state survives across the early-return-null because StylesPanel
+  // stays mounted from page.tsx; only the JSX returns null).
+  useEffect(() => {
+    if (!open) setArmedCardId(null);
+  }, [open]);
+
+  // v3.8: auto-disarm when the current source changes. The fire
+  // handler reads currentSourceId from the canvas store; if she
+  // armed a card under source A and switched to source B before
+  // confirming, the second tap would fire against source B —
+  // surprising. Wipe the armed state on source change.
+  useEffect(() => {
+    setArmedCardId(null);
+  }, [currentSourceId]);
 
   if (!open) return null;
 
@@ -471,7 +544,16 @@ export function StylesPanel() {
                   key={row.id}
                   row={row}
                   onDelete={() => deleteForever(row.id)}
-                  onFire={() => handleFireStyle(row.id)}
+                  onArm={() => setArmedCardId(row.id)}
+                  onFire={async () => {
+                    // Clear armed state before the network roundtrip
+                    // so a slow POST doesn't leave another card
+                    // visibly armed. handleFireStyle will close the
+                    // panel on success regardless.
+                    setArmedCardId(null);
+                    await handleFireStyle(row.id);
+                  }}
+                  isArmed={armedCardId === row.id}
                   fireDisabled={!currentSourceId || fireInFlight}
                   fireDisabledReason={fireDisabledReason}
                 />

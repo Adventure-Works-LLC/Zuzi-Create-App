@@ -377,6 +377,28 @@ export function StylesPanel() {
     }
   }, [open]);
 
+  // v3.0 blend-mode handler. MUST live above the `if (!open) return null`
+  // early return — moving it below it would create a hook order violation
+  // (React error #310): closed→open transition would see one more hook
+  // than the previous render. All hook declarations (useState, useEffect,
+  // useCallback) live above the early return; only plain functions +
+  // derived constants live below it.
+  const handleToggleSelect = useCallback(
+    (id: string) => {
+      setSelectedIds((prev) => {
+        const at = prev.indexOf(id);
+        if (at >= 0) {
+          // Deselect: remove the id; remaining selection re-numbers
+          // automatically since the badge reads from the array index.
+          return prev.filter((x) => x !== id);
+        }
+        if (prev.length >= MAX_BLEND_STYLES) return prev; // capped — no-op
+        return [...prev, id];
+      });
+    },
+    [],
+  );
+
   if (!open) return null;
 
   const handleFiles = async (files: FileList | null) => {
@@ -396,23 +418,9 @@ export function StylesPanel() {
     }
   };
 
-  // ---- v3.0 blend-mode helpers ----
-
-  const handleToggleSelect = useCallback(
-    (id: string) => {
-      setSelectedIds((prev) => {
-        const at = prev.indexOf(id);
-        if (at >= 0) {
-          // Deselect: remove the id; remaining selection re-numbers
-          // automatically since the badge reads from the array index.
-          return prev.filter((x) => x !== id);
-        }
-        if (prev.length >= MAX_BLEND_STYLES) return prev; // capped — no-op
-        return [...prev, id];
-      });
-    },
-    [],
-  );
+  // ---- v3.0 blend-mode helpers (plain functions; the useCallback for
+  //      handleToggleSelect lives ABOVE the early return — see comment
+  //      there for the hook-order rationale). ----
 
   const handleEnterBlendMode = () => {
     setBlendMode(true);

@@ -120,8 +120,16 @@ async function handleUpload(req: Request): Promise<Response> {
     }
     file = f;
     originalFilename = f.name && f.name !== "blob" ? f.name : null;
-  } catch {
-    return NextResponse.json({ error: "invalid_multipart" }, { status: 400 });
+  } catch (e) {
+    // v4.5: include the parse failure's cause — see the same catch in
+    // app/api/style-paintings/route.ts for the rationale.
+    return NextResponse.json(
+      {
+        error: "invalid_multipart",
+        detail: e instanceof Error ? e.message : String(e),
+      },
+      { status: 400 },
+    );
   }
 
   if (file.size > MAX_RAW_BYTES) {

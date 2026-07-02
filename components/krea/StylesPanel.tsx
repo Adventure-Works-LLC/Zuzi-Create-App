@@ -560,33 +560,56 @@ export function StylesPanel() {
 
   const handleFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
-    // v4.0: one artist prompt per batch. Prefilled with the active
+    // v4.0→v4.5: one artist prompt per batch, prefilled with the active
     // filter (she's looking at the Scholder wall → adding more
-    // Scholders is zero typing). Semantics: Cancel aborts the whole
-    // upload (dialog convention — she can re-pick the files); OK with
-    // a blank field uploads untagged.
+    // Scholders is zero typing). v4.5 HARDENED: the upload must NEVER
+    // be blocked on the dialog. iOS standalone PWAs suppress
+    // window.prompt in some versions (returns null immediately) — the
+    // v4.0 "Cancel aborts" semantics turned that into uploads silently
+    // doing nothing. Now: null (cancelled OR suppressed) falls back to
+    // the active artist filter, then to untagged. Files always upload.
     const suggested =
       effectiveFilter && effectiveFilter !== UNTAGGED_FILTER
         ? effectiveFilter
         : "";
-    const artistInput = window.prompt(
-      `Artist for ${files.length === 1 ? "this painting" : `these ${files.length} paintings`}? (optional — blank to skip)`,
-      suggested,
-    );
-    if (artistInput === null) return; // cancelled → abort upload
-    const batchArtist = artistInput.trim() || null;
-    // Parallel upload of all selected files. authFetch dedupes 401
-    // refresh storms; individual failures surface as a header banner
-    // (we only show the first; subsequent failures are logged).
-    const tasks = Array.from(files).map((f) => uploadFile(f, batchArtist));
-    const results = await Promise.allSettled(tasks);
-    const firstFailure = results.find((r) => r.status === "rejected");
-    if (firstFailure && firstFailure.status === "rejected") {
-      setUploadError(
-        firstFailure.reason instanceof Error
-          ? firstFailure.reason.message
-          : String(firstFailure.reason),
+    let artistInput: string | null = null;
+    try {
+      artistInput = window.prompt(
+        `Artist for ${files.length === 1 ? "this painting" : `these ${files.length} paintings`}? (optional — blank to skip)`,
+        suggested,
       );
+    } catch {
+      // Some embedded/standalone contexts throw instead of returning
+      // null. Treat as suppressed.
+      artistInput = null;
+    }
+    const batchArtist = (artistInput ?? suggested).trim() || null;
+    // v4.5: bounded-concurrency upload pool. The v2.1 fire-all-POSTs-
+    // in-parallel pattern saturated iPad Safari's connection pool on
+    // big batches (15+ camera-roll photos) — stalled bodies arrive
+    // truncated and the server's req.formData() throws
+    // invalid_multipart. Three at a time keeps the pipe full without
+    // the pileup. Individual failures surface as a header banner (we
+    // only show the first; subsequent failures are logged).
+    const queue = Array.from(files);
+    const failures: unknown[] = [];
+    const worker = async () => {
+      for (;;) {
+        const f = queue.shift();
+        if (!f) return;
+        try {
+          await uploadFile(f, batchArtist);
+        } catch (e) {
+          failures.push(e);
+        }
+      }
+    };
+    await Promise.all(
+      Array.from({ length: Math.min(3, queue.length) }, () => worker()),
+    );
+    if (failures.length > 0) {
+      const first = failures[0];
+      setUploadError(first instanceof Error ? first.message : String(first));
     }
   };
 

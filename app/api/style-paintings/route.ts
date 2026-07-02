@@ -76,8 +76,18 @@ export async function POST(req: Request): Promise<Response> {
     if (typeof artistRaw === "string" && artistRaw.trim().length > 0) {
       artist = artistRaw.trim().slice(0, 200);
     }
-  } catch {
-    return NextResponse.json({ error: "invalid_multipart" }, { status: 400 });
+  } catch (e) {
+    // v4.5: surface the parse failure's cause. "invalid_multipart"
+    // alone was undiagnosable in the field — truncated bodies (iPad
+    // Safari under connection pressure), aborted requests, and
+    // malformed boundaries all looked identical.
+    return NextResponse.json(
+      {
+        error: "invalid_multipart",
+        detail: e instanceof Error ? e.message : String(e),
+      },
+      { status: 400 },
+    );
   }
 
   if (file.size > MAX_RAW_BYTES) {

@@ -294,6 +294,12 @@ export function useIterations(): UseIterationsResult {
       if (!resp.ok) return;
       const data = (await resp.json()) as { iterations: IterationResponseRow[] };
       if (epochAtStart !== iterationsListEpoch) return; // stale snapshot
+      // v4.5: source-switch guard. This helper isn't tied to the
+      // source-switch effect's AbortController, and since v4.2 it runs
+      // after EVERY generate — a slow response landing after the user
+      // switched sources would paint source A's list into source B's
+      // stream. Discard when the current source moved on.
+      if (useCanvas.getState().currentSourceId !== sid) return;
       useCanvas.getState().setIterations(data.iterations.map(rowToIteration));
     } catch {
       // best-effort refresh; let the next user navigation reconcile

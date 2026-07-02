@@ -76,6 +76,14 @@ interface IterationResponseRow {
   }>;
 }
 
+// v4.2: module-scoped invalidation epoch for iterations LIST fetches.
+// generate() bumps it when it prepends an optimistic iteration; any list
+// fetch that started under an older epoch discards its response instead
+// of setIterations-replacing (and thereby wiping) the placeholder. Module-
+// scoped (not a ref) because useIterations has ~5 call sites, each with
+// its own independent in-flight fetch — see the source-switch effect.
+let iterationsListEpoch = 0;
+
 function rowToIteration(r: IterationResponseRow): Iteration {
   return {
     id: r.id,
@@ -233,6 +241,15 @@ export function useIterations(): UseIterationsResult {
     }
     const ac = new AbortController();
     abortRef.current = ac;
+    // v4.2: capture the list epoch at fetch start. generate() bumps the
+    // module-scoped epoch when it prepends its optimistic row; any list
+    // fetch that STARTED before that bump is a pre-insert snapshot whose
+    // setIterations(replace) would wipe the placeholder. The abort in
+    // generate() only covers the generating component's own instance —
+    // this hook has ~5 call sites, each with its own in-flight fetch on
+    // a source switch, so the epoch guard is what actually protects the
+    // placeholder from the other instances' stale responses.
+    const epochAtStart = iterationsListEpoch;
     setLoading(true);
     setError(null);
     (async () => {
@@ -243,6 +260,7 @@ export function useIterations(): UseIterationsResult {
         );
         if (!resp.ok) throw new Error(`iterations fetch failed (${resp.status})`);
         const data = (await resp.json()) as { iterations: IterationResponseRow[] };
+        if (epochAtStart !== iterationsListEpoch) return; // stale snapshot
         setIterations(data.iterations.map(rowToIteration));
       } catch (e) {
         if ((e as Error).name === "AbortError") return;
@@ -253,6 +271,34 @@ export function useIterations(): UseIterationsResult {
     })();
     return () => ac.abort();
   }, [currentSourceId, setIterations]);
+
+  // Refetch helper used by generate's post-insert refresh (below),
+  // deleteIteration's failure-rollback, and recoverIteration's
+  // success-refresh. Re-executes the source-switch effect's fetch
+  // (without the loading state churn) so the canvas store catches up
+  // to canonical server state. Bypasses the currentSourceId guard via
+  // direct call. Defined ABOVE generate because generate lists it as a
+  // dependency — a later const in the same render pass would be in TDZ
+  // when generate's dep array evaluates.
+  const refetchIterationsForCurrent = useCallback(async () => {
+    const sid = useCanvas.getState().currentSourceId;
+    if (!sid) return;
+    // Same epoch staleness guard as the source-switch effect — a
+    // refetch kicked off before a generate's optimistic prepend must
+    // not land on top of it.
+    const epochAtStart = iterationsListEpoch;
+    try {
+      const resp = await authFetch(
+        `/api/iterations?sourceId=${encodeURIComponent(sid)}&limit=50`,
+      );
+      if (!resp.ok) return;
+      const data = (await resp.json()) as { iterations: IterationResponseRow[] };
+      if (epochAtStart !== iterationsListEpoch) return; // stale snapshot
+      useCanvas.getState().setIterations(data.iterations.map(rowToIteration));
+    } catch {
+      // best-effort refresh; let the next user navigation reconcile
+    }
+  }, []);
 
   const generate = useCallback(
     async (opts?: GenerateOptions): Promise<GenerateResult | null> => {
@@ -347,6 +393,26 @@ export function useIterations(): UseIterationsResult {
               : null,
       })),
     };
+    // v4.2: invalidate every in-flight iterations LIST fetch before the
+    // optimistic prepend. The source-switch effect's fetches resolve
+    // with server snapshots that predate this generation's insert;
+    // landing after the prepend, their setIterations(replace) wiped the
+    // placeholder row — the "I generated but no pending tiles appeared
+    // until I switched sources and back" bug. Switch-source-then-
+    // Generate is the canonical session loop, so this race fired
+    // regularly on slower networks. SSE keeps updating tiles by
+    // iteration id, so once the row was gone the whole run stayed
+    // invisible for the rest of the session.
+    //
+    // Two layers: the abort cancels THIS instance's fetch outright, and
+    // the epoch bump makes every OTHER instance's in-flight fetch
+    // discard its response on landing (the hook has ~5 call sites, each
+    // fetching independently on a source switch — an abort here can't
+    // reach them). History skipped by either layer is restored by the
+    // post-insert refetch below, which starts after the bump and so
+    // passes the epoch guard.
+    abortRef.current?.abort();
+    iterationsListEpoch++;
     prependIteration(optimistic);
 
     // Abort any prior in-flight generate before issuing this one. Generate is
@@ -536,6 +602,18 @@ export function useIterations(): UseIterationsResult {
             : it,
         ),
       );
+      // v4.2: best-effort list refresh, fire-and-forget. Two jobs:
+      // (a) restore any history the abortRef.abort() above cancelled
+      // (switch→generate races the initial list fetch; without this the
+      // stream would show only the new run until the next switch), and
+      // (b) heal cross-device staleness opportunistically. Safe as a
+      // replace: the server list already contains this iteration (the
+      // POST inserted it before responding), and the first SSE tile is
+      // many seconds out while this refresh lands in well under one.
+      // Failure path deliberately does NOT refetch — the failed
+      // optimistic placeholder is kept visible for diagnosis and a
+      // refetch would silently remove it.
+      void refetchIterationsForCurrent();
       return { iterationId, idempotentReplay: data.idempotentReplay };
     } catch (e) {
       // AbortError = source-switched (or unmount); the placeholder is already
@@ -562,27 +640,8 @@ export function useIterations(): UseIterationsResult {
     count,
     prependIteration,
     setIterationStatus,
+    refetchIterationsForCurrent,
   ]);
-
-  // Refetch helper used by deleteIteration's failure-rollback and
-  // recoverIteration's success-refresh. We re-execute the source-switch
-  // effect's fetch (without the loading state churn) so the canvas
-  // store catches up to canonical server state. Bypasses the
-  // currentSourceId guard via direct call.
-  const refetchIterationsForCurrent = useCallback(async () => {
-    const sid = useCanvas.getState().currentSourceId;
-    if (!sid) return;
-    try {
-      const resp = await authFetch(
-        `/api/iterations?sourceId=${encodeURIComponent(sid)}&limit=50`,
-      );
-      if (!resp.ok) return;
-      const data = (await resp.json()) as { iterations: IterationResponseRow[] };
-      useCanvas.getState().setIterations(data.iterations.map(rowToIteration));
-    } catch {
-      // best-effort refresh; let the next user navigation reconcile
-    }
-  }, []);
 
   const deleteIteration = useCallback(
     async (iterationId: string): Promise<void> => {

@@ -68,6 +68,7 @@ import { useImageUrl } from "@/hooks/useImageUrl";
 import { useCanvas } from "@/stores/canvas";
 import { useShallow } from "zustand/react/shallow";
 import { useIterations } from "@/hooks/useIterations";
+import { authFetch } from "@/lib/auth/authFetch";
 
 // Mirrors VISIBLE_PRESETS + hidden presets in InputBar.tsx — labels for
 // the iteration caption chip. Missing entries fall through to literal
@@ -543,6 +544,32 @@ function BlendTileAttributionRow({ tileIds }: { tileIds: string[] }) {
   );
 }
 
+// v4.4: module-scoped cache for cross-source blend-input thumb lookups.
+// One GET /api/tiles/:id per unknown tile id per tab session — every
+// BlendInputTileThumb instance for the same id shares the promise. A 404
+// (deleted input) caches as null → "?" placeholder, correctly, forever.
+const crossSourceTileThumbCache = new Map<string, Promise<string | null>>();
+
+function fetchTileThumbKey(tileId: string): Promise<string | null> {
+  let p = crossSourceTileThumbCache.get(tileId);
+  if (!p) {
+    p = (async () => {
+      try {
+        const resp = await authFetch(
+          `/api/tiles/${encodeURIComponent(tileId)}`,
+        );
+        if (!resp.ok) return null;
+        const data = (await resp.json()) as { thumbKey?: string | null };
+        return data.thumbKey ?? null;
+      } catch {
+        return null;
+      }
+    })();
+    crossSourceTileThumbCache.set(tileId, p);
+  }
+  return p;
+}
+
 function BlendInputTileThumb({
   tileId,
   thumbKey,
@@ -552,11 +579,28 @@ function BlendInputTileThumb({
   thumbKey: string | null;
   ordinal: number;
 }) {
+  // v4.4: cross-source fallback. When the input tile isn't in the
+  // current source's in-store iterations (thumbKey prop is null — a
+  // cross-source blend input, or a since-deleted tile), resolve its
+  // thumbKey via GET /api/tiles/:id (module-cached above). Store-
+  // provided thumbKey wins when present; deleted tiles resolve to
+  // null and keep the "?" placeholder.
+  const [fetchedThumbKey, setFetchedThumbKey] = useState<string | null>(null);
+  useEffect(() => {
+    if (thumbKey !== null) return;
+    let alive = true;
+    void fetchTileThumbKey(tileId).then((k) => {
+      if (alive && k !== null) setFetchedThumbKey(k);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [tileId, thumbKey]);
+  const effectiveThumbKey = thumbKey ?? fetchedThumbKey;
   // useImageUrl tolerates null cleanly → no errant signed-URL fetch
-  // when the input tile isn't in the store (deleted / source
-  // switched away).
-  const { url } = useImageUrl(thumbKey);
-  if (thumbKey === null || !url) {
+  // when the input tile isn't resolvable (deleted input).
+  const { url } = useImageUrl(effectiveThumbKey);
+  if (effectiveThumbKey === null || !url) {
     return (
       <div
         className="flex h-9 w-9 items-center justify-center rounded-sm ring-1 ring-hairline/50 bg-secondary"

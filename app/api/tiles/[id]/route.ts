@@ -50,6 +50,50 @@ import {
 
 export const runtime = "nodejs";
 
+/**
+ * GET /api/tiles/:id — minimal tile metadata lookup. Added in v4.4 for
+ * cross-source blend attribution: the IterationRow's "Blend of
+ * [thumb][thumb]" chips resolve input-tile thumbKeys from the CURRENT
+ * source's in-store iterations, but a cross-source blend references
+ * tiles whose iterations were never loaded client-side. This endpoint
+ * is the on-demand fallback (fetched once per unknown tile id, cached
+ * module-side in IterationRow).
+ *
+ * Returns 404 for missing AND soft-deleted tiles — a deleted input
+ * renders the "?" placeholder, which is the correct attribution for
+ * bytes that no longer exist in any UI surface.
+ */
+export async function GET(
+  _req: Request,
+  { params }: { params: Promise<{ id: string }> },
+): Promise<Response> {
+  if (!(await requireAuth())) {
+    return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
+  }
+  const { id } = await params;
+  if (!id || typeof id !== "string") {
+    return NextResponse.json({ error: "missing_id" }, { status: 400 });
+  }
+  const tile = getTile(id);
+  if (!tile || tile.deleted_at !== null) {
+    return NextResponse.json(
+      { error: "tile_not_found", detail: `no active tile with id ${id}` },
+      { status: 404 },
+    );
+  }
+  return NextResponse.json(
+    {
+      id: tile.id,
+      iterationId: tile.iteration_id,
+      idx: tile.idx,
+      status: tile.status,
+      thumbKey: tile.thumb_image_key,
+      outputKey: tile.output_image_key,
+    },
+    { status: 200 },
+  );
+}
+
 export async function DELETE(
   _req: Request,
   { params }: { params: Promise<{ id: string }> },

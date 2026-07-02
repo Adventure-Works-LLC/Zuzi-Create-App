@@ -224,9 +224,10 @@ export async function POST(req: Request): Promise<Response> {
     stylePaintingId?: unknown;
     /** v3.4: array of TILE ids for the style_blend mode — blend the
      *  outputs of N (2..MAX_BLEND_TILES) tiles she's already
-     *  generated from this source's Explore runs. Each id must
-     *  reference an active 'done' tile whose iteration belongs to
-     *  the same source as this iteration (same-source rule).
+     *  generated. Each id must reference an active 'done' tile; since
+     *  v4.4 the tiles may come from ANY source's iterations (the old
+     *  same-source rule was removed — the blend lands on whichever
+     *  sourceId this request names, which also drives output aspect).
      *  Duplicates REJECTED — blend = N distinct inputs. Distinct
      *  from `stylePaintingIds` (style_explore array, allows
      *  duplicates) and `stylePaintingId` (prompt-mode handoff
@@ -573,21 +574,29 @@ export async function POST(req: Request): Promise<Response> {
     }
   }
 
-  // v3.4: validate every blendTileId references an existing, active
-  // tile whose iteration is on the SAME source as this new iteration
-  // (same-source rule per the v3.4 product spec). Pre-flight 404/400
-  // keeps the user-visible failure clean — vs the worker discovering
-  // missing rows mid-flight.
+  // v3.4→v4.4: validate every blendTileId references an existing,
+  // active, completed tile. Pre-flight 404/400 keeps the user-visible
+  // failure clean — vs the worker discovering missing rows mid-flight.
   //
-  // Three constraints per tile id, mirroring the parentTileId checks:
-  //   1. Tile row exists.
-  //   2. Tile is ACTIVE (not soft-deleted) — otherwise the blend would
-  //      use bytes for a tile that's been pruned from every UI surface.
-  //   3. Tile's iteration belongs to the same `sourceId` we're
-  //      iterating against. Cross-source blends are rejected — the
-  //      UI gates this client-side too (selection only available on
-  //      current source's stream) but defense-in-depth here protects
-  //      against a hand-crafted POST.
+  // Two constraints per tile id:
+  //   1. Tile row exists AND is ACTIVE (not soft-deleted) — otherwise
+  //      the blend would use bytes for a tile that's been pruned from
+  //      every UI surface. This is also the backstop for the v4.4
+  //      cross-source client gap: hard-deleting a NON-current source
+  //      can leave its tile ids in the store's blend selection (the
+  //      client can't scrub ids for iterations it never loaded); those
+  //      ids land here and get a clean 404.
+  //   2. Tile is 'done' with output_image_key bytes for the worker to
+  //      fetch (v3.5). The UI gates this client-side but a hand-crafted
+  //      POST or a selection/status race would otherwise hard-fail at
+  //      worker time — a worse UX than a clean 400 here.
+  //
+  // The v3.4 SAME-SOURCE rule (constraint 3, 400 blend_tile_cross_source)
+  // was REMOVED in v4.4: blend inputs may come from any source's
+  // iterations — Zuzi selects tiles across sketches and fires from
+  // whichever source she wants the blend to land on (that source
+  // anchors the iteration + the output aspect per §3). See AGENTS.md
+  // §14.
   if (blendTileIds) {
     for (const tid of blendTileIds) {
       const inputTile = getTile(tid);
@@ -600,13 +609,6 @@ export async function POST(req: Request): Promise<Response> {
           { status: 404 },
         );
       }
-      // v3.5: reject inputs that aren't 'done' (and therefore don't
-      // have output_image_key bytes for the worker to fetch). The UI
-      // gates this client-side (only 'done' tiles selectable in blend
-      // mode) but defense-in-depth: a hand-crafted POST or a race
-      // between selection + tile-status-change would otherwise sail
-      // past the route + hard-fail at worker time, which is a worse
-      // UX than a clean 400 here.
       if (
         inputTile.status !== "done" ||
         inputTile.output_image_key === null
@@ -615,16 +617,6 @@ export async function POST(req: Request): Promise<Response> {
           {
             error: "blend_tile_not_ready",
             detail: `blend tile ${tid} is not yet a completed tile (status=${inputTile.status})`,
-          },
-          { status: 400 },
-        );
-      }
-      const inputIter = getIteration(inputTile.iteration_id);
-      if (!inputIter || inputIter.source_id !== sourceId) {
-        return NextResponse.json(
-          {
-            error: "blend_tile_cross_source",
-            detail: `blend tile ${tid} belongs to a different source — same-source rule violated`,
           },
           { status: 400 },
         );

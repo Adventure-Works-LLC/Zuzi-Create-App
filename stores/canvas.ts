@@ -406,14 +406,17 @@ export const useCanvas = create<CanvasState>((set) => ({
         // doesn't reset.
         presets: isSwitch ? ["avery"] : s.presets,
         aspectRatioMode: isSwitch ? "match" : s.aspectRatioMode,
-        // v3.4: blend selection is source-scoped (same-source rule).
-        // Switching sources wipes any in-flight selection so the
-        // ids don't accidentally fire against a different source.
-        // Also exit blend mode on switch — the new source's stream
-        // is empty until iterations refetch, so blend mode would be
-        // useless anyway until tiles arrive.
-        blendMode: isSwitch ? false : s.blendMode,
-        blendSelectedTileIds: isSwitch ? [] : s.blendSelectedTileIds,
+        // v4.4: blend selection SURVIVES source switches — that's the
+        // cross-source blend feature (select a tile from sketch A,
+        // switch to sketch B, add one of its tiles, fire). The blend
+        // lands on whichever source is current at fire time (that
+        // source anchors the iteration + drives the output aspect per
+        // AGENTS.md §3/§14). Selected tiles in non-visible streams keep
+        // their ids in this array; their rings reappear when she
+        // switches back. (v3.4 cleared both slots here under the old
+        // same-source rule.)
+        blendMode: s.blendMode,
+        blendSelectedTileIds: s.blendSelectedTileIds,
       };
     }),
   archiveSource: (sourceId) =>
@@ -424,13 +427,13 @@ export const useCanvas = create<CanvasState>((set) => ({
         sources: remaining,
         currentSourceId: wasCurrent ? pickCurrent(null, remaining) : s.currentSourceId,
         iterations: wasCurrent ? [] : s.iterations,
-        // v3.5: if the archived source was current, its iterations got
-        // blanked above. Any in-flight blend selection referenced ids
-        // from those iterations — scrub it so the user doesn't fire a
-        // blend with ids that no longer resolve client-side AND would
-        // server-side fail the same-source check.
-        blendMode: wasCurrent ? false : s.blendMode,
-        blendSelectedTileIds: wasCurrent ? [] : s.blendSelectedTileIds,
+        // v4.4: archive is a SOFT delete — the archived source's tiles
+        // stay valid blend inputs (route only rejects hard-deleted
+        // tiles), so an in-flight cross-source selection survives
+        // archiving. (v3.5 cleared both slots when wasCurrent under
+        // the old same-source rule.)
+        blendMode: s.blendMode,
+        blendSelectedTileIds: s.blendSelectedTileIds,
       };
     }),
   removeSource: (sourceId) =>
@@ -440,12 +443,26 @@ export const useCanvas = create<CanvasState>((set) => ({
       // the same mutation logic.
       const remaining = s.sources.filter((x) => x.sourceId !== sourceId);
       const wasCurrent = s.currentSourceId === sourceId;
+      // v4.4: hard delete kills the source's tiles, so scrub any of
+      // them from the blend selection. When the removed source was
+      // current, its iterations are in the store — collect their tile
+      // ids and filter. A NON-current source's tiles aren't in the
+      // store, so a stale id can survive here; the route's existence
+      // check rejects it at fire time with a clean 404
+      // (blend_tile_not_found) — documented defense-in-depth.
+      const removedTileIds = wasCurrent
+        ? new Set(
+            s.iterations.flatMap((it) => it.tiles.map((t) => t.id)),
+          )
+        : null;
       return {
         sources: remaining,
         currentSourceId: wasCurrent ? pickCurrent(null, remaining) : s.currentSourceId,
         iterations: wasCurrent ? [] : s.iterations,
-        blendMode: wasCurrent ? false : s.blendMode,
-        blendSelectedTileIds: wasCurrent ? [] : s.blendSelectedTileIds,
+        blendMode: s.blendMode,
+        blendSelectedTileIds: removedTileIds
+          ? s.blendSelectedTileIds.filter((id) => !removedTileIds.has(id))
+          : s.blendSelectedTileIds,
       };
     }),
 

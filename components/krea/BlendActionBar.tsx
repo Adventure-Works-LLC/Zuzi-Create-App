@@ -39,15 +39,26 @@ export function BlendActionBar() {
   // this the BlendActionBar hovers over the empty-canvas cue with
   // nothing to act on. Stable iterations-length selector (number, not
   // object) keeps the subscription cheap.
+  //
+  // v4.4 (cross-source blend): ALSO gate on an empty selection.
+  // Switching to a source with no runs mid-selection is now a normal
+  // part of the flow (she's navigating sketches collecting tiles) —
+  // auto-exiting there would wipe her picks. Only bail when there's
+  // nothing on screen AND nothing selected.
   const iterationCount = useCanvas((s) => s.iterations.length);
   const { generate } = useIterations();
   const [inFlight, setInFlight] = useState(false);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
-    if (blendMode && !inFlight && iterationCount === 0) {
+    if (
+      blendMode &&
+      !inFlight &&
+      iterationCount === 0 &&
+      blendSelectedTileIds.length === 0
+    ) {
       setBlendMode(false);
     }
-  }, [blendMode, inFlight, iterationCount, setBlendMode]);
+  }, [blendMode, inFlight, iterationCount, blendSelectedTileIds, setBlendMode]);
   // Publish the bar's height into --blendbar-h on the document root
   // so TileStream can pad its bottom by (--inputbar-h + --blendbar-h),
   // preventing the last iteration row from being clipped by the
@@ -140,7 +151,7 @@ export function BlendActionBar() {
         <span className="text-sm tabular-nums">
           {count === 0 ? (
             <span className="text-text-mute">
-              Pick 2&ndash;4 tiles to blend
+              Pick 2&ndash;4 tiles &mdash; switch sketches to mix bases
             </span>
           ) : (
             <>

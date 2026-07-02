@@ -937,9 +937,13 @@ sticky red banner and auto-fires Stop.
 Third creative-direction surface in Studio. Where prompt mode is preset-
 driven and Style Explore (§13) is sketch + ONE style per tile, Style
 Blend takes **N (2..MAX_BLEND_TILES) of Zuzi's already-generated
-TILES** from one source's stream and fuses them into a new painting
-that combines their best aspects. **Same-source only** — every blend
-input must come from the iterations of one sketch.
+TILES** and fuses them into a new painting that combines their best
+aspects. **Cross-source since v4.4** — inputs may come from ANY
+sketch's iterations (she switches sources mid-selection to collect
+tiles from different bases); the blend lands on whichever source is
+current at fire time, and that source anchors the iteration + drives
+the output aspect per §3. (v3.4–v4.3 enforced a same-source rule;
+removed at Jeff's request when Zuzi wanted to mix bases.)
 
 > **Important historical note.** v3.0 shipped this feature with the
 > WRONG interpretation: it blended STYLE LIBRARY REFERENCES (Sargent
@@ -1003,16 +1007,24 @@ appears in `buildStyleBlendPrompt`'s output + asserts the unified
    anchors to `source_id` for cascade + history, AND the source's
    aspect drives the output aspect (no exception to §3 — the v3.0
    "first blend style's aspect" exception is gone).
-2. **Same-source rule.** Every blend input tile must live in an
-   iteration whose `source_id` equals the new iteration's `source_id`.
-   Enforced at:
-     - The UI layer (tiles only render + are selectable from the
-       current source's iterations[]).
-     - The store layer (`setCurrentSource` auto-clears `blendMode` +
-       `blendSelectedTileIds` on source switch).
-     - The route layer (existence check rejects with 400
-       `blend_tile_cross_source` if any input's iteration.source_id
-       mismatches).
+2. **Cross-source selection (v4.4; supersedes the v3.4 same-source
+   rule).** Blend inputs may come from any source's iterations. The
+   contract pieces:
+     - The store PRESERVES `blendMode` + `blendSelectedTileIds` across
+       source switches and source archives (both cleared them pre-v4.4).
+       Selected tiles in non-visible streams keep their ids; rings
+       reappear when she switches back.
+     - Hard-deleting the CURRENT source scrubs its tile ids from the
+       selection (`removeSource` collects them from the in-store
+       iterations). Hard-deleting a NON-current source can leave stale
+       ids the client can't scrub (its iterations were never loaded) —
+       the route's existence check rejects those at fire time with a
+       clean 404 `blend_tile_not_found` (documented defense-in-depth).
+     - The route validates existence + active + 'done' only. The 400
+       `blend_tile_cross_source` rejection was removed in v4.4.
+     - BlendActionBar's empty-stream auto-exit gates on an EMPTY
+       selection too — switching to a source with no runs mid-
+       collection must not wipe her picks.
 3. **Inputs must be 'done' tiles with output_image_key.** Route
    rejects with 400 `blend_tile_not_ready` if any input is still
    pending/blocked/failed. Defense-in-depth against UI race; the
@@ -1023,9 +1035,9 @@ appears in `buildStyleBlendPrompt`'s output + asserts the unified
    "Blend of [thumb][thumb][thumb]" row above the tile grid via
    `BlendTileAttributionRow` + `BlendInputTileThumb` (looking up
    the input tiles' thumb keys from the current source's iterations[];
-   same-source rule means the lookup always hits unless the input
-   tile was deleted between blend time + view time, in which case a
-   "?" placeholder renders).
+   v4.4 cross-source inputs miss that lookup and fall back to a
+   module-cached GET `/api/tiles/:id` — one fetch per unknown id per
+   tab session. Deleted inputs 404 and render the "?" placeholder).
 5. **Lightbox hides Compare for blend OUTPUT tiles.** A blend output
    doesn't have a single source-input relationship — Compare-with-
    source would render a misleading before/after pair. Use-as-source
@@ -1084,16 +1096,18 @@ if production usage feels expensive.
   with corruption-warning logs (context-arg-gated).
 - `app/api/iterate/route.ts` — request body grows `blendTileIds` +
   `parseBlendTileIds` validator (reject duplicates, length
-  [2, MAX_BLEND_TILES], all ids must be active 'done' tiles in same
-  source) + cross-field validation matrix + idempotent replay echo
-  on both branches + ordering: idempotency → source → cap →
-  existence/same-source → insert.
+  [2, MAX_BLEND_TILES], all ids must be active 'done' tiles — any
+  source since v4.4) + cross-field validation matrix + idempotent
+  replay echo on both branches + ordering: idempotency → source →
+  cap → existence → insert.
 - `app/api/iterations/route.ts` + `app/api/favorites/route.ts` —
   responses grow `iteration.blendTileIds` and `favorite.iterationMode`.
-- `stores/canvas.ts` — `blendMode` + `blendSelectedTileIds` slots
-  with mutators that auto-scrub on source switch / iteration delete /
-  tile delete / source archive (so a deleted-mid-selection tile can't
-  produce a 404 at firing time).
+- `stores/canvas.ts` — `blendMode` + `blendSelectedTileIds` slots.
+  v4.4: selection PERSISTS across source switch + source archive
+  (cross-source collection is the feature); still auto-scrubbed on
+  iteration delete / tile delete / current-source hard delete. A
+  stale id from a non-current source's hard delete is caught by the
+  route's 404 at fire time.
 - `components/krea/SourceStrip.tsx` — Blend toggle button (Layers
   icon, pressed-state styling).
 - `components/krea/Tile.tsx` — blend-mode tap-to-select; selection

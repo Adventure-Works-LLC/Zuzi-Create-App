@@ -117,8 +117,22 @@ export function FavoritesPanel() {
   const [favorites, setFavorites] = useState<FavoriteRow[]>([]);
   const [error, setError] = useState<string | null>(null);
 
+  // v4.3: the panel's canonical browse flow is tap-a-favorite → Lightbox
+  // opens ON TOP (z-50 over z-40, panel stays open+mounted) → heart
+  // toggled there → Lightbox closes. The fetch below used to key on
+  // [open] alone, so a toggle made through the Lightbox never reached
+  // this local list — the grid showed stale favorites until the app was
+  // fully restarted (an open-transition was the only refetch trigger).
+  // Keying on lightboxActive refetches the list the moment the Lightbox
+  // closes over the open panel, so an unfavorited tile drops out of the
+  // grid right as she lands back on it.
+  const lightboxActive = lightboxTileId !== null || lightboxSnapshot !== null;
+
   useEffect(() => {
     if (!open) return;
+    // Defer while a Lightbox is up — the interesting moment is its
+    // close (that's when a heart toggle can have changed the list).
+    if (lightboxActive) return;
     const ac = new AbortController();
     setLoading(true);
     setError(null);
@@ -138,7 +152,7 @@ export function FavoritesPanel() {
       }
     })();
     return () => ac.abort();
-  }, [open]);
+  }, [open, lightboxActive]);
 
   // Esc-to-close.
   // Lightbox (z-50) sits on top of FavoritesPanel (z-40); both attach
@@ -194,7 +208,11 @@ export function FavoritesPanel() {
         </header>
 
         <div className="flex-1 overflow-y-auto px-5 py-5">
-          {loading && (
+          {/* v4.3: spinner only on a cold (empty) load. Lightbox-close
+              refetches happen mid-browse with a full grid on screen —
+              swapping it for a spinner every close would flicker; keep
+              the stale grid visible until the fresh list lands. */}
+          {loading && favorites.length === 0 && (
             <div className="flex items-center justify-center py-20 text-text-mute">
               <Loader2 className="h-5 w-5 animate-spin" strokeWidth={1.75} />
             </div>
@@ -207,7 +225,7 @@ export function FavoritesPanel() {
               No favorites yet — tap a tile&rsquo;s star to keep it.
             </p>
           )}
-          {!loading && favorites.length > 0 && (
+          {favorites.length > 0 && (
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
               {favorites.map((fav) => (
                 <button

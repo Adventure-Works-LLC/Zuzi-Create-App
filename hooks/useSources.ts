@@ -5,9 +5,18 @@
  * expose addSource (upload via multipart) + archiveSource.
  *
  * Cold-start contract per the plan: on PWA mount, fetch
- * `/api/sources?archived=false&limit=10` and populate the strip; the store
+ * `/api/sources?archived=false&limit=100` and populate the strip; the store
  * picks the most-recent active source as currentSourceId. If the user has no
  * sources yet, currentSourceId stays null and the empty state renders.
+ *
+ * limit history: v1 fetched 10 (matched the plan's "3–10 sources in
+ * flight"). Real usage accumulates actives well past 10 — sources beyond
+ * the fetch limit are alive in the DB but unreachable in the UI, which
+ * reads as data loss ("where did my sketch go"). 100 is the server-side
+ * clamp in app/api/sources/route.ts; the strip scrolls horizontally and
+ * thumbs are loading="lazy" so a long strip stays cheap. If the active
+ * count ever nears 100, that's the cue to build a browse-all-sources
+ * panel (and/or lean on archiving), not to bump the number again.
  *
  * State location: `loading`, `error`, `uploading` live in the canvas store
  * (not local useState) so multiple call sites — page, InputBar, SourceStrip,
@@ -36,6 +45,10 @@ interface SourceResponseRow {
   iterationCount?: number;
   favoriteCount?: number;
 }
+
+// Module-scoped attempt-time stamp shared by every useSources instance —
+// see the visibilitychange effect for why this can't be a per-instance ref.
+let lastSourcesRefreshAt = 0;
 
 function rowToSource(r: SourceResponseRow): Source {
   return {
@@ -99,10 +112,11 @@ export function useSources(): UseSourcesResult {
     abortRef.current?.abort();
     const ac = new AbortController();
     abortRef.current = ac;
+    lastSourcesRefreshAt = Date.now();
     setSourcesLoading(true);
     setSourcesError(null);
     try {
-      const resp = await authFetch("/api/sources?archived=false&limit=10", {
+      const resp = await authFetch("/api/sources?archived=false&limit=100", {
         signal: ac.signal,
       });
       if (!resp.ok) {
@@ -121,6 +135,30 @@ export function useSources(): UseSourcesResult {
   useEffect(() => {
     void refresh();
     return () => abortRef.current?.abort();
+  }, [refresh]);
+
+  // Refetch when the app returns to the foreground. iPad PWAs restore
+  // from the app switcher with whatever page state they were suspended
+  // with — a source uploaded from another device (desktop ↔ iPad) never
+  // appeared until a full app relaunch. Same visibilitychange pattern as
+  // useStreamingResults's SSE reconnect. The 15s guard keeps rapid
+  // app-switching from churning refetches; setSources preserves the
+  // current selection via pickCurrent, so a background refresh never
+  // yanks the source she's working on.
+  //
+  // The guard stamp is MODULE-scoped (not a ref) because useSources has
+  // ~5 call sites, each registering its own listener here. refresh()
+  // stamps synchronously before its first await, so the first listener
+  // to run blocks the other four in the same dispatch — one visibility
+  // flip = one refetch, not five.
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState !== "visible") return;
+      if (Date.now() - lastSourcesRefreshAt < 15_000) return;
+      void refresh();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
   }, [refresh]);
 
   const uploadFile = useCallback(

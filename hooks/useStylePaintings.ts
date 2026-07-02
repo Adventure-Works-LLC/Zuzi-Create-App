@@ -43,6 +43,10 @@ interface StylePaintingResponseRow {
   archivedAt: number | null;
 }
 
+// Module-scoped attempt-time stamp shared by every useStylePaintings
+// instance — mirrors useSources's lastSourcesRefreshAt rationale.
+let lastStylesRefreshAt = 0;
+
 function rowToStylePainting(r: StylePaintingResponseRow): StylePainting {
   return {
     id: r.id,
@@ -102,6 +106,7 @@ export function useStylePaintings(): UseStylePaintingsResult {
     abortRef.current?.abort();
     const ac = new AbortController();
     abortRef.current = ac;
+    lastStylesRefreshAt = Date.now();
     setLoading(true);
     setError(null);
     try {
@@ -127,6 +132,19 @@ export function useStylePaintings(): UseStylePaintingsResult {
   useEffect(() => {
     void refresh();
     return () => abortRef.current?.abort();
+  }, [refresh]);
+
+  // Foreground refetch — same iPad-PWA staleness fix as useSources (see
+  // the comment there, incl. why the guard stamp is module-scoped: this
+  // hook has multiple call sites, one refetch per visibility flip).
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState !== "visible") return;
+      if (Date.now() - lastStylesRefreshAt < 15_000) return;
+      void refresh();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
   }, [refresh]);
 
   const uploadFile = useCallback(

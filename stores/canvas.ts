@@ -322,6 +322,10 @@ interface CanvasState {
   setStylePaintings: (rows: StylePainting[]) => void;
   addStylePainting: (row: StylePainting) => void;
   removeStylePainting: (id: string) => void;
+  /** v4.0: patch fields on one style painting row in place (artist
+   *  tagging from the StylesPanel's Set-artist flow). No-op when the
+   *  id isn't present. */
+  updateStylePainting: (id: string, patch: Partial<StylePainting>) => void;
   setStylesLoading: (v: boolean) => void;
   setStylesError: (v: string | null) => void;
   setStylesUploading: (v: boolean) => void;
@@ -630,6 +634,12 @@ export const useCanvas = create<CanvasState>((set) => ({
   removeStylePainting: (id) =>
     set((s) => ({
       stylePaintings: s.stylePaintings.filter((x) => x.id !== id),
+    })),
+  updateStylePainting: (id, patch) =>
+    set((s) => ({
+      stylePaintings: s.stylePaintings.map((x) =>
+        x.id === id ? { ...x, ...patch } : x,
+      ),
     })),
   setStylesLoading: (stylesLoading) => set({ stylesLoading }),
   setStylesError: (stylesError) => set({ stylesError }),

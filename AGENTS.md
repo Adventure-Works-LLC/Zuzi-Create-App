@@ -766,8 +766,12 @@ Explore Mode — v2 SPEC (canonical)".
   - **`style_paintings` table** — Zuzi's reference library (Sargent,
     Sorolla, Wyeth…). Semantically distinct from `sources` (her own
     work). Same shape as sources + optional `title` / `artist` / `note`
-    / `tag` metadata + soft-archive column. `tag` is scaffolded for a
-    v0.3 filter UI; not used in v2.x.
+    / `tag` metadata + soft-archive column. `artist` became load-bearing
+    in v4.0: the StylesPanel renders artist filter chips (All / per-
+    artist / Untagged), long-press → "Set artist…" edits it (PATCH), and
+    multi-file uploads batch-tag via one window.prompt per batch (POST
+    accepts an optional `artist` form field). `tag` remains scaffolded
+    and unused.
   - **`iterations.mode`** — `'prompt'` (default; backfills all v1 rows)
     | `'style_explore'`. Discriminates the worker branch. The text
     column has a NOT NULL DEFAULT 'prompt' so the migration is

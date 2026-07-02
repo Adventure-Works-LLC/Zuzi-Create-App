@@ -1,9 +1,12 @@
 /**
- * POST /api/style-paintings — multipart/form-data (file=<File>) upload of
- * one painting into Zuzi's reference library. Sharp normalize (2048px
- * long-edge JPEG q85, mirrors the sources pipeline) → R2 put at
- * `styles/<style_id>.jpg` → INSERT into `style_paintings`. Returns
- * `{ id, inputKey, originalFilename, w, h, aspectRatio, createdAt }`.
+ * POST /api/style-paintings — multipart/form-data (file=<File>,
+ * artist?=<string>) upload of one painting into Zuzi's reference
+ * library. Sharp normalize (2048px long-edge JPEG q85, mirrors the
+ * sources pipeline) → R2 put at `styles/<style_id>.jpg` → INSERT into
+ * `style_paintings`. Returns the full client row shape (id, inputKey,
+ * metadata fields, dims). The optional `artist` form field (v4.0)
+ * batch-tags uploads for the StylesPanel's artist filter — the client
+ * prompts once per multi-file batch and stamps every file's POST.
  *
  * For multi-file uploads the client fires N parallel POSTs (one per
  * file). That keeps this route minimal and lets the existing
@@ -57,6 +60,7 @@ export async function POST(req: Request): Promise<Response> {
 
   let file: File;
   let originalFilename: string | null = null;
+  let artist: string | null = null;
   try {
     const form = await req.formData();
     const f = form.get("file");
@@ -65,6 +69,13 @@ export async function POST(req: Request): Promise<Response> {
     }
     file = f;
     originalFilename = f.name && f.name !== "blob" ? f.name : null;
+    // v4.0: optional batch artist tag. Trimmed; empty → null; length-
+    // capped defensively (same 200-char ceiling a PATCH could set via
+    // updateStylePaintingMetadata — nothing in the UI produces longer).
+    const artistRaw = form.get("artist");
+    if (typeof artistRaw === "string" && artistRaw.trim().length > 0) {
+      artist = artistRaw.trim().slice(0, 200);
+    }
   } catch {
     return NextResponse.json({ error: "invalid_multipart" }, { status: 400 });
   }
@@ -121,13 +132,17 @@ export async function POST(req: Request): Promise<Response> {
       h: height,
       aspect_ratio: aspectRatio,
       title: null,
-      artist: null,
+      artist,
       note: null,
       tag: null,
       created_at: createdAt,
       archived_at: null,
     });
 
+    // Full client row shape — the hook's rowToStylePainting maps this
+    // response directly into the store, so every field the GET list
+    // returns must be present here too (missing keys would land as
+    // `undefined` and diverge from a refetched row's `null`).
     return NextResponse.json(
       {
         id,
@@ -136,7 +151,12 @@ export async function POST(req: Request): Promise<Response> {
         w: width,
         h: height,
         aspectRatio,
+        title: null,
+        artist,
+        note: null,
+        tag: null,
         createdAt,
+        archivedAt: null,
       },
       { status: 201 },
     );

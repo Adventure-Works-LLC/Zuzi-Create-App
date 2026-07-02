@@ -28,7 +28,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ImagePlus, Loader2, Trash2, X } from "lucide-react";
+import { ImagePlus, Loader2, Trash2, UserRound, X } from "lucide-react";
 
 import { useImageUrl } from "@/hooks/useImageUrl";
 import { useIterations } from "@/hooks/useIterations";
@@ -44,6 +44,40 @@ import { ActionMenu } from "./ActionMenu";
 const LONG_PRESS_MS = 450;
 const LONG_PRESS_MOVE_TOLERANCE = 10;
 
+// v4.0: sentinel for the "Untagged" filter chip. Uses a control char so
+// no real artist name typed through window.prompt can collide with it.
+const UNTAGGED_FILTER = "\u0000__untagged__";
+
+/** One pill in the artist filter row. Module-level, hook-free — safe to
+ *  render conditionally. Styling matches the app's chip register
+ *  (rounded-full hairline pills; accent tint when selected). */
+function FilterChip({
+  label,
+  selected,
+  onClick,
+}: {
+  label: string;
+  selected: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={selected}
+      className={[
+        "shrink-0 whitespace-nowrap rounded-full border px-3 py-1 text-xs",
+        "transition-colors no-callout",
+        selected
+          ? "border-accent/60 bg-accent/15 text-accent font-medium"
+          : "border-hairline/60 text-text-mute hover:text-foreground hover:border-hairline",
+      ].join(" ")}
+    >
+      {label}
+    </button>
+  );
+}
+
 /** One painting in the grid — square thumbnail + optional title caption
  *  underneath. Long-press opens an ActionMenu anchored to the thumb (the
  *  delete-forever destructive path). Tap fires a single-style Explore
@@ -53,6 +87,7 @@ const LONG_PRESS_MOVE_TOLERANCE = 10;
 function StylePaintingCard({
   row,
   onDelete,
+  onSetArtist,
   onArm,
   onFire,
   isArmed,
@@ -62,6 +97,9 @@ function StylePaintingCard({
 }: {
   row: StylePainting;
   onDelete: () => Promise<void>;
+  /** v4.0: persist a new artist value (null clears). The card owns the
+   *  window.prompt flow; the panel owns the PATCH + store update. */
+  onSetArtist: (artist: string | null) => Promise<void>;
   /** v3.8: arm this card (first tap). Panel-level state tracks which
    *  card is armed; only one at a time. Tapping a different card
    *  re-arms; tapping the same card again calls onFire. */
@@ -187,6 +225,29 @@ function StylePaintingCard({
     }
   };
 
+  // v4.0: long-press → "Set artist…". window.prompt keeps the zero-new-
+  // components dialog register the panel already uses for destructive
+  // confirms. Blank input clears the artist (null); Cancel is a no-op.
+  const handleSetArtist = async () => {
+    setMenuOpen(false);
+    const input = window.prompt(
+      "Artist name for this painting (blank to clear):",
+      row.artist ?? "",
+    );
+    if (input === null) return; // cancelled
+    const artist = input.trim() || null;
+    if (artist === (row.artist ?? null)) return; // no change
+    setBusy(true);
+    setError(null);
+    try {
+      await onSetArtist(artist);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const handleDelete = async () => {
     setMenuOpen(false);
     // window.confirm is the destructive guardrail. Matches SourceStrip
@@ -297,6 +358,14 @@ function StylePaintingCard({
           ariaLabel="Style painting actions"
           items={[
             {
+              id: "set-artist",
+              label: row.artist ? `Artist: ${row.artist}` : "Set artist…",
+              icon: <UserRound className="h-4 w-4" strokeWidth={1.75} />,
+              onSelect: () => {
+                void handleSetArtist();
+              },
+            },
+            {
               id: "delete-forever",
               label: "Delete forever",
               icon: <Trash2 className="h-4 w-4" strokeWidth={1.75} />,
@@ -328,7 +397,7 @@ export function StylesPanel() {
   // of the system. Pro 1K × 3 = $0.40; Flash 1K × 3 = $0.20.
   const modelTier = useCanvas((s) => s.modelTier);
 
-  const { loading, error, uploading, uploadFile, deleteForever } =
+  const { loading, error, uploading, uploadFile, setArtist, deleteForever } =
     useStylePaintings();
   const { generate } = useIterations();
   // Panel-level in-flight: only one tap-to-fire at a time across the
@@ -344,6 +413,11 @@ export function StylesPanel() {
   // different card re-arms. 4-second auto-disarm so a stray tap
   // doesn't sit hot indefinitely (next effect handles that).
   const [armedCardId, setArmedCardId] = useState<string | null>(null);
+  // v4.0: artist filter. null = All; UNTAGGED_FILTER = rows without an
+  // artist; any other string = exact artist match. Persists across
+  // panel close/reopen within the session (deliberate — she'll usually
+  // come back wanting the same artist's wall).
+  const [artistFilter, setArtistFilter] = useState<string | null>(null);
 
   // Esc-to-close. Same lightbox-deference pattern as FavoritesPanel +
   // ArchivedSourcesPanel: if a lightbox is open in either mode, let its
@@ -394,6 +468,16 @@ export function StylesPanel() {
     setArmedCardId(null);
   }, [currentSourceId]);
 
+  // v4.0: auto-disarm when the artist filter changes. An armed card can
+  // get filtered out of the grid mid-arm; nothing breaks if it does (a
+  // hidden card can't receive the confirming tap and the 4s timer wipes
+  // it), but clearing immediately keeps the visible state honest —
+  // switching walls reads as a context change, same as switching
+  // sources.
+  useEffect(() => {
+    setArmedCardId(null);
+  }, [artistFilter]);
+
   if (!open) return null;
 
   // v3.9: projected cost per fire. Computed AFTER the early return —
@@ -401,6 +485,37 @@ export function StylesPanel() {
   // rule doesn't apply. Recomputing on every render is cheap (one
   // multiplication via lib/cost.ts).
   const submitCostUsd = costFor(modelTier, "1k", TILE_COUNT_DEFAULT);
+
+  // v4.0: artist filter derivation. Plain derived values (no hooks) so
+  // they can live after the early return. Counts feed the chip labels;
+  // `effectiveFilter` degrades a stale selection (artist renamed away /
+  // last row deleted) back to All instead of stranding an empty grid.
+  const artistCounts = new Map<string, number>();
+  let untaggedCount = 0;
+  for (const r of rows) {
+    const a = r.artist?.trim();
+    if (a) artistCounts.set(a, (artistCounts.get(a) ?? 0) + 1);
+    else untaggedCount++;
+  }
+  const artists = [...artistCounts.keys()].sort((a, b) =>
+    a.localeCompare(b, undefined, { sensitivity: "base" }),
+  );
+  const effectiveFilter =
+    artistFilter === null
+      ? null
+      : artistFilter === UNTAGGED_FILTER
+        ? untaggedCount > 0
+          ? UNTAGGED_FILTER
+          : null
+        : artistCounts.has(artistFilter)
+          ? artistFilter
+          : null;
+  const visibleRows =
+    effectiveFilter === null
+      ? rows
+      : effectiveFilter === UNTAGGED_FILTER
+        ? rows.filter((r) => !r.artist?.trim())
+        : rows.filter((r) => r.artist?.trim() === effectiveFilter);
 
   // v3.7: tap-to-fire handler. Spins a single-style Explore iteration
   // against the current source using THIS card's style id, then closes
@@ -445,10 +560,25 @@ export function StylesPanel() {
 
   const handleFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
+    // v4.0: one artist prompt per batch. Prefilled with the active
+    // filter (she's looking at the Scholder wall → adding more
+    // Scholders is zero typing). Semantics: Cancel aborts the whole
+    // upload (dialog convention — she can re-pick the files); OK with
+    // a blank field uploads untagged.
+    const suggested =
+      effectiveFilter && effectiveFilter !== UNTAGGED_FILTER
+        ? effectiveFilter
+        : "";
+    const artistInput = window.prompt(
+      `Artist for ${files.length === 1 ? "this painting" : `these ${files.length} paintings`}? (optional — blank to skip)`,
+      suggested,
+    );
+    if (artistInput === null) return; // cancelled → abort upload
+    const batchArtist = artistInput.trim() || null;
     // Parallel upload of all selected files. authFetch dedupes 401
     // refresh storms; individual failures surface as a header banner
     // (we only show the first; subsequent failures are logged).
-    const tasks = Array.from(files).map((f) => uploadFile(f));
+    const tasks = Array.from(files).map((f) => uploadFile(f, batchArtist));
     const results = await Promise.allSettled(tasks);
     const firstFailure = results.find((r) => r.status === "rejected");
     if (firstFailure && firstFailure.status === "rejected") {
@@ -543,6 +673,39 @@ export function StylesPanel() {
           </p>
         )}
 
+        {/* v4.0: artist filter chips. Rendered only once at least one
+            painting carries an artist tag — an all-untagged library
+            has nothing to filter by, so the row stays out of the way
+            until tagging starts. Horizontal scroll for many artists. */}
+        {artists.length > 0 && (
+          <div
+            className="flex shrink-0 gap-2 overflow-x-auto border-b border-hairline/60 px-5 py-3"
+            role="group"
+            aria-label="Filter by artist"
+          >
+            <FilterChip
+              label={`All · ${rows.length}`}
+              selected={effectiveFilter === null}
+              onClick={() => setArtistFilter(null)}
+            />
+            {artists.map((a) => (
+              <FilterChip
+                key={a}
+                label={`${a} · ${artistCounts.get(a)}`}
+                selected={effectiveFilter === a}
+                onClick={() => setArtistFilter(a)}
+              />
+            ))}
+            {untaggedCount > 0 && (
+              <FilterChip
+                label={`Untagged · ${untaggedCount}`}
+                selected={effectiveFilter === UNTAGGED_FILTER}
+                onClick={() => setArtistFilter(UNTAGGED_FILTER)}
+              />
+            )}
+          </div>
+        )}
+
         <div className="flex-1 overflow-y-auto px-5 py-5">
           {loading && rows.length === 0 && (
             <div className="flex items-center justify-center py-20 text-text-mute">
@@ -578,11 +741,12 @@ export function StylesPanel() {
           )}
           {rows.length > 0 && (
             <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
-              {rows.map((row) => (
+              {visibleRows.map((row) => (
                 <StylePaintingCard
                   key={row.id}
                   row={row}
                   onDelete={() => deleteForever(row.id)}
+                  onSetArtist={(artist) => setArtist(row.id, artist)}
                   onArm={() => setArmedCardId(row.id)}
                   onFire={async () => {
                     // Clear armed state before the network roundtrip

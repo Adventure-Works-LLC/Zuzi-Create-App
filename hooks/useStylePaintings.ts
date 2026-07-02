@@ -66,8 +66,15 @@ export interface UseStylePaintingsResult {
   uploading: boolean;
   /** Upload one image. The server returns the persisted row; we add it
    *  to the store optimistically so the StylesPanel grid updates without
-   *  waiting for a refetch. Throws on failure (caller surfaces). */
-  uploadFile: (file: File) => Promise<StylePainting>;
+   *  waiting for a refetch. Throws on failure (caller surfaces).
+   *  v4.0: optional `artist` batch-tags the upload (the StylesPanel
+   *  prompts once per multi-file batch and stamps every file). */
+  uploadFile: (file: File, artist?: string | null) => Promise<StylePainting>;
+  /** v4.0: set (or clear, via null) the artist on one style painting.
+   *  PATCH first, then store update — not optimistic, so a failed PATCH
+   *  never leaves the filter chips lying about server state. Throws on
+   *  failure (caller surfaces). */
+  setArtist: (id: string, artist: string | null) => Promise<void>;
   /** Hard delete + R2 cleanup. Server-side nullifies any referenced
    *  `tiles.style_painting_id` first (see migration 0006 header). The
    *  store-side removal is optimistic; on failure we refetch to recover
@@ -80,6 +87,7 @@ export function useStylePaintings(): UseStylePaintingsResult {
   const setStylePaintings = useCanvas((s) => s.setStylePaintings);
   const addStylePainting = useCanvas((s) => s.addStylePainting);
   const removeStylePainting = useCanvas((s) => s.removeStylePainting);
+  const updateStylePainting = useCanvas((s) => s.updateStylePainting);
   const setLoading = useCanvas((s) => s.setStylesLoading);
   const setError = useCanvas((s) => s.setStylesError);
   const setUploading = useCanvas((s) => s.setStylesUploading);
@@ -122,12 +130,15 @@ export function useStylePaintings(): UseStylePaintingsResult {
   }, [refresh]);
 
   const uploadFile = useCallback(
-    async (file: File): Promise<StylePainting> => {
+    async (file: File, artist?: string | null): Promise<StylePainting> => {
       setUploading(true);
       setError(null);
       try {
         const form = new FormData();
         form.append("file", file);
+        if (artist && artist.trim().length > 0) {
+          form.append("artist", artist.trim());
+        }
         const resp = await authFetch("/api/style-paintings", {
           method: "POST",
           body: form,
@@ -185,11 +196,36 @@ export function useStylePaintings(): UseStylePaintingsResult {
     [removeStylePainting, refresh],
   );
 
+  const setArtist = useCallback(
+    async (id: string, artist: string | null) => {
+      const resp = await authFetch(
+        `/api/style-paintings/${encodeURIComponent(id)}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ artist }),
+        },
+      );
+      if (!resp.ok) {
+        const data = (await resp.json().catch(() => ({}))) as {
+          error?: string;
+          detail?: string;
+        };
+        throw new Error(
+          data.detail ?? data.error ?? `artist update failed (${resp.status})`,
+        );
+      }
+      updateStylePainting(id, { artist });
+    },
+    [updateStylePainting],
+  );
+
   return {
     loading,
     error,
     uploading,
     uploadFile,
+    setArtist,
     deleteForever,
     refresh,
   };

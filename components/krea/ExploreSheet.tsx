@@ -259,11 +259,10 @@ export function ExploreSheet() {
           resolution: "1k",
         });
         if (!result) {
-          // generate() set its own error state; check whether it was a
-          // 429 by reading the InputBar's last error via useIterations's
-          // store-bound `error`. For simplicity: rely on generate's
-          // thrown error in catch below for 429 detection. result===null
-          // here means it set the error string already.
+          // v4.6: null now means a NON-cap failure (generate rethrows
+          // the monthly-cap rejection so the catch below can parse it —
+          // pre-v4.6 that catch was dead code and the cap banner never
+          // fired). The hook already recorded the specific error.
           setStartError("Couldn't start a batch — see error below.");
           return false;
         }
@@ -401,16 +400,17 @@ export function ExploreSheet() {
     const onKey = (e: KeyboardEvent) => {
       if (lightboxTileId !== null || lightboxSnapshot !== null) return;
       if (e.key !== "Escape") return;
-      // Block close while a batch is actively in-flight (network
-      // round-trip). Once it lands the close becomes allowed even with
-      // pending tiles — the user-facing semantics are "you can leave;
-      // tiles continue to stream into the regular Studio TileStream".
-      if (batchInFlight) return;
+      // v4.6: close is ALWAYS allowed, including mid-batch. The old
+      // batchInFlight gate turned a hung POST into a locked-shut z-50
+      // modal (X, Esc, and scrim all disabled) covering the whole app
+      // until a reload. Closing mid-flight is semantically fine — the
+      // iteration already exists server-side and its tiles stream into
+      // the regular Studio TileStream.
       setOpen(false);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, setOpen, lightboxTileId, lightboxSnapshot, batchInFlight]);
+  }, [open, setOpen, lightboxTileId, lightboxSnapshot]);
 
   if (!open) return null;
 
@@ -424,7 +424,6 @@ export function ExploreSheet() {
       : Math.min(batchChoice, remainingStyles);
   // 1K only in v2.2/v2.3; cost preview reflects that.
   const projectedCost = pricePerImage(modelTier, "1k") * numericBatch;
-  const canClose = !batchInFlight;
 
   // ---- handlers --------------------------------------------------------
 
@@ -479,7 +478,7 @@ export function ExploreSheet() {
       aria-label="Explore styles"
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
       onClick={(e) => {
-        if (e.target === e.currentTarget && canClose) setOpen(false);
+        if (e.target === e.currentTarget) setOpen(false);
       }}
     >
       <div
@@ -527,13 +526,10 @@ export function ExploreSheet() {
           </div>
           <button
             type="button"
-            onClick={() => canClose && setOpen(false)}
-            disabled={!canClose}
+            onClick={() => setOpen(false)}
             className={[
               "rounded-full p-2 transition-colors no-callout",
-              canClose
-                ? "text-text-mute hover:text-foreground hover:bg-secondary"
-                : "text-text-mute/40 cursor-wait",
+              "text-text-mute hover:text-foreground hover:bg-secondary",
             ].join(" ")}
             aria-label="Close"
           >

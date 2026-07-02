@@ -32,6 +32,11 @@ import { useCallback, useEffect, useRef } from "react";
 
 import { useCanvas, type Source } from "@/stores/canvas";
 import { authFetch } from "@/lib/auth/authFetch";
+import {
+  TIMEOUT_JSON_MS,
+  TIMEOUT_UPLOAD_MS,
+  withTimeout,
+} from "@/lib/fetchTimeout";
 
 interface SourceResponseRow {
   id: string;
@@ -49,6 +54,20 @@ interface SourceResponseRow {
 // Module-scoped attempt-time stamp shared by every useSources instance —
 // see the visibilitychange effect for why this can't be a per-instance ref.
 let lastSourcesRefreshAt = 0;
+
+// v4.6: module-scoped invalidation epoch for the sources list — same
+// pattern as useIterations's iterationsListEpoch. Every mutation
+// (upload, promote, archive, unarchive, hard delete) bumps it before
+// touching the store; any refresh whose fetch STARTED under an older
+// epoch discards its response instead of setSources-replacing newer
+// state. Without this, an in-flight refresh (visibilitychange fires one
+// when the iPad file picker dismisses!) whose server snapshot predates
+// an upload's insert would land after the optimistic addSource and wipe
+// the new source from the strip — pickCurrent then yanks the selection
+// to a different painting. Module-scoped because this hook has ~5 call
+// sites, each with its own in-flight fetch an instance-local abort
+// can't reach.
+let sourcesListEpoch = 0;
 
 function rowToSource(r: SourceResponseRow): Source {
   return {
@@ -113,16 +132,19 @@ export function useSources(): UseSourcesResult {
     const ac = new AbortController();
     abortRef.current = ac;
     lastSourcesRefreshAt = Date.now();
+    const epochAtStart = sourcesListEpoch;
     setSourcesLoading(true);
     setSourcesError(null);
     try {
-      const resp = await authFetch("/api/sources?archived=false&limit=100", {
-        signal: ac.signal,
-      });
+      const resp = await authFetch(
+        "/api/sources?archived=false&limit=100",
+        withTimeout({ signal: ac.signal }, TIMEOUT_JSON_MS),
+      );
       if (!resp.ok) {
         throw new Error(`sources fetch failed (${resp.status})`);
       }
       const data = (await resp.json()) as { sources: SourceResponseRow[] };
+      if (epochAtStart !== sourcesListEpoch) return; // stale snapshot
       setSources(data.sources.map(rowToSource));
     } catch (e) {
       if ((e as Error).name === "AbortError") return;
@@ -163,15 +185,19 @@ export function useSources(): UseSourcesResult {
 
   const uploadFile = useCallback(
     async (file: File): Promise<Source> => {
+      // v4.6: kill any in-flight refresh on this instance early; the
+      // epoch bump below (before addSourceToStore) is what protects
+      // against the other instances' fetches.
+      abortRef.current?.abort();
       setUploading(true);
       setSourcesError(null);
       try {
         const form = new FormData();
         form.append("file", file);
-        const resp = await authFetch("/api/sources", {
-          method: "POST",
-          body: form,
-        });
+        const resp = await authFetch(
+          "/api/sources",
+          withTimeout({ method: "POST", body: form }, TIMEOUT_UPLOAD_MS),
+        );
         if (!resp.ok) {
           const data = (await resp.json().catch(() => ({}))) as {
             error?: string;
@@ -197,6 +223,7 @@ export function useSources(): UseSourcesResult {
           uploadedAt: Date.now(),
           archivedAt: null,
         };
+        sourcesListEpoch++; // invalidate pre-insert snapshots
         addSourceToStore(source);
         return source;
       } finally {
@@ -208,14 +235,23 @@ export function useSources(): UseSourcesResult {
 
   const promoteFromTile = useCallback(
     async (tileId: string): Promise<Source> => {
+      abortRef.current?.abort();
       setUploading(true);
       setSourcesError(null);
       try {
-        const resp = await authFetch("/api/sources", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ promoteFromTileId: tileId }),
-        });
+        const resp = await authFetch(
+          "/api/sources",
+          withTimeout(
+            {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ promoteFromTileId: tileId }),
+            },
+            // JSON body but the server does R2 fetch + sharp work —
+            // upload-class budget.
+            TIMEOUT_UPLOAD_MS,
+          ),
+        );
         if (!resp.ok) {
           const data = (await resp.json().catch(() => ({}))) as {
             error?: string;
@@ -244,6 +280,7 @@ export function useSources(): UseSourcesResult {
           uploadedAt: Date.now(),
           archivedAt: null,
         };
+        sourcesListEpoch++; // invalidate pre-insert snapshots
         addSourceToStore(source);
         return source;
       } finally {
@@ -256,13 +293,23 @@ export function useSources(): UseSourcesResult {
   const archive = useCallback(
     async (sourceId: string) => {
       // Optimistic update — pull from store immediately. Roll back on failure.
+      // v4.6: abort + epoch-bump BEFORE the optimistic mutation so a stale
+      // in-flight refresh can't resurrect the archived row in the strip.
+      abortRef.current?.abort();
+      sourcesListEpoch++;
       archiveSourceInStore(sourceId);
       try {
-        const resp = await authFetch(`/api/sources/${sourceId}`, {
-          method: "PATCH",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ archived: true }),
-        });
+        const resp = await authFetch(
+          `/api/sources/${sourceId}`,
+          withTimeout(
+            {
+              method: "PATCH",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ archived: true }),
+            },
+            TIMEOUT_JSON_MS,
+          ),
+        );
         if (!resp.ok) {
           throw new Error(`archive failed (${resp.status})`);
         }
@@ -284,11 +331,17 @@ export function useSources(): UseSourcesResult {
       // archivedAt; the active-strip query joins iterations + tiles
       // for aggregate counts, which we'd be missing). Refresh is the
       // canonical-state path.
-      const resp = await authFetch(`/api/sources/${sourceId}`, {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ archived: false }),
-      });
+      const resp = await authFetch(
+        `/api/sources/${sourceId}`,
+        withTimeout(
+          {
+            method: "PATCH",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ archived: false }),
+          },
+          TIMEOUT_JSON_MS,
+        ),
+      );
       if (!resp.ok) {
         const data = (await resp.json().catch(() => ({}))) as {
           error?: string;
@@ -298,6 +351,9 @@ export function useSources(): UseSourcesResult {
           data.detail ?? data.error ?? `unarchive failed (${resp.status})`,
         );
       }
+      // v4.6: bump so any OLDER in-flight refresh (snapshot without the
+      // unarchived row) can't land after this refresh and vanish it again.
+      sourcesListEpoch++;
       await refresh();
     },
     [refresh],
@@ -311,11 +367,16 @@ export function useSources(): UseSourcesResult {
       // important if the deleted source was archived (and so wasn't in
       // the active store at all), since this method is also called
       // from the ArchivedSourcesPanel.
+      // v4.6: abort + epoch-bump before the optimistic removal — a stale
+      // refresh landing later would otherwise resurrect a server-dead
+      // ghost row in the strip (tapping it selects a nonexistent source).
+      abortRef.current?.abort();
+      sourcesListEpoch++;
       removeSourceInStore(sourceId);
       try {
         const resp = await authFetch(
           `/api/sources/${encodeURIComponent(sourceId)}?permanent=true`,
-          { method: "DELETE" },
+          withTimeout({ method: "DELETE" }, TIMEOUT_JSON_MS),
         );
         if (!resp.ok) {
           const data = (await resp.json().catch(() => ({}))) as {

@@ -69,6 +69,7 @@ import { useCanvas } from "@/stores/canvas";
 import { useShallow } from "zustand/react/shallow";
 import { useIterations } from "@/hooks/useIterations";
 import { authFetch } from "@/lib/auth/authFetch";
+import { TIMEOUT_JSON_MS, withTimeout } from "@/lib/fetchTimeout";
 
 // Mirrors VISIBLE_PRESETS + hidden presets in InputBar.tsx — labels for
 // the iteration caption chip. Missing entries fall through to literal
@@ -557,11 +558,22 @@ function fetchTileThumbKey(tileId: string): Promise<string | null> {
       try {
         const resp = await authFetch(
           `/api/tiles/${encodeURIComponent(tileId)}`,
+          withTimeout({}, TIMEOUT_JSON_MS),
         );
-        if (!resp.ok) return null;
+        // v4.6: only a true 404 (tile deleted) caches as null forever.
+        // Transient failures (401 blip, 5xx, offline) drop the cache
+        // entry so the next mount retries — pre-v4.6 they poisoned the
+        // id with a permanent "?" placeholder for the whole tab
+        // session.
+        if (resp.status === 404) return null;
+        if (!resp.ok) {
+          crossSourceTileThumbCache.delete(tileId);
+          return null;
+        }
         const data = (await resp.json()) as { thumbKey?: string | null };
         return data.thumbKey ?? null;
       } catch {
+        crossSourceTileThumbCache.delete(tileId);
         return null;
       }
     })();

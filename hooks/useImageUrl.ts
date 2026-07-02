@@ -27,6 +27,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { authFetch } from "@/lib/auth/authFetch";
+import { TIMEOUT_JSON_MS, withTimeout } from "@/lib/fetchTimeout";
 
 interface CacheEntry {
   url: string;
@@ -82,15 +83,31 @@ function scheduleRefresh(key: string, entry: CacheEntry): void {
     // No subscribers left → drop. The next mount will refetch on demand.
     if (!subscribers.has(key) || subscribers.get(key)!.size === 0) return;
     fetchSignedUrl(key).catch(() => {
-      // Silent — consumers will get a fresh fetch on next mount/key change
-      // if they're still watching. We intentionally don't surface this to
-      // setState because the existing URL is still valid for ~REFRESH_BUFFER_MS;
-      // a transient network blip on the background refresh shouldn't flash
-      // an error to the user. If the next consumer access lands AFTER the
-      // URL actually expires, the normal mount path will retry and surface
-      // the error then.
+      // v4.6: don't give up. Pre-v4.6 a failed background refresh was
+      // terminal — a wifi blip in the ~60s pre-expiry window meant the
+      // URL expired with no retry and every mounted <img> for the key
+      // went 403-broken until a remount. Retry every 30s while anyone
+      // is still subscribed; each attempt goes through fetchSignedUrl,
+      // which on success re-schedules the normal refresh cycle. No
+      // error is surfaced to consumers — the current URL may still be
+      // inside the refresh buffer, and a broken image + silent retry
+      // beats a flashed error either way.
+      scheduleRefreshRetry(key);
     });
   }, delay);
+  refreshTimers.set(key, timer);
+}
+
+/** v4.6: 30s retry loop for failed background refreshes — see the catch
+ *  in scheduleRefresh. Reuses refreshTimers so unsubscribe-cleanup and
+ *  dedupe (one timer per key) keep working. */
+function scheduleRefreshRetry(key: string): void {
+  if (refreshTimers.has(key)) return;
+  const timer = setTimeout(() => {
+    refreshTimers.delete(key);
+    if (!subscribers.has(key) || subscribers.get(key)!.size === 0) return;
+    fetchSignedUrl(key).catch(() => scheduleRefreshRetry(key));
+  }, 30_000);
   refreshTimers.set(key, timer);
 }
 
@@ -101,7 +118,11 @@ async function fetchSignedUrl(key: string): Promise<CacheEntry> {
   const promise = (async () => {
     const resp = await authFetch(
       `/api/image-url?key=${encodeURIComponent(key)}`,
-      { cache: "no-store" },
+      // v4.6: timeout so a hung request can't poison the `inflight`
+      // dedupe entry for this key forever (image would never load again
+      // without a reload). TimeoutError rejects → finally clears
+      // inflight → next consumer retries.
+      withTimeout({ cache: "no-store" }, TIMEOUT_JSON_MS),
     );
     if (!resp.ok) {
       const data = (await resp.json().catch(() => ({}))) as { error?: string };

@@ -32,6 +32,7 @@
 
 import { useEffect, useRef } from "react";
 
+import { bumpIterationsListEpoch } from "@/hooks/useIterations";
 import {
   useCanvas,
   type Iteration,
@@ -90,6 +91,11 @@ export function useStreamingResults(): void {
             thumbKey: data.thumbKey ?? null,
             errorMessage: data.error ?? null,
           });
+          // v4.6: an SSE write is newer than any in-flight list
+          // snapshot — bump so a stale refetch landing later can't
+          // revert this tile (the server's per-connection dedupe never
+          // re-emits, so a reverted 'done' would spin forever).
+          bumpIterationsListEpoch();
         } catch (e) {
           console.warn("[sse tile] parse failed", e);
         }
@@ -101,6 +107,7 @@ export function useStreamingResults(): void {
         // above. Cost is recorded server-side via usage_log in the worker
         // (see lib/gemini/runIteration.ts).
         setIterationStatus(iterationId, "done");
+        bumpIterationsListEpoch(); // v4.6 — same staleness rationale as 'tile'
         es.close();
         attached.delete(iterationId);
       });
@@ -173,6 +180,7 @@ export function useStreamingResults(): void {
               thumbKey: data.thumbKey ?? null,
               errorMessage: data.error ?? null,
             });
+            bumpIterationsListEpoch(); // v4.6 — see the attach-path handler
           } catch (e) {
             console.warn("[sse tile] parse failed", e);
           }
@@ -180,6 +188,7 @@ export function useStreamingResults(): void {
 
         es.addEventListener("done", () => {
           setIterationStatus(iterationId, "done");
+          bumpIterationsListEpoch(); // v4.6 — see the attach-path handler
           es.close();
           attached.delete(iterationId);
         });

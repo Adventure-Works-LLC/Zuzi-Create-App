@@ -21,10 +21,19 @@ export function proxy(req: NextRequest): NextResponse {
   const session = req.cookies.get(SESSION_COOKIE)?.value;
   const path = req.nextUrl.pathname;
   const isLoginPage = path === "/login";
+  // v4.6: /logout must be reachable WITHOUT a cookie. The normal 30-day
+  // session expiry deletes the cookie entirely; authFetch's 401 recovery
+  // then navigates to /logout?next=<where-she-was>, and this gate used to
+  // bounce that to /login?next=/logout — overwriting the real next. After
+  // typing her password she'd land on /logout, which signed her brand-new
+  // session out again: the "app rejected my password" double-login loop.
+  // The logout page handles the no-cookie case fine (POST /api/logout is
+  // a no-op; it forwards to /login preserving next/reason).
+  const isLogoutPage = path === "/logout";
   const isApi = path.startsWith("/api/");
   const hasSession = typeof session === "string" && session.length > 0;
 
-  if (!hasSession && !isLoginPage) {
+  if (!hasSession && !isLoginPage && !isLogoutPage) {
     // API requests get a clean 401 (their callers handle it); page requests redirect.
     if (isApi) {
       return NextResponse.json({ error: "unauthenticated" }, { status: 401 });

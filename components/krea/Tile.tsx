@@ -14,7 +14,8 @@
  *   pending → soft warm pulse, no image (placeholder is the affordance)
  *   done    → image cross-fades in (4px blur → 0, 8px translate, 300ms ease-out)
  *   blocked → small ShieldOff icon + "skipped" caption (safety filter)
- *   failed  → small dot + error tooltip on long-press
+ *   failed  → small dot + "failed" caption (the reason lives in
+ *              tiles.error_message server-side; no in-UI surface yet)
  *
  * Interactions:
  *   tap        → opens lightbox (image button)

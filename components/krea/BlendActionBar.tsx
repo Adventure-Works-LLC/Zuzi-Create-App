@@ -174,12 +174,16 @@ export function BlendActionBar() {
         <div className="ml-auto flex items-center gap-2">
           <button
             type="button"
+            // v4.6: Cancel is NEVER disabled. It only exits blend mode
+            // client-side — gating it on inFlight meant a hung POST
+            // trapped her in blend mode (selection UI + bar) until
+            // reload. An in-flight blend continues server-side and
+            // streams into the TileStream regardless.
             onClick={onCancel}
-            disabled={inFlight}
             className={[
               "inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-sm no-callout",
               "text-text-mute hover:text-foreground hover:bg-secondary",
-              "transition-colors disabled:opacity-50 disabled:cursor-wait",
+              "transition-colors",
             ].join(" ")}
             aria-label="Exit blend mode"
           >

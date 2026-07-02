@@ -651,6 +651,22 @@ export const useCanvas = create<CanvasState>((set) => ({
   removeStylePainting: (id) =>
     set((s) => ({
       stylePaintings: s.stylePaintings.filter((x) => x.id !== id),
+      // v4.6: mirror the server (nullifyTilesForStylePainting) — loaded
+      // tiles keep a dead stylePaintingId otherwise, so the Lightbox
+      // still offered "Iterate on this direction"/"More like this" for
+      // a deleted style (both 404 at fire) until the next refetch,
+      // while the attribution chip on the same tile already said
+      // "Style unavailable". One store pass keeps every surface
+      // agreeing.
+      iterations: s.iterations.map((it) => {
+        if (!it.tiles.some((t) => t.stylePaintingId === id)) return it;
+        return {
+          ...it,
+          tiles: it.tiles.map((t) =>
+            t.stylePaintingId === id ? { ...t, stylePaintingId: null } : t,
+          ),
+        };
+      }),
     })),
   updateStylePainting: (id, patch) =>
     set((s) => ({

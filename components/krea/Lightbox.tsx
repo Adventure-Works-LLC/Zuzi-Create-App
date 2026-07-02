@@ -365,16 +365,20 @@ export function Lightbox() {
       .then((blob) => {
         // Stale-key guard: while the pre-fetch was in flight, the user
         // may have switched tiles (the reset effect above cleared the
-        // cache and shareBlob state). Ignore the result if so.
-        if (cache.get(key) === inflight) cache.set(key, blob);
-        if (fullKey === key) {
-          console.info("[lightbox] share: pre-fetch ok", {
-            size: blob.size,
-            type: blob.type,
-          });
-          setShareBlob(blob);
-          setSharePrefetching(false);
-        }
+        // cache and shareBlob state). v4.6: the guard is the CACHE
+        // check — the old `fullKey === key` compared two closure
+        // captures from the same render and was always true, so a late
+        // blob could land in shareBlob for a different tile (Share
+        // would send the wrong image). cache.clear() on tile switch
+        // makes `cache.get(key) === inflight` the live signal.
+        if (cache.get(key) !== inflight) return blob; // tile switched
+        cache.set(key, blob);
+        console.info("[lightbox] share: pre-fetch ok", {
+          size: blob.size,
+          type: blob.type,
+        });
+        setShareBlob(blob);
+        setSharePrefetching(false);
         return blob;
       })
       .catch((e) => {
@@ -392,9 +396,11 @@ export function Lightbox() {
           error: e,
         });
         // Clear the cache entry so a retry (second tap) can re-fetch
-        // instead of re-using a rejected promise.
-        if (cache.get(key) === inflight) cache.delete(key);
-        if (fullKey === key) {
+        // instead of re-using a rejected promise. v4.6: same live-cache
+        // staleness signal as the success path.
+        const wasCurrent = cache.get(key) === inflight;
+        if (wasCurrent) {
+          cache.delete(key);
           setShareBlobError(`${errName}: ${message}`);
           setSharePrefetching(false);
         }
@@ -402,6 +408,12 @@ export function Lightbox() {
       });
 
     cache.set(key, inflight);
+    // v4.6: mark the rejection handled for the fire-and-forget call
+    // sites (pointerdown/touchstart fire this without awaiting) — every
+    // prefetch failure previously logged an unhandled rejection. This
+    // branch doesn't swallow it for real consumers: anything awaiting
+    // the cached promise still sees the rejection.
+    void inflight.catch(() => {});
   };
 
   if (!view) return null;
@@ -612,7 +624,14 @@ export function Lightbox() {
 
   const onFavorite = () => {
     if (view.tileId.startsWith("opt-")) return;
-    void toggle(view.tileId, !view.isFavorite);
+    // v4.6: surface toggle failures. The hook rolls the heart back on
+    // error, but silently — she'd favorite, close, and find it gone
+    // ("the button does nothing"). Show the same inline error the other
+    // toolbar actions use.
+    void toggle(view.tileId, !view.isFavorite).catch((e) => {
+      const message = e instanceof Error ? e.message : String(e);
+      setActionError(`Couldn't update favorite — ${message}`);
+    });
   };
 
   /**
@@ -749,7 +768,14 @@ export function Lightbox() {
     <div
       role="dialog"
       aria-modal="true"
-      className="fixed inset-0 z-50 flex flex-col bg-black/95"
+      // v4.6: z-[60] — the ExploreSheet is also z-50 and a LATER sibling
+      // in page.tsx, so at equal z it painted OVER the lightbox; tapping
+      // a tile inside the sheet set lightboxTileId but the zoomed view
+      // (heart, "Iterate on this direction") was occluded and Esc
+      // secretly closed the invisible lightbox first. The lightbox is
+      // the topmost surface by design everywhere else — give it its own
+      // tier.
+      className="fixed inset-0 z-[60] flex flex-col bg-black/95"
       onClick={(e) => {
         // Click outside the inner image / toolbar closes.
         if (e.target === e.currentTarget) closeLightbox();

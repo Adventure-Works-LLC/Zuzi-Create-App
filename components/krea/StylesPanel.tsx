@@ -230,10 +230,31 @@ function StylePaintingCard({
   // confirms. Blank input clears the artist (null); Cancel is a no-op.
   const handleSetArtist = async () => {
     setMenuOpen(false);
-    const input = window.prompt(
-      "Artist name for this painting (blank to clear):",
-      row.artist ?? "",
-    );
+    // v4.6: hardened like handleFiles' batch prompt — iOS standalone
+    // PWAs can suppress window.prompt (null immediately) or throw.
+    // Unlike uploads there's no sensible proceed-anyway default for a
+    // rename, so a suppressed dialog surfaces an inline error instead
+    // of silently no-oping the menu item.
+    let input: string | null = null;
+    let promptFailed = false;
+    try {
+      input = window.prompt(
+        "Artist name for this painting (blank to clear):",
+        row.artist ?? "",
+      );
+    } catch {
+      promptFailed = true;
+    }
+    if (promptFailed || (input === null && row.artist === null)) {
+      // Distinguish "dialog never appeared" from a real Cancel as best
+      // we can: a throw is definitive; a null with nothing to cancel
+      // away from gets the hint too. A null when an artist IS set is
+      // most likely a genuine Cancel — stay silent for that.
+      if (promptFailed) {
+        setError("Couldn't open the name dialog — artist unchanged.");
+      }
+      return;
+    }
     if (input === null) return; // cancelled
     const artist = input.trim() || null;
     if (artist === (row.artist ?? null)) return; // no change
@@ -433,9 +454,12 @@ export function StylesPanel() {
   }, [open, setOpen, lightboxTileId, lightboxSnapshot]);
 
   // Auto-clear transient upload errors so the header doesn't get stuck.
+  // v4.6: 10s (was 4s) — upload errors often carry an instruction she
+  // must act on (HEIC "convert to JPEG and re-upload"); 4s wiped it
+  // before it could be read.
   useEffect(() => {
     if (!uploadError) return;
-    const t = window.setTimeout(() => setUploadError(null), 4000);
+    const t = window.setTimeout(() => setUploadError(null), 10_000);
     return () => window.clearTimeout(t);
   }, [uploadError]);
 
@@ -608,8 +632,19 @@ export function StylesPanel() {
       Array.from({ length: Math.min(3, queue.length) }, () => worker()),
     );
     if (failures.length > 0) {
+      // v4.6: log every failure (the banner only fits one) and say how
+      // many didn't make it, so "17 selected, 15 appeared" isn't a
+      // mystery.
+      for (const f of failures) {
+        console.warn("[styles upload] file failed:", f);
+      }
       const first = failures[0];
-      setUploadError(first instanceof Error ? first.message : String(first));
+      const firstMsg = first instanceof Error ? first.message : String(first);
+      setUploadError(
+        failures.length === 1
+          ? firstMsg
+          : `${failures.length} of ${files.length} failed — ${firstMsg}`,
+      );
     }
   };
 

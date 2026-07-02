@@ -33,6 +33,10 @@ import { useEffect } from "react";
  *  collapses to `/`. Mirrors the safeNextPath() helper in /login. */
 function safeNext(raw: string | null): string {
   if (!raw) return "/";
+  // v4.6: never round-trip back into the logout flow — a stale
+  // next=/logout (from the pre-v4.6 proxy bounce, an old bookmark, or a
+  // hand-typed URL) would sign the fresh session right back out.
+  if (raw === "/logout" || raw.startsWith("/logout?")) return "/";
   if (raw.startsWith("/") && !raw.startsWith("//")) return raw;
   return "/";
 }

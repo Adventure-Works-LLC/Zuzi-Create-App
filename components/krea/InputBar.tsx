@@ -557,11 +557,18 @@ export function InputBar() {
       return;
     }
     setGenerateError(null);
-    const result = await generate();
-    if (!result) {
-      // hook surfaced an error via the optimistic placeholder; still mirror it
-      // for the inline error message.
-      setGenerateError("Couldn’t start generation. Try again.");
+    try {
+      const result = await generate();
+      if (!result) {
+        // hook surfaced an error via the optimistic placeholder; still mirror it
+        // for the inline error message.
+        setGenerateError("Couldn’t start generation. Try again.");
+      }
+    } catch (e) {
+      // v4.6: generate() rethrows the monthly-cap rejection so cap-aware
+      // surfaces (ExploreSheet) can parse it; here the message itself is
+      // the right inline error ("Monthly cap reached: $X / $Y").
+      setGenerateError(e instanceof Error ? e.message : String(e));
     }
   };
 

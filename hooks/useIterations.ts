@@ -25,6 +25,8 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
+
+import { TIMEOUT_JSON_MS, withTimeout } from "@/lib/fetchTimeout";
 import { ulid } from "ulid";
 
 import {
@@ -83,6 +85,19 @@ interface IterationResponseRow {
 // scoped (not a ref) because useIterations has ~5 call sites, each with
 // its own independent in-flight fetch — see the source-switch effect.
 let iterationsListEpoch = 0;
+
+/** v4.6: exported bump for OTHER writers of iteration/tile state —
+ *  specifically useStreamingResults's SSE handlers. An SSE tile-done
+ *  update is newer than any in-flight list snapshot; without a bump, a
+ *  refetch kicked off just before the tile completed (the v4.2
+ *  post-generate refresh made this common) lands after the SSE write and
+ *  reverts the tile to `pending` — and the server's per-connection dedupe
+ *  never re-emits that tile's done event, so the spinner sticks until the
+ *  next refetch. Every SSE store write bumps the epoch so stale list
+ *  snapshots discard themselves. */
+export function bumpIterationsListEpoch(): void {
+  iterationsListEpoch++;
+}
 
 function rowToIteration(r: IterationResponseRow): Iteration {
   return {
@@ -256,7 +271,7 @@ export function useIterations(): UseIterationsResult {
       try {
         const resp = await authFetch(
           `/api/iterations?sourceId=${encodeURIComponent(currentSourceId)}&limit=50`,
-          { signal: ac.signal },
+          withTimeout({ signal: ac.signal }, TIMEOUT_JSON_MS),
         );
         if (!resp.ok) throw new Error(`iterations fetch failed (${resp.status})`);
         const data = (await resp.json()) as { iterations: IterationResponseRow[] };
@@ -290,6 +305,7 @@ export function useIterations(): UseIterationsResult {
     try {
       const resp = await authFetch(
         `/api/iterations?sourceId=${encodeURIComponent(sid)}&limit=50`,
+        withTimeout({}, TIMEOUT_JSON_MS),
       );
       if (!resp.ok) return;
       const data = (await resp.json()) as { iterations: IterationResponseRow[] };
@@ -429,7 +445,7 @@ export function useIterations(): UseIterationsResult {
     generateAbortRef.current = ac;
 
     try {
-      const resp = await authFetch("/api/iterate", {
+      const resp = await authFetch("/api/iterate", withTimeout({
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -473,7 +489,7 @@ export function useIterations(): UseIterationsResult {
           ...(parentTileId ? { parentTileId } : {}),
         }),
         signal: ac.signal,
-      });
+      }, TIMEOUT_JSON_MS));
       const data = (await resp.json().catch(() => ({}))) as {
         iterationId?: string;
         idempotentReplay?: boolean;
@@ -632,6 +648,16 @@ export function useIterations(): UseIterationsResult {
       // diagnose than silent disappearance. Component-level error UI can
       // pick this up.
       setIterationStatus(optimisticId, "failed");
+      // v4.6: the monthly-cap rejection RETHROWS (all other failures keep
+      // returning null). Cap-aware surfaces — ExploreSheet's sticky
+      // banner + auto-stop per AGENTS.md §13 — were written to parse the
+      // thrown "Monthly cap reached: $X / $Y" message, but this catch
+      // swallowed it into a generic null, leaving that code dead. The
+      // optimistic row was already removed by the !resp.ok branch, so the
+      // failed-status write above is a no-op on this path. Every
+      // generate() call site catches: ExploreSheet parses it, InputBar/
+      // StylesPanel/BlendActionBar/Lightbox surface the message inline.
+      if (msg.startsWith("Monthly cap reached")) throw e;
       return null;
     } finally {
       if (generateAbortRef.current === ac) generateAbortRef.current = null;
@@ -655,11 +681,16 @@ export function useIterations(): UseIterationsResult {
       // immediately. Lightbox closes if it was on one of this
       // iteration's tiles (handled in the store action).
       const before = useCanvas.getState().iterations;
+      // v4.6: removeIteration also scrubs the deleted tiles from any
+      // in-flight blend selection — snapshot it too so a FAILED delete
+      // restores her picks along with the rows (mid-collection deletes
+      // were silently wiping the selection on rollback).
+      const beforeBlendSelection = useCanvas.getState().blendSelectedTileIds;
       useCanvas.getState().removeIteration(iterationId);
       try {
         const resp = await authFetch(
           `/api/iterations/${encodeURIComponent(iterationId)}`,
-          { method: "DELETE" },
+          withTimeout({ method: "DELETE" }, TIMEOUT_JSON_MS),
         );
         if (!resp.ok) {
           const data = (await resp.json().catch(() => ({}))) as {
@@ -672,7 +703,9 @@ export function useIterations(): UseIterationsResult {
         }
       } catch (e) {
         // Rollback: restore the iterations we removed optimistically
-        // and refetch canonical state.
+        // (plus the blend selection the removal scrubbed) and refetch
+        // canonical state.
+        useCanvas.setState({ blendSelectedTileIds: beforeBlendSelection });
         useCanvas.getState().setIterations(before);
         await refetchIterationsForCurrent();
         throw e;
@@ -685,7 +718,9 @@ export function useIterations(): UseIterationsResult {
     async (iterationId: string): Promise<RecoverIterationResult> => {
       const resp = await authFetch(
         `/api/iterations/${encodeURIComponent(iterationId)}/recover`,
-        { method: "POST" },
+        // Recovery does N R2 HEAD roundtrips server-side — give it double
+        // the JSON budget before calling it hung.
+        withTimeout({ method: "POST" }, TIMEOUT_JSON_MS * 2),
       );
       if (!resp.ok) {
         const data = (await resp.json().catch(() => ({}))) as {
@@ -697,13 +732,17 @@ export function useIterations(): UseIterationsResult {
         );
       }
       const result = (await resp.json()) as RecoverIterationResult;
-      // Refetch the source's iterations only when the server actually
-      // mutated state. `skipped` (iteration was already terminal) and
-      // `deferred` (R2 erroring; recovery short-circuited without DB
-      // writes) both leave the DB unchanged — refetching would be
-      // pure noise. Other outcomes flip tile + iteration statuses
-      // server-side, so the UI needs the fresh shape.
-      if (result.outcome !== "skipped" && result.outcome !== "deferred") {
+      // Refetch the source's iterations unless recovery short-circuited
+      // WITHOUT even reading state (`deferred` = R2 erroring; nothing
+      // learned, nothing changed). v4.6: `skipped` now DOES refetch —
+      // it means the iteration is already terminal server-side, and the
+      // classic reason the user is tapping Recover at all is that the
+      // client's copy is stale (SSE died mid-run; tiles finished
+      // server-side but render pending here). Skipping the refetch made
+      // the button a visible no-op in exactly the scenario it exists
+      // for; the refetch pulls the terminal truth and clears the stuck
+      // banner.
+      if (result.outcome !== "deferred") {
         await refetchIterationsForCurrent();
       }
       return result;

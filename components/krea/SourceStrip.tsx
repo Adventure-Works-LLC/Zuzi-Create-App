@@ -224,9 +224,11 @@ export function SourceStrip() {
   const [actionError, setActionError] = useState<string | null>(null);
 
   // Auto-clear transient errors so the strip doesn't get stuck.
+  // v4.6: 10s (was 4s) — upload errors can carry an instruction (HEIC
+  // "convert to JPEG and re-upload"); 4s wiped it before it was read.
   useEffect(() => {
     if (!actionError) return;
-    const t = window.setTimeout(() => setActionError(null), 4000);
+    const t = window.setTimeout(() => setActionError(null), 10_000);
     return () => window.clearTimeout(t);
   }, [actionError]);
 

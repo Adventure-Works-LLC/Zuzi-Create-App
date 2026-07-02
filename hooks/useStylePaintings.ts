@@ -26,6 +26,11 @@
 import { useCallback, useEffect, useRef } from "react";
 
 import { authFetch } from "@/lib/auth/authFetch";
+import {
+  TIMEOUT_JSON_MS,
+  TIMEOUT_UPLOAD_MS,
+  withTimeout,
+} from "@/lib/fetchTimeout";
 import { useCanvas, type StylePainting } from "@/stores/canvas";
 
 interface StylePaintingResponseRow {
@@ -46,6 +51,25 @@ interface StylePaintingResponseRow {
 // Module-scoped attempt-time stamp shared by every useStylePaintings
 // instance — mirrors useSources's lastSourcesRefreshAt rationale.
 let lastStylesRefreshAt = 0;
+
+// v4.6: module-scoped invalidation epoch — mirrors useSources's
+// sourcesListEpoch (see the comment there). Bumped by every mutation
+// before it touches the store; refreshes that started under an older
+// epoch discard their response. Closes the bulk-upload race (a
+// visibilitychange refresh fired by the file-picker dismiss, landing
+// mid-pool with a pre-insert snapshot, wiped rows that completed
+// uploads had already added — "some of my uploads vanished") AND the
+// cross-instance deleteForever gap (this hook has 2 instances; the
+// instance-local abort can't reach the other one's in-flight fetch).
+let stylesListEpoch = 0;
+
+// v4.6: module-scoped active-upload counter. The store's `uploading`
+// flag is a boolean; with the StylesPanel's 3-worker pool, the FIRST
+// completed file's `finally` was flipping it false while siblings were
+// still in flight — the header button re-enabled mid-batch and a second
+// batch could stack another 3 workers on top. Count up/down and only
+// clear the flag at zero.
+let activeStyleUploads = 0;
 
 function rowToStylePainting(r: StylePaintingResponseRow): StylePainting {
   return {
@@ -109,10 +133,11 @@ export function useStylePaintings(): UseStylePaintingsResult {
     lastStylesRefreshAt = Date.now();
     setLoading(true);
     setError(null);
+    const epochAtStart = stylesListEpoch;
     try {
       const resp = await authFetch(
         "/api/style-paintings?archived=false&limit=200",
-        { signal: ac.signal },
+        withTimeout({ signal: ac.signal }, TIMEOUT_JSON_MS),
       );
       if (!resp.ok) {
         throw new Error(`style-paintings fetch failed (${resp.status})`);
@@ -120,6 +145,7 @@ export function useStylePaintings(): UseStylePaintingsResult {
       const data = (await resp.json()) as {
         stylePaintings: StylePaintingResponseRow[];
       };
+      if (epochAtStart !== stylesListEpoch) return; // stale snapshot
       setStylePaintings(data.stylePaintings.map(rowToStylePainting));
     } catch (e) {
       if ((e as Error).name === "AbortError") return;
@@ -149,6 +175,10 @@ export function useStylePaintings(): UseStylePaintingsResult {
 
   const uploadFile = useCallback(
     async (file: File, artist?: string | null): Promise<StylePainting> => {
+      // v4.6: kill this instance's in-flight refresh early; the epoch
+      // bump before addStylePainting handles the other instances.
+      abortRef.current?.abort();
+      activeStyleUploads++;
       setUploading(true);
       setError(null);
       try {
@@ -157,10 +187,10 @@ export function useStylePaintings(): UseStylePaintingsResult {
         if (artist && artist.trim().length > 0) {
           form.append("artist", artist.trim());
         }
-        const resp = await authFetch("/api/style-paintings", {
-          method: "POST",
-          body: form,
-        });
+        const resp = await authFetch(
+          "/api/style-paintings",
+          withTimeout({ method: "POST", body: form }, TIMEOUT_UPLOAD_MS),
+        );
         if (!resp.ok) {
           const data = (await resp.json().catch(() => ({}))) as {
             error?: string;
@@ -172,10 +202,15 @@ export function useStylePaintings(): UseStylePaintingsResult {
         }
         const data = (await resp.json()) as StylePaintingResponseRow;
         const row = rowToStylePainting(data);
+        stylesListEpoch++; // invalidate pre-insert snapshots
         addStylePainting(row);
         return row;
       } finally {
-        setUploading(false);
+        activeStyleUploads--;
+        if (activeStyleUploads <= 0) {
+          activeStyleUploads = 0;
+          setUploading(false);
+        }
       }
     },
     [addStylePainting, setUploading, setError],
@@ -190,12 +225,16 @@ export function useStylePaintings(): UseStylePaintingsResult {
       // optimistic remove and re-insert the just-deleted style via
       // setStylePaintings(...). The abort makes the response a no-op.
       abortRef.current?.abort();
+      // v4.6: the abort above only reaches THIS instance's in-flight
+      // refresh; the epoch bump covers the other instance's (the
+      // cross-instance re-insert race from the network audit).
+      stylesListEpoch++;
       // Optimistic store removal. Rollback on failure via refresh.
       removeStylePainting(id);
       try {
         const resp = await authFetch(
           `/api/style-paintings/${encodeURIComponent(id)}?permanent=true`,
-          { method: "DELETE" },
+          withTimeout({ method: "DELETE" }, TIMEOUT_JSON_MS),
         );
         if (!resp.ok) {
           const data = (await resp.json().catch(() => ({}))) as {
@@ -218,11 +257,14 @@ export function useStylePaintings(): UseStylePaintingsResult {
     async (id: string, artist: string | null) => {
       const resp = await authFetch(
         `/api/style-paintings/${encodeURIComponent(id)}`,
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ artist }),
-        },
+        withTimeout(
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ artist }),
+          },
+          TIMEOUT_JSON_MS,
+        ),
       );
       if (!resp.ok) {
         const data = (await resp.json().catch(() => ({}))) as {
@@ -233,6 +275,9 @@ export function useStylePaintings(): UseStylePaintingsResult {
           data.detail ?? data.error ?? `artist update failed (${resp.status})`,
         );
       }
+      // v4.6: bump so an in-flight refresh with a pre-PATCH snapshot
+      // can't revert the artist edit (and its filter chips) on landing.
+      stylesListEpoch++;
       updateStylePainting(id, { artist });
     },
     [updateStylePainting],

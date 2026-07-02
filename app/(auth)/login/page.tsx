@@ -9,7 +9,11 @@ import { Button } from "@/components/ui/button";
 function safeNextPath(): string {
   if (typeof window === "undefined") return "/";
   const next = new URLSearchParams(window.location.search).get("next");
-  if (next && next.startsWith("/") && !next.startsWith("//")) return next;
+  if (!next) return "/";
+  // v4.6: a post-login destination of /logout would immediately sign the
+  // fresh session out again (the double-login loop). Collapse it home.
+  if (next === "/logout" || next.startsWith("/logout?")) return "/";
+  if (next.startsWith("/") && !next.startsWith("//")) return next;
   return "/";
 }
 

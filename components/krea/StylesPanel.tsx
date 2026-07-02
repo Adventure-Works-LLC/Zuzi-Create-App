@@ -8,7 +8,7 @@
  * deferred to v0.2 per the plan).
  *
  * Pattern mirrors ArchivedSourcesPanel + FavoritesPanel:
- *   - z-40 (Lightbox sits at z-50 above).
+ *   - z-40 (Lightbox sits at z-[60] above; ExploreSheet at z-50).
  *   - Esc to close, deferring to Lightbox if one is open.
  *   - Tap-outside (the scrim) closes.
  *
@@ -245,17 +245,14 @@ function StylePaintingCard({
     } catch {
       promptFailed = true;
     }
-    if (promptFailed || (input === null && row.artist === null)) {
-      // Distinguish "dialog never appeared" from a real Cancel as best
-      // we can: a throw is definitive; a null with nothing to cancel
-      // away from gets the hint too. A null when an artist IS set is
-      // most likely a genuine Cancel — stay silent for that.
-      if (promptFailed) {
-        setError("Couldn't open the name dialog — artist unchanged.");
-      }
+    if (promptFailed) {
+      // A throw is the one definitive "dialog never appeared" signal —
+      // surface it. A null return is indistinguishable from a genuine
+      // Cancel, so it stays silent.
+      setError("Couldn't open the name dialog — artist unchanged.");
       return;
     }
-    if (input === null) return; // cancelled
+    if (input === null) return; // cancelled (or suppressed — can't tell)
     const artist = input.trim() || null;
     if (artist === (row.artist ?? null)) return; // no change
     setBusy(true);

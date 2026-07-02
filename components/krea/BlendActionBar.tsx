@@ -59,6 +59,13 @@ export function BlendActionBar() {
       setBlendMode(false);
     }
   }, [blendMode, inFlight, iterationCount, blendSelectedTileIds, setBlendMode]);
+  // v4.6.1: clear any leftover error when (re)entering blend mode. Since
+  // Cancel is never disabled, a fire can fail AFTER she cancelled out —
+  // that late setError used to sit invisibly and reappear as a stale
+  // message on the next blend-mode entry.
+  useEffect(() => {
+    if (blendMode) setError(null);
+  }, [blendMode]);
   // Publish the bar's height into --blendbar-h on the document root
   // so TileStream can pad its bottom by (--inputbar-h + --blendbar-h),
   // preventing the last iteration row from being clipped by the
@@ -134,8 +141,8 @@ export function BlendActionBar() {
       ref={barRef}
       role="region"
       aria-label="Blend selection"
-      // z-30 sits below z-40 panels (Favorites, Styles, ArchivedSources)
-      // and z-50 lightbox/sheets. Above the InputBar (which uses
+      // z-30 sits below z-40 panels (Favorites, Styles, ArchivedSources),
+      // the z-50 ExploreSheet, and the z-[60] Lightbox. Above the InputBar (which uses
       // implicit document flow), and within the safe-area inset so
       // the iPad home-indicator gutter doesn't eat it.
       className={[

@@ -80,6 +80,8 @@ import {
 import { useSources } from "@/hooks/useSources";
 import { useIterations } from "@/hooks/useIterations";
 import { useImageUrl } from "@/hooks/useImageUrl";
+import { authFetch } from "@/lib/auth/authFetch";
+import { TIMEOUT_JSON_MS, withTimeout } from "@/lib/fetchTimeout";
 import { useCanvas } from "@/stores/canvas";
 import { type Preset } from "@/lib/db/schema";
 import { TILE_COUNT_MAX } from "@/lib/gemini/imagePrompts";
@@ -373,6 +375,64 @@ function CountStepper({
   );
 }
 
+/**
+ * v5.3: Pro daily fuel gauge. Google caps the Pro image model at N
+ * requests per DAY (250 on the current tier — see AGENTS.md §4 quota
+ * notes + /api/usage); before this gauge the wall was invisible until
+ * runs started failing mid-session. Count is approximate (server
+ * counts completed Pro tiles; retries aren't logged) hence the "~".
+ * Refetches on mount and whenever `refreshKey` changes (the InputBar
+ * passes a counter bumped after each generate settles).
+ */
+function ProQuotaGauge({ refreshKey }: { refreshKey: number }) {
+  const [gauge, setGauge] = useState<{ count: number; limit: number } | null>(
+    null,
+  );
+  useEffect(() => {
+    const ac = new AbortController();
+    void (async () => {
+      try {
+        const resp = await authFetch(
+          "/api/usage",
+          withTimeout({ signal: ac.signal }, TIMEOUT_JSON_MS),
+        );
+        if (!resp.ok) return;
+        const data = (await resp.json()) as {
+          proToday?: { count?: number; limit?: number };
+        };
+        if (
+          typeof data.proToday?.count === "number" &&
+          typeof data.proToday?.limit === "number"
+        ) {
+          setGauge({ count: data.proToday.count, limit: data.proToday.limit });
+        }
+      } catch {
+        // gauge is decorative — stay silent on failure
+      }
+    })();
+    return () => ac.abort();
+  }, [refreshKey]);
+
+  if (!gauge) return null;
+  const nearCap = gauge.count >= gauge.limit * 0.8;
+  const atCap = gauge.count >= gauge.limit;
+  return (
+    <span
+      className={[
+        "text-xs tabular-nums",
+        atCap
+          ? "text-destructive"
+          : nearCap
+            ? "text-amber-500"
+            : "text-text-mute",
+      ].join(" ")}
+      title="Google allows a fixed number of Pro-model images per day; resets overnight. Flash and Vary don't count against it."
+    >
+      Pro today ~{gauge.count}/{gauge.limit}
+    </span>
+  );
+}
+
 function CurrentSourceThumb() {
   const sources = useCanvas((s) => s.sources);
   const currentSourceId = useCanvas((s) => s.currentSourceId);
@@ -441,6 +501,12 @@ export function InputBar() {
    *  the document pointerdown listener below. */
   const [varyOpen, setVaryOpen] = useState(false);
   const varyRef = useRef<HTMLDivElement>(null);
+  /** v5.3: bumped every time a generate settles so the Pro gauge
+   *  refetches — the count only moves when runs complete. */
+  const [quotaRefresh, setQuotaRefresh] = useState(0);
+  useEffect(() => {
+    if (!generating) setQuotaRefresh((k) => k + 1);
+  }, [generating]);
 
   // Mutually-exclusive UI: derive a single selection from the store's
   // presets array. The canonical default is ['avery'] (never empty),
@@ -756,6 +822,7 @@ export function InputBar() {
                   (${pricePerImage(modelTier, resolution).toFixed(3)} × {count})
                 </span>
               </span>
+              <ProQuotaGauge refreshKey={quotaRefresh} />
             </>
           )}
 

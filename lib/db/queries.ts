@@ -885,3 +885,34 @@ export function monthlyUsageUsd(): number {
     .get();
   return row?.total ?? 0;
 }
+
+/**
+ * v5.3: approximate count of Gemini PRO image requests fired since
+ * `sinceMs` — the fuel gauge against Google's per-model DAILY request
+ * quota (250/day on the current tier; resets ~midnight UTC, observed
+ * July 3 2026).
+ *
+ * Counted as tiles on model_tier='pro' iterations whose status is
+ * 'done' or 'blocked' (both consumed a completed Gemini call). 'failed'
+ * tiles are EXCLUDED: on a quota day the dominant failure is the 429
+ * itself, which Google rejects without consuming quota — counting
+ * those would run the gauge to the cap while actual quota remained.
+ * Retry attempts inside callWithRetry aren't logged anywhere, so the
+ * count can UNDERSTATE true consumption slightly — surface it with a
+ * "~" in the UI, never as an exact promise.
+ */
+export function proRequestsSince(sinceMs: number): number {
+  const row = db()
+    .select({ total: sql<number>`COUNT(*)` })
+    .from(tiles)
+    .innerJoin(iterations, eq(tiles.iteration_id, iterations.id))
+    .where(
+      and(
+        eq(iterations.model_tier, "pro"),
+        gte(tiles.created_at, sinceMs),
+        inArray(tiles.status, ["done", "blocked"]),
+      ),
+    )
+    .get();
+  return row?.total ?? 0;
+}

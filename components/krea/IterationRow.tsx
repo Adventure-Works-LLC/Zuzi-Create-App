@@ -147,6 +147,31 @@ export const IterationRow = memo(function IterationRow({
   const mode = iteration?.mode;
   const blendInputCount = iteration?.blendTileIds?.length ?? 0;
   const varyStrength = iteration?.varyStrength ?? null;
+
+  // v5.2: classify a fully-failed iteration by its tiles' recorded
+  // errors so the caption gives honest advice. "Try again" is actively
+  // wrong for Google's DAILY quota (429 per_model_per_day — retrying
+  // burns nothing but fails for hours) and merely unhelpful for a
+  // per-minute rate limit (right advice: wait a minute). The worker
+  // stores the raw classified message on every failed tile; we only
+  // need a coarse read here.
+  const failureKind = useMemo(() => {
+    if (iteration?.status !== "failed") return null;
+    const msgs = (iteration?.tiles ?? [])
+      .map((t) => t.errorMessage)
+      .filter((m): m is string => !!m);
+    if (msgs.some((m) => m.includes("per_model_per_day"))) return "daily_quota";
+    if (
+      msgs.some(
+        (m) =>
+          m.includes("RESOURCE_EXHAUSTED") ||
+          m.includes("exceeded your current quota") ||
+          m.includes('"code":429'),
+      )
+    )
+      return "rate_limited";
+    return "generic";
+  }, [iteration?.status, iteration?.tiles]);
   const presetLabel = useMemo(() => {
     // v3.5: blend iterations get their own caption. The "Blend of N
     // [thumbs]" attribution row above the tile grid shows which
@@ -312,7 +337,11 @@ export const IterationRow = memo(function IterationRow({
             <span className="text-destructive text-xs">
               {iteration.id.startsWith("opt-")
                 ? "couldn’t submit"
-                : "no tiles generated — try again"}
+                : failureKind === "daily_quota"
+                  ? "Google’s daily limit for this model is used up — switch tiers (Flash/Pro) or use Vary; it resets overnight"
+                  : failureKind === "rate_limited"
+                    ? "Google is rate-limiting — wait a minute, then try again"
+                    : "no tiles generated — try again"}
             </span>
           )}
           {showActionMenu && (

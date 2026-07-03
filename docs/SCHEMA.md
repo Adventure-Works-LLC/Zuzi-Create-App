@@ -143,11 +143,20 @@ CREATE INDEX idx_tiles_style_painting  ON tiles(style_painting_id)
 -- same result, negligible perf cost at this scale (~10–100 sources, ~1000s of tiles
 -- lifetime). If we migrate to Postgres or hit planner regressions, revisit DESC.
 
--- usage_log: monthly cap enforcement
+-- usage_log: monthly cap enforcement + daily quota gauge
 CREATE TABLE usage_log (
   id           INTEGER PRIMARY KEY AUTOINCREMENT,
   iteration_id TEXT REFERENCES iterations(id),
   cost_usd     REAL NOT NULL,
+  model_tier   TEXT,                -- v5.3 (migration 0010): 'flash' | 'pro' | 'flux'.
+                                    -- NULL on pre-0010 rows. Written at completion so
+                                    -- the Pro daily gauge survives iteration deletes
+                                    -- (tiles vanish on hard delete; usage_log rows only
+                                    -- get iteration_id nullified).
+  image_count  INTEGER,             -- v5.3: completed Gemini/fal calls this iteration
+                                    -- consumed (done + blocked tiles; 429-rejected
+                                    -- calls consume no quota and aren't counted).
+                                    -- NULL on pre-0010 rows.
   created_at   INTEGER NOT NULL
 );
 CREATE INDEX idx_usage_created ON usage_log(created_at);

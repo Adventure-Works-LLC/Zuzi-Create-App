@@ -24,7 +24,11 @@
 import { NextResponse } from "next/server";
 
 import { requireAuth } from "@/lib/auth/requireAuth";
-import { monthlyUsageUsd, proRequestsSince } from "@/lib/db/queries";
+import {
+  monthlyUsageUsd,
+  proImagesLoggedSince,
+  proRequestsSince,
+} from "@/lib/db/queries";
 
 export const runtime = "nodejs";
 
@@ -53,7 +57,16 @@ export async function GET(): Promise<Response> {
       monthUsd: monthlyUsageUsd(),
       capUsd: MONTHLY_USD_CAP,
       proToday: {
-        count: proRequestsSince(dayStartUtc),
+        // MAX of two counters (see queries.ts comments): the tile walk
+        // sees in-flight/just-finished runs before their usage_log row
+        // exists; the usage_log sum survives Zuzi's hard-deletes. Each
+        // covers the other's blind spot; MAX is never an overcount
+        // beyond double-attribution of the same completed run, which
+        // both sides value identically.
+        count: Math.max(
+          proRequestsSince(dayStartUtc),
+          proImagesLoggedSince(dayStartUtc),
+        ),
         limit: PRO_DAILY_QUOTA,
         resetAt: dayStartUtc + 24 * 60 * 60 * 1000,
       },

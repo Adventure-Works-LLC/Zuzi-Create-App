@@ -71,6 +71,13 @@
       "when": 1783095614588,
       "tag": "0009_woozy_famine",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1783111178380,
+      "tag": "0010_premium_glorian",
+      "breakpoints": true
     }
   ]
 }

@@ -54,6 +54,11 @@ const THUMB_WEBP_QUALITY = 80;
 interface TileRunResult {
   idx: number;
   ok: boolean;
+  /** v5.3: true when the tile completed but was safety-blocked. A
+   *  blocked tile still consumed a completed model call, so the
+   *  daily-quota accounting (usage_log.image_count) counts ok+blocked;
+   *  plain failures (429s, network) are excluded. */
+  blocked: boolean;
 }
 
 /**
@@ -208,7 +213,7 @@ function markTileError(
   tileId: string,
   idx: number,
   e: unknown,
-): void {
+): "blocked" | "failed" {
   const classified = classifyError(e);
   const status: "blocked" | "failed" =
     classified.classification === "safety" ? "blocked" : "failed";
@@ -225,6 +230,7 @@ function markTileError(
     status,
     error: errorMessage,
   });
+  return status;
 }
 
 async function runOneTile(
@@ -251,7 +257,7 @@ async function runOneTile(
 ): Promise<TileRunResult> {
   // If recovery has bytes for this tile, hydrate without calling Gemini.
   if (tryRecoveryHydrate(iterationId, tileId, idx, recoveryHit)) {
-    return { idx, ok: true };
+    return { idx, ok: true, blocked: false };
   }
 
   try {
@@ -290,10 +296,10 @@ async function runOneTile(
 
     const extracted = extractImageBytes(resp);
     await persistTileOutput(iterationId, tileId, idx, extracted.bytes);
-    return { idx, ok: true };
+    return { idx, ok: true, blocked: false };
   } catch (e) {
-    markTileError(iterationId, tileId, idx, e);
-    return { idx, ok: false };
+    const status = markTileError(iterationId, tileId, idx, e);
+    return { idx, ok: false, blocked: status === "blocked" };
   }
 }
 
@@ -313,7 +319,7 @@ async function runOneVaryTile(
   recoveryHit: { r2_key: string; thumb_key?: string } | undefined,
 ): Promise<TileRunResult> {
   if (tryRecoveryHydrate(iterationId, tileId, idx, recoveryHit)) {
-    return { idx, ok: true };
+    return { idx, ok: true, blocked: false };
   }
   try {
     if (!isVaryStrength(strength)) {
@@ -329,10 +335,10 @@ async function runOneVaryTile(
       `iter ${iterationId}#${idx}`,
     );
     await persistTileOutput(iterationId, tileId, idx, bytes);
-    return { idx, ok: true };
+    return { idx, ok: true, blocked: false };
   } catch (e) {
-    markTileError(iterationId, tileId, idx, e);
-    return { idx, ok: false };
+    const status = markTileError(iterationId, tileId, idx, e);
+    return { idx, ok: false, blocked: status === "blocked" };
   }
 }
 
@@ -656,7 +662,7 @@ export async function runIteration(iterationId: string): Promise<void> {
               `[runIteration ${iterationId}] unhandled in vary tile ${t.idx}:`,
               e,
             );
-            return { idx: t.idx, ok: false };
+            return { idx: t.idx, ok: false, blocked: false };
           });
         }
         // Compose the per-tile imageBase64s array. Three branches:
@@ -701,12 +707,21 @@ export async function runIteration(iterationId: string): Promise<void> {
             `[runIteration ${iterationId}] unhandled in tile ${t.idx}:`,
             e,
           );
-          return { idx: t.idx, ok: false };
+          return { idx: t.idx, ok: false, blocked: false };
         });
       }),
     );
 
     const successfulCount = results.filter((r) => r.ok).length;
+    // v5.3: completed calls = done + safety-blocked. Both consumed a
+    // model request (blocked outputs were generated, then flagged);
+    // failed tiles are dominated by 429s/network errors that consumed
+    // nothing. Recovery-hydrated tiles count as ok without a fresh
+    // call — a boot-replay edge that slightly overstates the day the
+    // replay ran and understates the crash day; acceptable for a "~"
+    // gauge.
+    const blockedCount = results.filter((r) => !r.ok && r.blocked).length;
+    const completedCalls = successfulCount + blockedCount;
     // Iteration status reflects truth: at least one successful tile = done;
     // zero successful (every tile blocked or failed) = the iteration as a
     // whole failed. Previously this was unconditionally "done" which made
@@ -716,7 +731,11 @@ export async function runIteration(iterationId: string): Promise<void> {
     // check could never fire for worker-failed iterations).
     const finalStatus = successfulCount > 0 ? "done" : "failed";
     updateIterationStatus(iterationId, finalStatus, Date.now());
-    if (successfulCount > 0) {
+    // v5.3: the gate moved from successfulCount to completedCalls — an
+    // all-blocked iteration consumed real quota (and $0, since Gemini
+    // doesn't bill blocked outputs) and must still land in usage_log
+    // for the daily gauge. Cost stays keyed on successfulCount.
+    if (completedCalls > 0) {
       insertUsageLog(
         iterationId,
         iter.mode === "sketch_vary"
@@ -730,6 +749,8 @@ export async function runIteration(iterationId: string): Promise<void> {
               iter.resolution,
               successfulCount,
             ),
+        iter.model_tier,
+        completedCalls,
       );
     }
   } catch (e) {

@@ -863,12 +863,19 @@ export function nullifyParentTileForSource(sourceId: string): number {
 export function insertUsageLog(
   iterationId: string,
   costUsd: number,
+  /** v5.3: engine tier + completed-call count for the daily quota
+   *  gauge. See the usage_log schema comment — these survive
+   *  iteration hard-deletes, unlike tile rows. */
+  modelTier: "flash" | "pro" | "flux",
+  imageCount: number,
 ): void {
   db()
     .insert(usage_log)
     .values({
       iteration_id: iterationId,
       cost_usd: costUsd,
+      model_tier: modelTier,
+      image_count: imageCount,
       created_at: Date.now(),
     })
     .run();
@@ -911,6 +918,31 @@ export function proRequestsSince(sinceMs: number): number {
         eq(iterations.model_tier, "pro"),
         gte(tiles.created_at, sinceMs),
         inArray(tiles.status, ["done", "blocked"]),
+      ),
+    )
+    .get();
+  return row?.total ?? 0;
+}
+
+/**
+ * v5.3 (migration 0010): delete-proof Pro request count — sums the
+ * per-iteration image_count recorded in usage_log at completion.
+ * usage_log rows survive iteration hard-deletes (iteration_id is
+ * nullified, the row stays), so this doesn't shrink when Zuzi prunes
+ * runs. The /api/usage gauge takes MAX(this, proRequestsSince): the
+ * tile-based count covers in-flight iterations (logged only at
+ * completion) + pre-0010 data; this one covers deleted history.
+ */
+export function proImagesLoggedSince(sinceMs: number): number {
+  const row = db()
+    .select({
+      total: sql<number>`COALESCE(SUM(${usage_log.image_count}), 0)`,
+    })
+    .from(usage_log)
+    .where(
+      and(
+        eq(usage_log.model_tier, "pro"),
+        gte(usage_log.created_at, sinceMs),
       ),
     )
     .get();

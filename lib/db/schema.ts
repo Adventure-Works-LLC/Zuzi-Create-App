@@ -292,6 +292,16 @@ export const usage_log = sqliteTable(
     id: integer("id").primaryKey({ autoIncrement: true }),
     iteration_id: text("iteration_id").references(() => iterations.id),
     cost_usd: real("cost_usd").notNull(),
+    /**
+     * v5.3 (migration 0010): engine tier + completed-call count, written
+     * at iteration completion. The Pro daily gauge (/api/usage) sums
+     * image_count on model_tier='pro' rows — usage_log survives
+     * iteration hard-deletes (only iteration_id gets nullified), unlike
+     * tiles, so the gauge doesn't undercount when Zuzi prunes runs.
+     * NULL on pre-0010 rows (the gauge treats them as uncounted).
+     */
+    model_tier: text("model_tier", { enum: ["flash", "pro", "flux"] }),
+    image_count: integer("image_count"),
     created_at: integer("created_at").notNull(),
   },
   (t) => [index("idx_usage_created").on(t.created_at)],

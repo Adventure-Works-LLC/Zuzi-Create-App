@@ -698,6 +698,13 @@ export function useIterations(): UseIterationsResult {
       // generate() call site catches: ExploreSheet parses it, InputBar/
       // StylesPanel/BlendActionBar/Lightbox surface the message inline.
       if (msg.startsWith("Monthly cap reached")) throw e;
+      // v5: the vary deployment-config rejection (503
+      // vary_not_configured) rethrows for the same reason — it's an
+      // actionable condition ("set FAL_KEY + ZUZQ_LORA_URL") that the
+      // generic "Try again" would actively mislead about: retrying
+      // can't fix a missing env var. String prefix couples to the
+      // route's detail ("Vary needs …") — see app/api/iterate/route.ts.
+      if (msg.startsWith("Vary needs ")) throw e;
       return null;
     } finally {
       if (generateAbortRef.current === ac) generateAbortRef.current = null;

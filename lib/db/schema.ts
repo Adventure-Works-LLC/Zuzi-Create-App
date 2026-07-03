@@ -84,7 +84,15 @@ export const iterations = sqliteTable(
     source_id: text("source_id")
       .notNull()
       .references(() => sources.id, { onDelete: "cascade" }),
-    model_tier: text("model_tier", { enum: ["flash", "pro"] })
+    /**
+     * 'flash' | 'pro' are Gemini tiers. 'flux' (v5) marks sketch_vary
+     * iterations, which run on the fal-hosted ZUZQ FLUX LoRA instead of
+     * Gemini — it's an engine discriminator for display + cost lookup,
+     * not a Gemini tier. Cost paths must branch on mode/tier BEFORE
+     * indexing the Gemini pricing matrix (lib/cost.ts throws no error
+     * on a bad index — it would produce NaN).
+     */
+    model_tier: text("model_tier", { enum: ["flash", "pro", "flux"] })
       .notNull()
       .default("pro"),
     resolution: text("resolution", { enum: ["1k", "4k"] })
@@ -123,10 +131,16 @@ export const iterations = sqliteTable(
      *   - 'style_blend' (v3): multi-image — N style paintings (2..MAX),
      *     NO sketch, fixed directive. Pro generates a brand new painting
      *     from the references' best aspects per its own judgment.
+     *   - 'sketch_vary' (v5): the source sketch is run through the
+     *     fal-hosted ZUZQ FLUX LoRA (img2img) to settle/perfect the
+     *     drawing in Zuzi's own hand — no Gemini call at all. Strength
+     *     lives in `vary_strength`. See AGENTS.md §16.
      * Defaults to 'prompt' so existing rows backfill cleanly. See
-     * AGENTS.md §13 (Style Explore) + §14 (Style Blend, to be added).
+     * AGENTS.md §13 (Style Explore) + §14 (Style Blend) + §16 (Vary).
      */
-    mode: text("mode", { enum: ["prompt", "style_explore", "style_blend"] })
+    mode: text("mode", {
+      enum: ["prompt", "style_explore", "style_blend", "sketch_vary"],
+    })
       .notNull()
       .default("prompt"),
     /**
@@ -147,6 +161,16 @@ export const iterations = sqliteTable(
      * which always hits per the same-source rule.
      */
     blend_tile_ids: text("blend_tile_ids").notNull().default("[]"),
+    /**
+     * v5 sketch_vary (migration 0009): img2img denoise strength for the
+     * fal FLUX LoRA call — one of VARY_STRENGTHS (0.45 subtle | 0.60
+     * medium | 0.75 wild; validated at the route). NULL for every other
+     * mode. Persisted on the iteration (not derived) because boot-time
+     * recovery (`instrumentation.ts` → runIteration replay) re-reads the
+     * row and must fire the identical fal call the original request
+     * asked for.
+     */
+    vary_strength: real("vary_strength"),
     /**
      * Re-added in migration 0006 (was dropped in v1 cleanup per
      * AGENTS.md §6 as dead weight; now load-bearing again). Set on

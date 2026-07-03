@@ -44,7 +44,7 @@ interface FavoriteRow {
   outputKey: string | null;
   thumbKey: string | null;
   favoritedAt: number;
-  modelTier: "flash" | "pro";
+  modelTier: "flash" | "pro" | "flux";
   resolution: "1k" | "4k";
   /** v2.4: per-tile style attribution. Threaded into the LightboxSnapshot
    *  so the Lightbox can swap its toolbar / Compare target for favorited
@@ -54,8 +54,9 @@ interface FavoriteRow {
   stylePaintingId?: string | null;
   /** v3.1: iteration mode. Threaded into LightboxSnapshot so the
    *  Lightbox can detect blend tiles (style_blend) and hide Compare
-   *  (no source-based transform relationship exists for blend). */
-  iterationMode?: "prompt" | "style_explore" | "style_blend";
+   *  (no source-based transform relationship exists for blend).
+   *  sketch_vary (v5) keeps Compare — source vs varied is honest. */
+  iterationMode?: "prompt" | "style_explore" | "style_blend" | "sketch_vary";
 }
 
 /** Effective aspect ratio for a favorite — flips if the iteration was

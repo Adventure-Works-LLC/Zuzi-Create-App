@@ -26,6 +26,28 @@ const PRICE_PER_IMAGE_USD: Record<ModelTier, Record<Resolution, number>> = {
   pro: { "1k": 0.134, "4k": 0.24 },
 };
 
+/**
+ * v5 Sketch Vary (AGENTS.md §16) — fal.ai FLUX.1-dev + ZUZQ LoRA,
+ * billed per output megapixel (fal-ai/flux-lora: $0.025/MP, min 1MP).
+ * Vary outputs are ~1–1.3MP (input long edge capped at 1344px), so
+ * $0.035/image is a deliberately conservative projection. Verified
+ * against the July 2026 lab runs on the fal billing dashboard; re-check
+ * there if production spend drifts from projection. Resolution-
+ * independent — the 1K/4K toggle does not apply to vary iterations.
+ */
+const VARY_PRICE_PER_IMAGE_USD = 0.035;
+
+export function varyPricePerImage(): number {
+  return VARY_PRICE_PER_IMAGE_USD;
+}
+
+/** Projected (cap-check) AND completed (usage_log) cost for a vary
+ *  iteration — same shape as costFor/costForCompletedIteration but
+ *  keyed on nothing: vary has one engine, one effective resolution. */
+export function costForVary(count: number): number {
+  return VARY_PRICE_PER_IMAGE_USD * count;
+}
+
 export function pricePerImage(
   tier: ModelTier,
   resolution: Resolution,

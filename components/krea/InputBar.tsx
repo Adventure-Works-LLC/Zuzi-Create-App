@@ -68,7 +68,14 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Camera, Image as ImageIcon, Loader2, Wand2, X } from "lucide-react";
+import {
+  Camera,
+  Image as ImageIcon,
+  Loader2,
+  Shuffle,
+  Wand2,
+  X,
+} from "lucide-react";
 
 import { useSources } from "@/hooks/useSources";
 import { useIterations } from "@/hooks/useIterations";
@@ -76,7 +83,12 @@ import { useImageUrl } from "@/hooks/useImageUrl";
 import { useCanvas } from "@/stores/canvas";
 import { type Preset } from "@/lib/db/schema";
 import { TILE_COUNT_MAX } from "@/lib/gemini/imagePrompts";
-import { costFor, pricePerImage } from "@/lib/cost";
+import { costFor, costForVary, pricePerImage, varyPricePerImage } from "@/lib/cost";
+import {
+  VARY_STRENGTHS,
+  varyStrengthLabel,
+  type VaryStrength,
+} from "@/lib/fal/varyConstants";
 
 const PRESET_LABEL: Record<Preset, string> = {
   color: "Color",
@@ -141,6 +153,18 @@ const PRESET_SUBLINE: Partial<Record<Preset, string>> = {
   color: "push her colors with confidence",
   avery: "in Milton Avery's voice",
   etching: "old-master shadow hatching",
+};
+
+/** v5 Sketch Vary strength picker copy. One line per strength — the
+ *  labels come from varyStrengthLabel (subtle/medium/wild); these
+ *  sublines say what each does in product language (AGENTS.md §16:
+ *  settle/perfect → liberties in her vocabulary → free-range her
+ *  world). Keyed by value, not index, so a future strength-set change
+ *  fails loudly here instead of mislabeling. */
+const VARY_SUBLINE: Record<VaryStrength, string> = {
+  0.45: "settle it — same drawing, perfected",
+  0.6: "small liberties, all her marks",
+  0.75: "roam her world",
 };
 
 function PillToggle<T extends string>({
@@ -412,6 +436,11 @@ export function InputBar() {
    * set pickerOpen back to false.
    */
   const [pickerOpen, setPickerOpen] = useState(false);
+  /** v5 Sketch Vary strength popover (Subtle/Medium/Wild). UI-local,
+   *  same lifecycle pattern as pickerOpen — outside-click dismisses via
+   *  the document pointerdown listener below. */
+  const [varyOpen, setVaryOpen] = useState(false);
+  const varyRef = useRef<HTMLDivElement>(null);
 
   // Mutually-exclusive UI: derive a single selection from the store's
   // presets array. The canonical default is ['avery'] (never empty),
@@ -463,6 +492,20 @@ export function InputBar() {
     document.addEventListener("pointerdown", onOutside);
     return () => document.removeEventListener("pointerdown", onOutside);
   }, [showPicker, setPreset]);
+
+  // Outside-click dismiss for the Vary strength popover. Same
+  // pointerdown rationale as the preset picker's listener above.
+  useEffect(() => {
+    if (!varyOpen) return;
+    const onOutside = (e: PointerEvent) => {
+      const wrap = varyRef.current;
+      if (!wrap) return;
+      if (wrap.contains(e.target as Node)) return;
+      setVaryOpen(false);
+    };
+    document.addEventListener("pointerdown", onOutside);
+    return () => document.removeEventListener("pointerdown", onOutside);
+  }, [varyOpen]);
 
   // Publish the bar's actual rendered height (including padding + safe-area-
   // inset on PWA) as a CSS custom property so the tile stream / empty-canvas
@@ -568,6 +611,28 @@ export function InputBar() {
       // v4.6: generate() rethrows the monthly-cap rejection so cap-aware
       // surfaces (ExploreSheet) can parse it; here the message itself is
       // the right inline error ("Monthly cap reached: $X / $Y").
+      setGenerateError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  /** Fire a sketch_vary run at the tapped strength. Vary ignores the
+   *  preset picker entirely (the LoRA owns its locked prompt), so no
+   *  showPicker guard — tapping Vary while the picker is transitional
+   *  lets the document listener snap Avery back on the same gesture,
+   *  which is fine: presets don't participate in vary. */
+  const onVary = async (strength: VaryStrength) => {
+    setVaryOpen(false);
+    setGenerateError(null);
+    try {
+      const result = await generate({
+        mode: "sketch_vary",
+        varyStrength: strength,
+      });
+      if (!result) {
+        setGenerateError("Couldn’t start Vary. Try again.");
+      }
+    } catch (e) {
+      // Monthly-cap rejection rethrows with the user-facing message.
       setGenerateError(e instanceof Error ? e.message : String(e));
     }
   };
@@ -756,6 +821,64 @@ export function InputBar() {
                       Add styles first
                     </span>
                   )}
+                </div>
+                {/* v5 Sketch Vary — redraw the source in her own hand via
+                    the ZUZQ LoRA (AGENTS.md §16). Tap opens a 3-strength
+                    picker; picking fires immediately. Runs against the
+                    CURRENT SOURCE (not a tile): the loop is vary →
+                    favorite a keeper → Use as source → generate. */}
+                <div ref={varyRef} className="relative">
+                  {varyOpen && (
+                    <div
+                      role="menu"
+                      aria-label="Vary strength"
+                      className="absolute bottom-full right-0 mb-2 w-72 rounded-xl border border-hairline bg-card p-1.5 shadow-lg"
+                    >
+                      <p className="caption-display px-2.5 pt-1.5 pb-1 text-[10px] uppercase tracking-[0.18em] text-text-mute">
+                        Redraw in her hand
+                      </p>
+                      {VARY_STRENGTHS.map((s) => (
+                        <button
+                          key={s}
+                          type="button"
+                          role="menuitem"
+                          onClick={() => void onVary(s)}
+                          className="flex w-full flex-col items-start rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-secondary no-callout"
+                        >
+                          <span className="text-sm capitalize text-foreground">
+                            {varyStrengthLabel(s)}
+                          </span>
+                          <span className="text-[11px] text-text-mute">
+                            {VARY_SUBLINE[s]}
+                          </span>
+                        </button>
+                      ))}
+                      <p className="border-t border-hairline/60 mt-1 px-2.5 pt-1.5 pb-1 text-[11px] tabular-nums text-text-mute">
+                        {count} × ${varyPricePerImage().toFixed(3)} = $
+                        {costForVary(count).toFixed(2)}
+                      </p>
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setVaryOpen((v) => !v)}
+                    disabled={generating || uploading}
+                    aria-haspopup="menu"
+                    aria-expanded={varyOpen}
+                    className={[
+                      "inline-flex items-center gap-2 rounded-full",
+                      "px-4 py-2 text-sm font-medium no-callout",
+                      "border border-hairline bg-card",
+                      "text-foreground/90 hover:bg-secondary",
+                      "transition-opacity",
+                      generating || uploading
+                        ? "opacity-60 cursor-not-allowed"
+                        : "hover:opacity-100",
+                    ].join(" ")}
+                  >
+                    <Shuffle className="h-4 w-4" strokeWidth={1.5} />
+                    Vary
+                  </button>
                 </div>
                 <button
                   type="button"

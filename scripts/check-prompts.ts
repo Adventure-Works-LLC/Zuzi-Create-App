@@ -63,6 +63,11 @@ import {
   STYLE_BLEND_DIRECTIVE,
   STYLE_EXPLORE_DIRECTIVE,
 } from "../lib/gemini/imagePrompts";
+import {
+  VARY_PROMPT,
+  VARY_STRENGTHS,
+  varyStrengthLabel,
+} from "../lib/fal/varyConstants";
 import { PRESETS, type Preset } from "../lib/db/schema";
 
 const RATIOS = ["1:1", "4:5", "16:9", "9:16"] as const;
@@ -264,6 +269,54 @@ if (styleBlendViaBuild !== styleBlend) {
   );
 }
 
+// --- 3f: v5 Sketch Vary locked prompt + strength set (AGENTS.md §16) ---
+// The vary engine is fal FLUX + the ZUZQ LoRA, not Gemini — its locked
+// directive lives in lib/fal/varyConstants.ts (dependency-free module;
+// lib/fal/vary.ts re-exports it for the worker). Byte-locked from the
+// July 2026 lab run that won the Gemini-vs-LoRA A/B. Anchors:
+//   - opener "ZUZQ style rough sketch." — the trigger word IS the
+//     style invocation; losing it silently degrades every vary call.
+//   - "keep every element exactly where it is" + "Add nothing new." —
+//     the product invariant (settle/perfect, no new iconography) that
+//     22 rounds of Gemini prompting were fought over.
+// The strength set + labels are locked too: the route validates the
+// closed set, the UI renders the labels — a drive-by "tune" of either
+// must be a deliberate two-file edit.
+if (!VARY_PROMPT.startsWith("ZUZQ style rough sketch.")) {
+  fail(
+    "[sketch_vary]",
+    "VARY_PROMPT regressed (opener 'ZUZQ style rough sketch.' canary missing — the trigger word is load-bearing)",
+  );
+}
+if (!VARY_PROMPT.includes("keep every element exactly where it is")) {
+  fail(
+    "[sketch_vary]",
+    "VARY_PROMPT lost the 'keep every element exactly where it is' anchor",
+  );
+}
+if (!VARY_PROMPT.includes("Add nothing new.")) {
+  fail(
+    "[sketch_vary]",
+    "VARY_PROMPT lost the 'Add nothing new.' anchor — the no-new-iconography invariant",
+  );
+}
+if (JSON.stringify(VARY_STRENGTHS) !== "[0.45,0.6,0.75]") {
+  fail(
+    "[sketch_vary]",
+    `VARY_STRENGTHS set changed (got ${JSON.stringify(VARY_STRENGTHS)}) — route validation, UI picker, and cost projection all key on the closed set`,
+  );
+}
+if (
+  varyStrengthLabel(0.45) !== "subtle" ||
+  varyStrengthLabel(0.6) !== "medium" ||
+  varyStrengthLabel(0.75) !== "wild"
+) {
+  fail(
+    "[sketch_vary]",
+    "varyStrengthLabel mapping regressed (expected subtle/medium/wild)",
+  );
+}
+
 // --- 4: dominator routing must fire when combined with other presets ---
 const ambColor = buildPrompt({ presets: ["color", "ambiance"], aspectRatio: "4:5" });
 if (!ambColor.startsWith("This painting is the artist's work-in-progress.")) {
@@ -306,5 +359,5 @@ if (failures.length > 0) {
 }
 
 console.log(
-  `[check-prompts] ok — ${totalRenders} prompt renders across ${combos.length} preset combos × ${RATIOS.length} aspect ratios + 29 canary checks all green.`,
+  `[check-prompts] ok — ${totalRenders} prompt renders across ${combos.length} preset combos × ${RATIOS.length} aspect ratios + 34 canary checks all green.`,
 );

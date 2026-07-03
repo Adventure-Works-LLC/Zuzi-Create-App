@@ -17,6 +17,7 @@
     "stamp:sw": "node --import tsx scripts/stamp-sw.ts",
     "smoke": "node --env-file=.env --import tsx scripts/smoke.ts",
     "smoke-style": "node --env-file=.env --import tsx scripts/smoke-style.ts",
+    "smoke-vary": "node --env-file=.env --import tsx scripts/smoke-vary.ts",
     "hash-password": "node --import tsx scripts/hash-password.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "node --env-file-if-exists=.env --import tsx scripts/migrate.ts"
@@ -25,6 +26,7 @@
     "@aws-sdk/client-s3": "^3.1038.0",
     "@aws-sdk/s3-request-presigner": "^3.1038.0",
     "@base-ui/react": "^1.4.1",
+    "@fal-ai/client": "^1.10.1",
     "@google/genai": "^1.50.1",
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^12.9.0",

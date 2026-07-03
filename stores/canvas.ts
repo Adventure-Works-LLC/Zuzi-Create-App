@@ -84,11 +84,22 @@ export interface Tile {
 
 /** Iteration mode discriminator. 'prompt' (default) runs the existing
  *  preset-driven flow; 'style_explore' runs the locked multi-image
- *  directive (sketch + style painting per tile). See AGENTS.md §13
- *  (to be added) for the mode contract. */
-export type IterationMode = "prompt" | "style_explore" | "style_blend";
+ *  directive (sketch + style painting per tile); 'style_blend' fuses N
+ *  tile outputs; 'sketch_vary' (v5) runs the source through the ZUZQ
+ *  FLUX LoRA — settle/perfect in her own hand. See AGENTS.md §13/§14/§16. */
+export type IterationMode =
+  | "prompt"
+  | "style_explore"
+  | "style_blend"
+  | "sketch_vary";
 
 export type ModelTier = "flash" | "pro";
+/** What an ITERATION ran on — the InputBar's tier toggle only ever holds
+ *  ModelTier ('flash' | 'pro'), but historical iterations can also carry
+ *  'flux' (v5 sketch_vary rows, which run on the fal ZUZQ LoRA rather
+ *  than a Gemini tier). Keep the two types separate so cost lookups
+ *  (lib/cost.ts, Gemini-priced) can't be fed 'flux' by the compiler. */
+export type EngineTier = ModelTier | "flux";
 export type Resolution = "1k" | "4k";
 /** Per-iteration aspect-ratio mode. 'match' uses the source's aspect ratio
  *  (default; preserves AGENTS.md §3 "output aspect == input aspect"
@@ -127,7 +138,7 @@ export interface LightboxSnapshot {
    *  cross-source FavoritesPanel → Lightbox path knows whether to flip
    *  `sourceAspectRatio` for display. */
   aspectRatioMode: AspectRatioMode;
-  modelTier: ModelTier;
+  modelTier: EngineTier;
   resolution: Resolution;
   /** v2.4: per-tile style attribution. Populated for snapshots of
    *  style_explore tiles (and prompt-mode tiles spawned via "Iterate on
@@ -141,14 +152,16 @@ export interface LightboxSnapshot {
    *  Compare — blend doesn't use the source as input, so a
    *  before/after pair would be misleading. Optional in the type
    *  to tolerate older clients opening favorites generated before
-   *  the field existed (Lightbox defaults missing to 'prompt'). */
-  iterationMode?: "prompt" | "style_explore" | "style_blend";
+   *  the field existed (Lightbox defaults missing to 'prompt').
+   *  sketch_vary tiles keep Compare — source vs varied IS the honest
+   *  before/after. */
+  iterationMode?: IterationMode;
 }
 
 export interface Iteration {
   id: string;
   sourceId: string;
-  modelTier: ModelTier;
+  modelTier: EngineTier;
   resolution: Resolution;
   /** Aspect-ratio mode at generation time. 'match' = source aspect,
    *  'flip' = mirrored. IterationRow uses this to size each tile's
@@ -178,6 +191,10 @@ export interface Iteration {
    *  shares the same N styles, so the attribution lives on the
    *  iteration). */
   blendTileIds: string[];
+  /** v5 sketch_vary: the LoRA strength this iteration ran at (0.45 |
+   *  0.6 | 0.75). NULL for every other mode. IterationRow renders it
+   *  as the "vary · subtle/medium/wild" caption. */
+  varyStrength: number | null;
   status: IterationStatus;
   createdAt: number;
   tiles: Tile[];

@@ -19,8 +19,15 @@
  *     when mode='style_explore' (the locked directive bypasses the preset
  *     dominator ladder); still accepted defensively so a malformed client
  *     can't crash the route.
- *   - mode: 'prompt' (default) | 'style_explore'. Discriminates the worker
- *     branch — see lib/gemini/runIteration.ts.
+ *   - mode: 'prompt' (default) | 'style_explore' | 'style_blend' |
+ *     'sketch_vary'. Discriminates the worker branch — see
+ *     lib/gemini/runIteration.ts.
+ *   - varyStrength: optional, sketch_vary mode only. One of 0.45 | 0.6 |
+ *     0.75 (the closed VARY_STRENGTHS set in lib/fal/vary.ts); defaults
+ *     to 0.45. Persisted on iterations.vary_strength. REJECTED in every
+ *     other mode. sketch_vary also forces model_tier='flux',
+ *     resolution='1k', aspect_ratio_mode='match' on the inserted row
+ *     regardless of body values — see the insert-site comment.
  *   - stylePaintingIds: required when mode='style_explore'. Non-empty
  *     array of style_paintings ids, ≤ TILE_COUNT_MAX entries, one per
  *     tile (index alignment — tile.idx i maps to stylePaintingIds[i]).
@@ -85,7 +92,12 @@ import {
   parseBlendTileIdsJson,
   parseStoredPresets,
 } from "@/lib/gemini/presets";
-import { costFor } from "@/lib/cost";
+import {
+  isVaryStrength,
+  varyConfigMissing,
+  type VaryStrength,
+} from "@/lib/fal/vary";
+import { costFor, costForVary } from "@/lib/cost";
 
 export const runtime = "nodejs";
 
@@ -234,6 +246,10 @@ export async function POST(req: Request): Promise<Response> {
      *  single). */
     blendTileIds?: unknown;
     parentTileId?: unknown;
+    /** v5 sketch_vary: img2img denoise strength, one of the closed
+     *  VARY_STRENGTHS set (0.45 | 0.6 | 0.75). Optional — defaults to
+     *  0.45 ("perfect what she did"). REJECTED in every other mode. */
+    varyStrength?: unknown;
   };
   try {
     body = await req.json();
@@ -265,23 +281,45 @@ export async function POST(req: Request): Promise<Response> {
   // the user got an "X requires mode=Y" error mentioning the mode they
   // thought they sent. Use the body's presence (vs missing) to
   // distinguish defaults from typos.
-  let mode: "prompt" | "style_explore" | "style_blend";
+  let mode: "prompt" | "style_explore" | "style_blend" | "sketch_vary";
   if (body.mode === undefined || body.mode === null) {
     mode = "prompt";
   } else if (
     body.mode === "prompt" ||
     body.mode === "style_explore" ||
-    body.mode === "style_blend"
+    body.mode === "style_blend" ||
+    body.mode === "sketch_vary"
   ) {
     mode = body.mode;
   } else {
     return NextResponse.json(
       {
         error: "invalid_mode",
-        detail: `mode must be one of: prompt, style_explore, style_blend (got ${JSON.stringify(body.mode).slice(0, 60)})`,
+        detail: `mode must be one of: prompt, style_explore, style_blend, sketch_vary (got ${JSON.stringify(body.mode).slice(0, 60)})`,
       },
       { status: 400 },
     );
+  }
+  // v5 sketch_vary: strength from the closed VARY_STRENGTHS set.
+  // Default 0.45 ("perfect what she did") when the field is absent;
+  // an explicitly-present invalid value is a 400, matching the
+  // present-but-unknown `mode` policy above. Rejected outside vary
+  // mode in the cross-field block below.
+  let varyStrength: VaryStrength | null = null;
+  if (mode === "sketch_vary") {
+    if (body.varyStrength === undefined || body.varyStrength === null) {
+      varyStrength = 0.45;
+    } else if (isVaryStrength(body.varyStrength)) {
+      varyStrength = body.varyStrength;
+    } else {
+      return NextResponse.json(
+        {
+          error: "invalid_varyStrength",
+          detail: `varyStrength must be one of 0.45, 0.6, 0.75 (got ${JSON.stringify(body.varyStrength).slice(0, 40)})`,
+        },
+        { status: 400 },
+      );
+    }
   }
   const parentTileId =
     typeof body.parentTileId === "string" && body.parentTileId.length > 0
@@ -332,7 +370,42 @@ export async function POST(req: Request): Promise<Response> {
   }
 
   // Mode-specific cross-field validation.
-  if (mode === "style_explore") {
+  if (
+    mode !== "sketch_vary" &&
+    body.varyStrength !== undefined &&
+    body.varyStrength !== null
+  ) {
+    return NextResponse.json(
+      {
+        error: "varyStrength_requires_sketch_vary_mode",
+        detail: "varyStrength is only valid when mode='sketch_vary'.",
+      },
+      { status: 400 },
+    );
+  }
+  if (mode === "sketch_vary") {
+    // v5: vary is source-only — one input (the sketch), one engine
+    // (the ZUZQ LoRA). Every style/blend/provenance field is invalid.
+    const rejected =
+      stylePaintingIds !== null
+        ? "stylePaintingIds"
+        : stylePaintingId !== null
+          ? "stylePaintingId"
+          : blendTileIds !== null
+            ? "blendTileIds"
+            : parentTileId !== null
+              ? "parentTileId"
+              : null;
+    if (rejected) {
+      return NextResponse.json(
+        {
+          error: `${rejected}_invalid_in_sketch_vary_mode`,
+          detail: `${rejected} is not valid when mode='sketch_vary' — vary takes only the source sketch.`,
+        },
+        { status: 400 },
+      );
+    }
+  } else if (mode === "style_explore") {
     if (!stylePaintingIds) {
       return NextResponse.json(
         {
@@ -487,9 +560,34 @@ export async function POST(req: Request): Promise<Response> {
           existing.blend_tile_ids,
           existing.id,
         ),
+        // v5: echo the original row's strength so a vary retry whose
+        // body differed reconciles to what the worker actually fires.
+        varyStrength: existing.vary_strength,
       },
       { status: 200 },
     );
+  }
+
+  // v5: deployment-config fail-fast for vary. AFTER idempotency (a
+  // replay of an already-inserted run must echo, not 503) and BEFORE
+  // any more DB work. Without this, a deploy missing FAL_KEY /
+  // ZUZQ_LORA_URL would insert the iteration and every tile would fail
+  // in the worker — a confusing splash of red tiles instead of one
+  // clear "not configured" rejection.
+  if (mode === "sketch_vary") {
+    const missing = varyConfigMissing();
+    if (missing.length > 0) {
+      console.error(
+        `[iterate] sketch_vary rejected — missing env: ${missing.join(", ")}`,
+      );
+      return NextResponse.json(
+        {
+          error: "vary_not_configured",
+          detail: `Vary needs ${missing.join(" + ")} set in the server environment.`,
+        },
+        { status: 503 },
+      );
+    }
   }
 
   // Source must exist before we record an iteration.
@@ -499,8 +597,12 @@ export async function POST(req: Request): Promise<Response> {
   }
 
   // Cap check: project the worst-case cost for this iteration and refuse if it
-  // would push monthly usage over the cap.
-  const projected = costFor(modelTier, resolution, count);
+  // would push monthly usage over the cap. Vary prices per-image on the
+  // fal engine (lib/cost.ts costForVary); the Gemini matrix otherwise.
+  const projected =
+    mode === "sketch_vary"
+      ? costForVary(count)
+      : costFor(modelTier, resolution, count);
   const monthSoFar = monthlyUsageUsd();
   if (monthSoFar + projected > MONTHLY_USD_CAP) {
     return NextResponse.json(
@@ -677,14 +779,24 @@ export async function POST(req: Request): Promise<Response> {
         id: iterationId,
         request_id: requestId,
         source_id: sourceId,
-        model_tier: modelTier,
-        resolution,
-        aspect_ratio_mode: aspectRatioMode,
+        // v5 sketch_vary forces its column values regardless of body:
+        //   - model_tier 'flux' — the engine discriminator (Flash|Pro
+        //     don't exist on the fal path; honest display + honest
+        //     cost lookup depend on not recording a Gemini tier here).
+        //   - resolution '1k' — vary output is ~1MP by construction
+        //     (input long-edge cap); the 4K toggle doesn't apply.
+        //   - aspect_ratio_mode 'match' — img2img inherently preserves
+        //     the source aspect; 'flip' has no meaning for vary.
+        model_tier: mode === "sketch_vary" ? "flux" : modelTier,
+        resolution: mode === "sketch_vary" ? "1k" : resolution,
+        aspect_ratio_mode:
+          mode === "sketch_vary" ? "match" : aspectRatioMode,
         tile_count: count,
         presets: presetsJson,
         mode,
         parent_tile_id: parentTileId,
         blend_tile_ids: blendTileIdsJson,
+        vary_strength: mode === "sketch_vary" ? varyStrength : null,
         status: "pending",
         created_at: now,
         completed_at: null,
@@ -744,6 +856,8 @@ export async function POST(req: Request): Promise<Response> {
             reread.blend_tile_ids,
             reread.id,
           ),
+          // v5: same echo-symmetry rule as every field above.
+          varyStrength: reread.vary_strength,
         },
         { status: 200 },
       );

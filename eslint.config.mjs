@@ -12,6 +12,11 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Agent worktrees (checked-out repo copies incl. their own .next
+    // build artifacts) — never lint targets.
+    ".claude/**",
+    // Local sample/scratch outputs.
+    "samples/**",
   ]),
 ]);
 

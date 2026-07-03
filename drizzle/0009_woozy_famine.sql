@@ -1,0 +1,13 @@
+-- v5 Sketch Vary (AGENTS.md §16).
+--
+-- New mode 'sketch_vary' runs the source sketch through the fal-hosted
+-- ZUZQ FLUX LoRA (img2img) instead of Gemini — "settle/perfect the
+-- drawing in her own hand, add nothing new." The mode + model_tier
+-- value ('flux') are TEXT-column enum growth (TypeScript-level only,
+-- no SQL change needed). The one real column:
+--
+--   vary_strength REAL NULL — img2img denoise strength (0.45 subtle |
+--   0.60 medium | 0.75 wild; the route validates the closed set).
+--   NULL on every non-vary row. Persisted because boot-time recovery
+--   re-reads the iteration row and must fire the identical fal call.
+ALTER TABLE `iterations` ADD `vary_strength` real;

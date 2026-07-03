@@ -52,7 +52,7 @@ import {
   type ModelTier,
   type StylePainting,
 } from "@/stores/canvas";
-import { pricePerImage } from "@/lib/cost";
+import { pricePerImage, varyPricePerImage } from "@/lib/cost";
 import { Tile } from "./Tile";
 import { StyleAttributionThumb } from "./StyleAttributionThumb";
 
@@ -207,7 +207,12 @@ export function ExploreSheet() {
       spawnedIterations.reduce(
         (sum, it) =>
           sum +
-          pricePerImage(it.modelTier, it.resolution) *
+          // Sheet-spawned iterations are always Gemini (flash/pro) —
+          // the 'flux' branch is a type-level guard so the EngineTier
+          // union can't reach the Gemini price matrix.
+          (it.modelTier === "flux"
+            ? varyPricePerImage()
+            : pricePerImage(it.modelTier, it.resolution)) *
             it.tiles.filter((t) => t.status === "done").length,
         0,
       ),

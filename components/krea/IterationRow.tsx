@@ -70,6 +70,7 @@ import { useShallow } from "zustand/react/shallow";
 import { useIterations } from "@/hooks/useIterations";
 import { authFetch } from "@/lib/auth/authFetch";
 import { TIMEOUT_JSON_MS, withTimeout } from "@/lib/fetchTimeout";
+import { varyStrengthLabel } from "@/lib/fal/varyConstants";
 
 // Mirrors VISIBLE_PRESETS + hidden presets in InputBar.tsx — labels for
 // the iteration caption chip. Missing entries fall through to literal
@@ -145,6 +146,7 @@ export const IterationRow = memo(function IterationRow({
   const presets = iteration?.presets;
   const mode = iteration?.mode;
   const blendInputCount = iteration?.blendTileIds?.length ?? 0;
+  const varyStrength = iteration?.varyStrength ?? null;
   const presetLabel = useMemo(() => {
     // v3.5: blend iterations get their own caption. The "Blend of N
     // [thumbs]" attribution row above the tile grid shows which
@@ -155,9 +157,15 @@ export const IterationRow = memo(function IterationRow({
     if (mode === "style_blend") {
       return blendInputCount > 0 ? `blend of ${blendInputCount}` : "blend";
     }
+    // v5: vary iterations caption as "vary · subtle/medium/wild" — the
+    // strength is the only per-run knob, so it IS the caption.
+    if (mode === "sketch_vary") {
+      const label = varyStrengthLabel(varyStrength);
+      return label ? `vary · ${label}` : "vary";
+    }
     if (!presets || presets.length === 0) return "make beautiful";
     return presets.map((p) => PRESET_LABEL[p]).join(" · ");
-  }, [presets, mode, blendInputCount]);
+  }, [presets, mode, blendInputCount, varyStrength]);
 
   // Stuck detection: pending/running iteration past STUCK_THRESHOLD_MS
   // since createdAt. Timer-driven so the UI updates even when no SSE
@@ -286,7 +294,9 @@ export const IterationRow = memo(function IterationRow({
         <span className="caption-display text-xs text-text-mute">
           <span className="text-foreground/80">{presetLabel}</span>
           <span className="mx-2 text-text-mute/50">·</span>
-          {iteration.modelTier} {iteration.resolution}
+          {iteration.mode === "sketch_vary"
+            ? "her lora"
+            : `${iteration.modelTier} ${iteration.resolution}`}
           <span className="mx-2 text-text-mute/50">·</span>
           {formatTime(iteration.createdAt)}
         </span>

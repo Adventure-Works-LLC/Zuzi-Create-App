@@ -32,6 +32,7 @@ import { ulid } from "ulid";
 import {
   useCanvas,
   type AspectRatioMode,
+  type EngineTier,
   type Iteration,
   type IterationMode,
   type IterationStatus,
@@ -40,12 +41,13 @@ import {
   type Tile,
 } from "@/stores/canvas";
 import type { Preset } from "@/lib/db/schema";
+import type { VaryStrength } from "@/lib/fal/varyConstants";
 import { authFetch } from "@/lib/auth/authFetch";
 
 interface IterationResponseRow {
   id: string;
   sourceId: string;
-  modelTier: ModelTier;
+  modelTier: EngineTier;
   resolution: Resolution;
   aspectRatioMode: AspectRatioMode;
   tileCount: number;
@@ -58,6 +60,9 @@ interface IterationResponseRow {
    *  Present + non-empty only when mode='style_blend'. Empty / absent
    *  for every other mode. */
   blendTileIds?: string[];
+  /** v5 sketch_vary: LoRA strength (0.45/0.6/0.75). NULL / absent for
+   *  every other mode. */
+  varyStrength?: number | null;
   status: Iteration["status"];
   createdAt: number;
   completedAt: number | null;
@@ -111,6 +116,7 @@ function rowToIteration(r: IterationResponseRow): Iteration {
     mode: r.mode ?? "prompt",
     parentTileId: r.parentTileId ?? null,
     blendTileIds: r.blendTileIds ?? [],
+    varyStrength: r.varyStrength ?? null,
     status: r.status,
     createdAt: r.createdAt,
     tiles: r.tiles.map((t) => ({
@@ -181,6 +187,10 @@ export interface GenerateOptions {
   parentTileId?: string | null;
   modelTier?: ModelTier;
   resolution?: Resolution;
+  /** v5 sketch_vary: LoRA strength from the closed set. Defaults to
+   *  0.45 ("perfect what she did") when omitted on a vary call.
+   *  Ignored for every other mode. */
+  varyStrength?: VaryStrength;
 }
 
 export interface RecoverIterationResult {
@@ -342,6 +352,10 @@ export function useIterations(): UseIterationsResult {
     const stylePaintingId = opts?.stylePaintingId ?? null;
     const blendTileIds = opts?.blendTileIds ?? null;
     const parentTileId = opts?.parentTileId ?? null;
+    // v5 sketch_vary: strength from the caller, defaulting to 0.45
+    // (matches the server default). Null for every other mode.
+    const varyStrength: VaryStrength | null =
+      mode === "sketch_vary" ? (opts?.varyStrength ?? 0.45) : null;
     // Per-call tier / resolution overrides (ExploreSheet uses its own
     // Flash-default toggle rather than the InputBar's Pro-default). Falls
     // back to the store's values so the InputBar Generate path is
@@ -352,6 +366,18 @@ export function useIterations(): UseIterationsResult {
       mode === "style_explore" && stylePaintingIds
         ? stylePaintingIds.length
         : count;
+    // What the persisted row will actually say — the server FORCES these
+    // three on sketch_vary rows (model_tier='flux', resolution='1k',
+    // aspect_ratio_mode='match') regardless of body, so the optimistic
+    // skeleton must mirror that or the row re-renders differently after
+    // the post-insert refetch (tier caption flips, tile containers
+    // reshape under her thumb).
+    const optimisticTier: EngineTier =
+      mode === "sketch_vary" ? "flux" : effectiveModelTier;
+    const optimisticResolution: Resolution =
+      mode === "sketch_vary" ? "1k" : effectiveResolution;
+    const optimisticAspectRatioMode: AspectRatioMode =
+      mode === "sketch_vary" ? "match" : aspectRatioMode;
 
     // Optimistic placeholder — gets swapped after the POST returns. The
     // optimistic id is unique per click so React keys don't collide.
@@ -361,18 +387,18 @@ export function useIterations(): UseIterationsResult {
     const optimistic: Iteration = {
       id: optimisticId,
       sourceId: currentSourceId,
-      modelTier: effectiveModelTier,
-      resolution: effectiveResolution,
-      aspectRatioMode,
+      modelTier: optimisticTier,
+      resolution: optimisticResolution,
+      aspectRatioMode: optimisticAspectRatioMode,
       tileCount: effectiveCount,
       // Per-mode preset shape: prompt mode uses the store's presets;
-      // style_explore + style_blend modes render as locked directives
-      // on server, so the iteration's `presets` is meaningless. Persist
-      // the empty array to match what the server stores (the route's
-      // parsePresets returns [] when presets is absent + the iteration
-      // row's `presets` is just JSON storage).
-      presets:
-        mode === "style_explore" || mode === "style_blend" ? [] : presets,
+      // every directive-driven mode (style_explore, style_blend,
+      // sketch_vary) renders a locked directive server-side, so the
+      // iteration's `presets` is meaningless. Persist the empty array
+      // to match what the server stores (the route's parsePresets
+      // returns [] when presets is absent + the iteration row's
+      // `presets` is just JSON storage).
+      presets: mode !== "prompt" ? [] : presets,
       mode,
       parentTileId,
       // v3.0 style_blend: persist the chosen blend style ids on the
@@ -383,6 +409,7 @@ export function useIterations(): UseIterationsResult {
         mode === "style_blend" && blendTileIds
           ? [...blendTileIds]
           : [],
+      varyStrength,
       status: "pending",
       createdAt: now,
       tiles: Array.from({ length: effectiveCount }, (_, idx) => ({
@@ -458,21 +485,22 @@ export function useIterations(): UseIterationsResult {
           // (computes from stylePaintingIds.length). Send the effective
           // count anyway so the body's intent is unambiguous in logs.
           count: effectiveCount,
-          // For style_explore + style_blend, send empty presets — the
-          // worker bypasses the dominator ladder via mode. Sending the
-          // store's `presets` (e.g. the default ['avery']) would
-          // serialize to the iterations.presets column and the
-          // idempotent-replay reconcile path below would then OVERWRITE
-          // the optimistic empty array with the persisted preset — the
-          // result is an iteration that visually contradicts its own
-          // mode (preset chips on a directive-only run).
-          presets:
-            mode === "style_explore" || mode === "style_blend" ? [] : presets,
-          // v2/v3 fields — server accepts mode default 'prompt'. Each
-          // mode owns its own style field; the route's cross-field
+          // For every directive-driven mode (style_explore, style_blend,
+          // sketch_vary), send empty presets — the worker bypasses the
+          // dominator ladder via mode. Sending the store's `presets`
+          // (e.g. the default ['avery']) would serialize to the
+          // iterations.presets column and the idempotent-replay
+          // reconcile path below would then OVERWRITE the optimistic
+          // empty array with the persisted preset — the result is an
+          // iteration that visually contradicts its own mode (preset
+          // chips on a directive-only run).
+          presets: mode !== "prompt" ? [] : presets,
+          // v2/v3/v5 fields — server accepts mode default 'prompt'. Each
+          // mode owns its own extra field; the route's cross-field
           // validation 400s if the wrong one is sent.
           //   - style_explore: stylePaintingIds (per-tile array)
           //   - style_blend:   blendTileIds (N=2..4 unique)
+          //   - sketch_vary:   varyStrength (0.45 | 0.6 | 0.75)
           //   - prompt:        stylePaintingId (single, handoff only)
           //   - prompt:        parentTileId (single, handoff only)
           // Omit parentTileId when null so the body stays clean.
@@ -480,9 +508,11 @@ export function useIterations(): UseIterationsResult {
             ? { mode, stylePaintingIds }
             : mode === "style_blend" && blendTileIds
               ? { mode, blendTileIds }
-              : mode !== "prompt"
-                ? { mode }
-                : {}),
+              : mode === "sketch_vary"
+                ? { mode, varyStrength }
+                : mode !== "prompt"
+                  ? { mode }
+                  : {}),
           ...(mode === "prompt" && stylePaintingId
             ? { stylePaintingId }
             : {}),
@@ -508,6 +538,9 @@ export function useIterations(): UseIterationsResult {
         // only when the original row was a style_blend iteration; empty
         // / absent otherwise.
         blendTileIds?: string[];
+        // v5 sketch_vary: echo of the original row's strength on
+        // idempotent replay.
+        varyStrength?: number | null;
         error?: string;
         detail?: string;
         currentUsd?: number;
@@ -557,7 +590,13 @@ export function useIterations(): UseIterationsResult {
       const canonicalAspectRatioMode: AspectRatioMode =
         data.aspectRatioMode === "match" || data.aspectRatioMode === "flip"
           ? data.aspectRatioMode
-          : aspectRatioMode;
+          : optimisticAspectRatioMode;
+      // v5: replay echo of the original row's strength wins over the
+      // retry body's (same reconciliation rule as every field above).
+      const canonicalVaryStrength =
+        typeof data.varyStrength === "number"
+          ? data.varyStrength
+          : varyStrength;
       // v3.1: reconcile blendTileIds on idempotent replay. Server now
       // echoes the ORIGINAL row's blend selection (both replay branches
       // post-fix). If the user's retry selected different styles, the
@@ -583,6 +622,7 @@ export function useIterations(): UseIterationsResult {
                 presets: canonicalPresets,
                 aspectRatioMode: canonicalAspectRatioMode,
                 blendTileIds: canonicalBlendStyleIds,
+                varyStrength: canonicalVaryStrength,
                 tiles: Array.from({ length: canonicalCount }, (_, idx) => {
                   const existing = it.tiles[idx];
                   return existing

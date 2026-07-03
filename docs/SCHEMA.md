@@ -62,6 +62,8 @@ CREATE TABLE iterations (
                                                       -- loop. Cascade so deleting a source removes
                                                       -- its iterations + tiles automatically.
   model_tier         TEXT NOT NULL DEFAULT 'pro',     -- 'flash' (cheap exploration) | 'pro' (refined)
+                                                      -- | 'flux' (v5: sketch_vary iterations only —
+                                                      --   the ZUZQ LoRA engine, not a Gemini tier)
   resolution         TEXT NOT NULL DEFAULT '1k',      -- '1k' | '4k'
                                                       -- (model_tier × resolution = the cost cell;
                                                       --  see lib/cost.ts for the 4-tier pricing matrix)
@@ -79,7 +81,20 @@ CREATE TABLE iterations (
   mode               TEXT NOT NULL DEFAULT 'prompt',  -- 'prompt' (v1 default, preset-driven) |
                                                       -- 'style_explore' (multi-image: source + style
                                                       -- painting, fixed Krea-validated directive
-                                                      -- bypasses the preset dominator ladder)
+                                                      -- bypasses the preset dominator ladder) |
+                                                      -- 'style_blend' (v3.4: fuse N tile outputs,
+                                                      -- ids in blend_tile_ids) |
+                                                      -- 'sketch_vary' (v5: FLUX LoRA settle/perfect
+                                                      -- pass on the source sketch — see AGENTS.md §16)
+  blend_tile_ids     TEXT NOT NULL DEFAULT '[]',      -- v3.4 (migration 0008): JSON array of TILE ids
+                                                      -- fused by a style_blend iteration. '[]' for
+                                                      -- every other mode. No FK enforcement (JSON);
+                                                      -- the route validates existence + 'done'.
+  vary_strength      REAL,                            -- v5 (migration 0009): img2img denoise strength
+                                                      -- for sketch_vary iterations (0.45 subtle |
+                                                      -- 0.60 medium | 0.75 wild). NULL for every other
+                                                      -- mode. Persisted so boot-time recovery replays
+                                                      -- fire the identical fal call.
   parent_tile_id     TEXT REFERENCES tiles(id),       -- See note on FK enforcement below. Populated on
                                                       -- prompt-mode iterations spawned from a
                                                       -- style_explore tile via the lightbox's "Iterate

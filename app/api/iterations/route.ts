@@ -98,6 +98,10 @@ export async function GET(req: Request): Promise<Response> {
         // context so corrupted rows surface in tails (matches the
         // parseStoredPresets context-passing pattern at line 83).
         blendTileIds: parseBlendTileIdsJson(it.blend_tile_ids, it.id),
+        // v5 sketch_vary: the strength the LoRA ran at (0.45/0.6/0.75).
+        // NULL for every other mode. IterationRow renders it as the
+        // subtle/medium/wild caption chip.
+        varyStrength: it.vary_strength,
         status: it.status,
         createdAt: it.created_at,
         completedAt: it.completed_at,

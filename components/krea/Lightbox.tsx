@@ -75,8 +75,11 @@ interface LightboxView {
    *  blend tiles (where the iteration doesn't use the source as
    *  input — Compare-with-source would render a misleading "before /
    *  after" pair that has no actual transform relationship). Compare
-   *  button hides for blend tiles. */
-  iterationMode: "prompt" | "style_explore" | "style_blend";
+   *  button hides for blend tiles. sketch_vary tiles (v5) keep every
+   *  default affordance: Compare (source vs varied is the honest
+   *  before/after) and Use-as-source (pick a variation → new source =
+   *  the Sketch Lab handoff). */
+  iterationMode: "prompt" | "style_explore" | "style_blend" | "sketch_vary";
 }
 
 export function Lightbox() {

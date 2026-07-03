@@ -30,8 +30,9 @@ import { callWithRetry } from "./callWithRetry";
 import { extractImageBytes } from "./extract";
 import { classifyError } from "./errors";
 import { parseBlendTileIdsJson, parseStoredPresets } from "./presets";
+import { generateVaryImage, isVaryStrength } from "../fal/vary";
 import * as bus from "../bus";
-import { costForCompletedIteration } from "../cost";
+import { costForCompletedIteration, costForVary } from "../cost";
 import {
   failPendingTilesForIteration,
   getIteration,
@@ -95,6 +96,137 @@ function hardFailIteration(iterationId: string, errorMessage: string): void {
 // operates on tiles that were generated FROM the source (so the
 // blend output naturally shares that aspect).
 
+/**
+ * Hydrate a tile from a recovery.jsonl hit — the R2 puts already
+ * succeeded on a previous run, so no model call is needed. Returns
+ * true when hydration landed (tile is done); false to fall through to
+ * a fresh model call. Shared by the Gemini and vary tile runners.
+ */
+function tryRecoveryHydrate(
+  iterationId: string,
+  tileId: string,
+  idx: number,
+  recoveryHit: { r2_key: string; thumb_key?: string } | undefined,
+): boolean {
+  if (!recoveryHit) return false;
+  try {
+    const outKey = recoveryHit.r2_key;
+    const thumbKey =
+      recoveryHit.thumb_key ??
+      outKey.replace(/^outputs\//, "thumbs/").replace(/\.jpg$/, ".webp");
+    updateTile(iterationId, idx, {
+      status: "done",
+      output_image_key: outKey,
+      thumb_image_key: thumbKey,
+      completed_at: Date.now(),
+    });
+    bus.emit(iterationId, {
+      type: "tile",
+      id: tileId,
+      idx,
+      status: "done",
+      outputKey: outKey,
+      thumbKey,
+    });
+    return true;
+  } catch (e) {
+    console.warn(
+      `[runIteration ${iterationId} #${idx}] recovery rehydrate failed; falling through to fresh call`,
+      e,
+    );
+    return false;
+  }
+}
+
+/**
+ * Persist a finished generation: normalize to jpeg, derive the webp
+ * thumb, put both to R2, append the recovery row (AFTER R2 success,
+ * BEFORE the DB update — the crash-recoverable window), update the tile
+ * row, emit to the bus. Shared by the Gemini and vary tile runners —
+ * both engines land on the identical `outputs/<iter>/<idx>.jpg` +
+ * `thumbs/<iter>/<idx>.webp` key scheme so every downstream surface
+ * (stream, favorites, lightbox, share) is engine-agnostic.
+ */
+async function persistTileOutput(
+  iterationId: string,
+  tileId: string,
+  idx: number,
+  rawBytes: Buffer | Uint8Array,
+): Promise<void> {
+  const jpeg = await sharp(rawBytes)
+    .jpeg({ quality: OUTPUT_JPEG_QUALITY })
+    .toBuffer();
+  const thumb = await sharp(jpeg)
+    .resize(THUMB_LONG_EDGE_PX, THUMB_LONG_EDGE_PX, {
+      fit: "inside",
+      withoutEnlargement: true,
+    })
+    .webp({ quality: THUMB_WEBP_QUALITY })
+    .toBuffer();
+
+  const outKey = `outputs/${iterationId}/${idx}.jpg`;
+  const thumbKey = `thumbs/${iterationId}/${idx}.webp`;
+
+  await Promise.all([
+    putObject(outKey, jpeg, "image/jpeg"),
+    putObject(thumbKey, thumb, "image/webp"),
+  ]);
+
+  // Recovery row written AFTER R2 success and BEFORE the DB update.
+  await appendRecovery({
+    iter_id: iterationId,
+    idx,
+    r2_key: outKey,
+    thumb_key: thumbKey,
+    ts: Date.now(),
+  });
+
+  updateTile(iterationId, idx, {
+    status: "done",
+    output_image_key: outKey,
+    thumb_image_key: thumbKey,
+    completed_at: Date.now(),
+  });
+  bus.emit(iterationId, {
+    type: "tile",
+    id: tileId,
+    idx,
+    status: "done",
+    outputKey: outKey,
+    thumbKey,
+  });
+}
+
+/**
+ * Classify + record a tile-level failure. Safety classifications map to
+ * tile status 'blocked' (both Gemini safety blocks and the fal safety-
+ * checker flag route here via classifyError's message matching);
+ * everything else is 'failed'. Shared by both tile runners.
+ */
+function markTileError(
+  iterationId: string,
+  tileId: string,
+  idx: number,
+  e: unknown,
+): void {
+  const classified = classifyError(e);
+  const status: "blocked" | "failed" =
+    classified.classification === "safety" ? "blocked" : "failed";
+  const errorMessage = classified.message.slice(0, 500);
+  updateTile(iterationId, idx, {
+    status,
+    error_message: errorMessage,
+    completed_at: Date.now(),
+  });
+  bus.emit(iterationId, {
+    type: "tile",
+    id: tileId,
+    idx,
+    status,
+    error: errorMessage,
+  });
+}
+
 async function runOneTile(
   iterationId: string,
   tileId: string,
@@ -118,33 +250,8 @@ async function runOneTile(
   recoveryHit: { r2_key: string; thumb_key?: string } | undefined,
 ): Promise<TileRunResult> {
   // If recovery has bytes for this tile, hydrate without calling Gemini.
-  if (recoveryHit) {
-    try {
-      const outKey = recoveryHit.r2_key;
-      const thumbKey =
-        recoveryHit.thumb_key ??
-        outKey.replace(/^outputs\//, "thumbs/").replace(/\.jpg$/, ".webp");
-      updateTile(iterationId, idx, {
-        status: "done",
-        output_image_key: outKey,
-        thumb_image_key: thumbKey,
-        completed_at: Date.now(),
-      });
-      bus.emit(iterationId, {
-        type: "tile",
-        id: tileId,
-        idx,
-        status: "done",
-        outputKey: outKey,
-        thumbKey,
-      });
-      return { idx, ok: true };
-    } catch (e) {
-      console.warn(
-        `[runIteration ${iterationId} #${idx}] recovery rehydrate failed; falling through to fresh call`,
-        e,
-      );
-    }
+  if (tryRecoveryHydrate(iterationId, tileId, idx, recoveryHit)) {
+    return { idx, ok: true };
   }
 
   try {
@@ -182,66 +289,49 @@ async function runOneTile(
     );
 
     const extracted = extractImageBytes(resp);
-    const jpeg = await sharp(extracted.bytes)
-      .jpeg({ quality: OUTPUT_JPEG_QUALITY })
-      .toBuffer();
-    const thumb = await sharp(jpeg)
-      .resize(THUMB_LONG_EDGE_PX, THUMB_LONG_EDGE_PX, {
-        fit: "inside",
-        withoutEnlargement: true,
-      })
-      .webp({ quality: THUMB_WEBP_QUALITY })
-      .toBuffer();
-
-    const outKey = `outputs/${iterationId}/${idx}.jpg`;
-    const thumbKey = `thumbs/${iterationId}/${idx}.webp`;
-
-    await Promise.all([
-      putObject(outKey, jpeg, "image/jpeg"),
-      putObject(thumbKey, thumb, "image/webp"),
-    ]);
-
-    // Recovery row written AFTER R2 success and BEFORE the DB update.
-    await appendRecovery({
-      iter_id: iterationId,
-      idx,
-      r2_key: outKey,
-      thumb_key: thumbKey,
-      ts: Date.now(),
-    });
-
-    updateTile(iterationId, idx, {
-      status: "done",
-      output_image_key: outKey,
-      thumb_image_key: thumbKey,
-      completed_at: Date.now(),
-    });
-    bus.emit(iterationId, {
-      type: "tile",
-      id: tileId,
-      idx,
-      status: "done",
-      outputKey: outKey,
-      thumbKey,
-    });
+    await persistTileOutput(iterationId, tileId, idx, extracted.bytes);
     return { idx, ok: true };
   } catch (e) {
-    const classified = classifyError(e);
-    const status: "blocked" | "failed" =
-      classified.classification === "safety" ? "blocked" : "failed";
-    const errorMessage = classified.message.slice(0, 500);
-    updateTile(iterationId, idx, {
-      status,
-      error_message: errorMessage,
-      completed_at: Date.now(),
-    });
-    bus.emit(iterationId, {
-      type: "tile",
-      id: tileId,
-      idx,
-      status,
-      error: errorMessage,
-    });
+    markTileError(iterationId, tileId, idx, e);
+    return { idx, ok: false };
+  }
+}
+
+/**
+ * v5 Sketch Vary tile runner (AGENTS.md §16). One fal FLUX-LoRA img2img
+ * call per tile — the engine differs from Gemini but the persistence
+ * contract (R2 keys, recovery row, tile row, bus events) is byte-
+ * identical via the shared helpers, so SSE clients and every UI surface
+ * treat vary tiles exactly like Gemini tiles.
+ */
+async function runOneVaryTile(
+  iterationId: string,
+  tileId: string,
+  idx: number,
+  sourceBytes: Buffer,
+  strength: number,
+  recoveryHit: { r2_key: string; thumb_key?: string } | undefined,
+): Promise<TileRunResult> {
+  if (tryRecoveryHydrate(iterationId, tileId, idx, recoveryHit)) {
+    return { idx, ok: true };
+  }
+  try {
+    if (!isVaryStrength(strength)) {
+      // Route validates the closed set; this fires only on hand-edited
+      // rows or a route/worker version skew. Clear message > NaN call.
+      throw new Error(
+        `invalid vary_strength ${String(strength)} — expected one of the VARY_STRENGTHS set`,
+      );
+    }
+    const bytes = await generateVaryImage(
+      sourceBytes,
+      strength,
+      `iter ${iterationId}#${idx}`,
+    );
+    await persistTileOutput(iterationId, tileId, idx, bytes);
+    return { idx, ok: true };
+  } catch (e) {
+    markTileError(iterationId, tileId, idx, e);
     return { idx, ok: false };
   }
 }
@@ -299,9 +389,12 @@ export async function runIteration(iterationId: string): Promise<void> {
     // anchors to source_id for cascade + history, but the source is
     // not in parts[]). Skipping the fetch saves an R2 GET on every
     // blend iteration.
+    //
+    // The raw Buffer is kept alongside the base64 because sketch_vary
+    // hands bytes (not base64 parts) to the fal provider.
     let inputBase64: string | null = null;
+    let inputBuffer: Buffer | null = null;
     if (iter.mode !== "style_blend") {
-      let inputBuffer: Buffer;
       try {
         inputBuffer = await getObject(source.input_image_key);
       } catch (e) {
@@ -314,6 +407,18 @@ export async function runIteration(iterationId: string): Promise<void> {
         return;
       }
       inputBase64 = inputBuffer.toString("base64");
+    }
+
+    // v5 sketch_vary: validate the persisted strength BEFORE spending
+    // any model calls. The route validates the closed set on insert, so
+    // this only fires on hand-edited rows or version skew — hard-fail
+    // with a clear message rather than firing N calls that each throw.
+    if (iter.mode === "sketch_vary" && !isVaryStrength(iter.vary_strength)) {
+      hardFailIteration(
+        iterationId,
+        `vary_strength ${String(iter.vary_strength)} is not a valid strength`,
+      );
+      return;
     }
 
     const modelId =
@@ -371,16 +476,22 @@ export async function runIteration(iterationId: string): Promise<void> {
       iter.mode === "prompt" &&
       tileRowsForPromptDecision.length > 0 &&
       tileRowsForPromptDecision.every((t) => t.style_painting_id !== null);
+    // sketch_vary never builds a Gemini prompt — the fal provider owns
+    // its locked VARY_PROMPT internally (lib/fal/vary.ts). Empty string
+    // here keeps the variable well-defined without implying the vary
+    // path renders the freeform v0 body.
     const promptText =
-      iter.mode === "style_explore"
-        ? buildStyleExplorePrompt(aspectRatio)
-        : iter.mode === "style_blend"
-          ? buildStyleBlendPrompt(aspectRatio)
-          : buildPrompt({
-              presets,
-              aspectRatio,
-              withStyleReference: promptModeHasStyleRef,
-            });
+      iter.mode === "sketch_vary"
+        ? ""
+        : iter.mode === "style_explore"
+          ? buildStyleExplorePrompt(aspectRatio)
+          : iter.mode === "style_blend"
+            ? buildStyleBlendPrompt(aspectRatio)
+            : buildPrompt({
+                presets,
+                aspectRatio,
+                withStyleReference: promptModeHasStyleRef,
+              });
 
     // TEMP DEBUG (remove after Ambiance v8 deploy verification): on any iteration
     // that includes 'ambiance', log the Railway commit SHA + the rendered prompt
@@ -526,6 +637,28 @@ export async function runIteration(iterationId: string): Promise<void> {
 
     const results = await Promise.all(
       tileRows.map((t) => {
+        // v5 sketch_vary: entirely different engine — no parts array,
+        // no prompt text, no Gemini. Bytes + strength go to the fal
+        // provider; persistence + events are shared with the Gemini
+        // path inside the runner. inputBuffer is guaranteed non-null
+        // here (vary goes through the non-blend source fetch above,
+        // which hard-returns on failure).
+        if (iter.mode === "sketch_vary") {
+          return runOneVaryTile(
+            iterationId,
+            t.id,
+            t.idx,
+            inputBuffer as Buffer,
+            iter.vary_strength as number,
+            recoveryHits.get(t.idx),
+          ).catch((e): TileRunResult => {
+            console.error(
+              `[runIteration ${iterationId}] unhandled in vary tile ${t.idx}:`,
+              e,
+            );
+            return { idx: t.idx, ok: false };
+          });
+        }
         // Compose the per-tile imageBase64s array. Three branches:
         //   1. style_blend: every tile uses the SAME N blend style
         //      bytes (sketch is irrelevant; not in parts[]). Pre-
@@ -586,11 +719,17 @@ export async function runIteration(iterationId: string): Promise<void> {
     if (successfulCount > 0) {
       insertUsageLog(
         iterationId,
-        costForCompletedIteration(
-          iter.model_tier,
-          iter.resolution,
-          successfulCount,
-        ),
+        iter.mode === "sketch_vary"
+          ? costForVary(successfulCount)
+          : costForCompletedIteration(
+              // 'flux' only ever appears on sketch_vary rows (route
+              // forces it), so this narrowing branch is defensive dead
+              // code — but the Gemini price matrix must never be
+              // indexed with it.
+              iter.model_tier === "flux" ? "pro" : iter.model_tier,
+              iter.resolution,
+              successfulCount,
+            ),
       );
     }
   } catch (e) {

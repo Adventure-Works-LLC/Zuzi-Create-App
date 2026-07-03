@@ -1136,4 +1136,119 @@ if production usage feels expensive.
   - The file lives behind `CLAUDE.md` (which is `@AGENTS.md`). Updating
     AGENTS.md updates what every Claude session in this repo sees as
     project instructions. Treat changes here as load-bearing.
+
+## 16. Sketch Vary mode (v5) — the fal FLUX LoRA engine
+
+Fourth creative-direction surface, and the FIRST that does not call
+Gemini. Where prompt mode pushes a painting with presets, Style Explore
+re-renders a sketch per style reference, and Style Blend fuses tile
+outputs, **Vary redraws the CURRENT SOURCE in Zuzi's own hand**: the
+sketch goes through img2img on FLUX.1-dev + a style LoRA trained on her
+own drawings.
+
+### The product operation (hard-won — do not regress)
+
+> "take what's there and ONLY what is there and move it around a bit to
+> adjust the look of the current one to try and perfect what she did"
+
+Settle/perfect the drawing. **No added iconography, EVER** — suns, rain,
+flowers, extra limbs, new objects all killed this feature in 22 rounds
+of Gemini prompt testing (July 2026; ~$16, ~100 generations, hit the
+documented ~60–75% per-draw ceiling for holding a naive style via
+prompting). The LoRA won the A/B decisively: every first-draw output in
+her hand. That history lives in the session memory + the board; the
+takeaway is architectural: **her style lives in the WEIGHTS, not the
+prompt.** Don't try to re-achieve Vary with Gemini prompting.
+
+### Engine assets
+
+  - **LoRA**: trigger word `ZUZQ`, trained on fal.ai
+    (`fal-ai/flux-lora-fast-training`, `is_style: true`, 1000 steps, 10
+    curated originals). Weights: `ZUZQ_LORA_URL` env var (fal CDN;
+    unguessable URL — treat as a secret, never commit) + a local copy at
+    `data/zuzq-lora-v1.safetensors` (gitignored). Retraining ≈ $2.
+  - **Dataset law** (for any retrain): her app sources are CONTAMINATED —
+    many are Gemini generations she re-uploaded. Train ONLY on verified
+    originals (Jeff identifies). Dedupe near-identical revision states to
+    one image. More originals sharpen per-sheet formulation fidelity
+    (known nit: eye formulation occasionally borrows from a different
+    sheet of hers).
+  - **Inference**: `fal-ai/flux-lora/image-to-image`, 32 steps, LoRA
+    scale 1.0, input resized to ≤1344px long edge, sent as a data URI
+    (nothing persisted to fal storage). One call per tile, N parallel.
+
+### The locked prompt + strength dial
+
+`VARY_PROMPT` lives in `lib/fal/varyConstants.ts` (dependency-free so
+client components can import; `lib/fal/vary.ts` re-exports for the
+worker). Byte-locked from the winning lab run; build canaries in
+`scripts/check-prompts.ts` lock the `"ZUZQ style rough sketch."` opener,
+the `"keep every element exactly where it is"` anchor, and the
+`"Add nothing new."` anchor.
+
+Variation size is the **strength dial, not prompt changes**:
+`VARY_STRENGTHS = [0.45, 0.6, 0.75]` (closed set, route-validated,
+canary-locked): 0.45 subtle = "perfect what she did"; 0.60 medium =
+liberties inside her vocabulary; 0.75 wild = free-range her world. If
+Vary outputs feel wrong, tune strength or retrain the LoRA — the prompt
+is not the knob.
+
+### Mode contract — invariants
+
+  1. **mode='sketch_vary' forces `model_tier='flux'`,
+     `resolution='1k'`, `aspect_ratio_mode='match'`** at the route,
+     regardless of body. The §4 Gemini cost table does not apply;
+     pricing is `costForVary` in `lib/cost.ts` (~$0.035/image,
+     resolution-independent). The monthly cap check covers vary.
+  2. **§3 aspect invariant holds via the engine itself.** img2img
+     output inherits the (resized) input's dimensions — there is no
+     `imageConfig.aspectRatio` equivalent and no aspect sentence in the
+     prompt. The three Gemini-specific steps of §3 are N/A; the
+     INVARIANT (output aspect == source aspect) still holds for every
+     vary tile.
+  3. **`vary_strength` is persisted on the iteration** (migration 0009)
+     because boot-time recovery replays re-read the row and must fire
+     the identical call. Route validates the closed set; the worker
+     hard-fails the iteration on an invalid persisted value.
+  4. **Vary tiles are ordinary tiles.** Same R2 key scheme
+     (`outputs/<iter>/<idx>.jpg` + thumbs), same recovery.jsonl rows,
+     same SSE events, same favorites — every downstream surface is
+     engine-agnostic. Lightbox: Compare STAYS (source vs varied is the
+     honest before/after); "Use as source" STAYS and is the Sketch-Lab
+     handoff (pick a variation → it becomes a new source → Generate
+     with presets). "Keep the original" = just don't switch.
+  5. **Cross-field validation**: `varyStrength` rejected outside vary
+     mode; `stylePaintingIds` / `stylePaintingId` / `blendTileIds` /
+     `parentTileId` all rejected inside it. Presets accepted-but-
+     ignored (client sends `[]`), same defensive posture as
+     style_explore.
+  6. **Deployment fail-fast**: POST /api/iterate returns 503
+     `vary_not_configured` when `FAL_KEY` or `ZUZQ_LORA_URL` is unset —
+     checked AFTER idempotency (replays still echo) and before any
+     further DB work. Both env vars must be set on Railway (sealed
+     vars) AND in local `.env`.
+  7. **fal call hygiene**: 180s wall-clock guard per call (a stuck
+     queue must not hold tiles pending until the next boot sweep);
+     retry is 1+1 (a timed-out call may still complete and charge — the
+     accepted cost floor, same doctrine as §13's Stop button). The fal
+     safety-checker flag maps to tile status 'blocked' via the
+     classifyError 'safety' path.
+
+### Critical files
+
+  - `lib/fal/varyConstants.ts` — VARY_PROMPT + VARY_STRENGTHS +
+    varyStrengthLabel (client-safe, zero imports).
+  - `lib/fal/vary.ts` — lazy fal client (§9 hygiene), generateVaryImage,
+    varyConfigMissing; re-exports the constants.
+  - `lib/gemini/runIteration.ts` — sketch_vary branch + runOneVaryTile;
+    shared persistTileOutput / tryRecoveryHydrate / markTileError
+    helpers keep the two engines byte-identical downstream.
+  - `app/api/iterate/route.ts` — mode + varyStrength validation,
+    config fail-fast, forced column values, replay echo.
+  - `lib/cost.ts` — costForVary / varyPricePerImage (the only pricing).
+  - `components/krea/InputBar.tsx` — Vary button + 3-strength popover.
+  - `components/krea/IterationRow.tsx` — "vary · subtle" caption +
+    "her lora" tier label.
+  - `scripts/check-prompts.ts` — 5 vary canaries.
+  - `scripts/smoke-vary.ts` — provider gate (real fal call, ~$0.04).
 <!-- END:zuzi-studio-guardrails -->

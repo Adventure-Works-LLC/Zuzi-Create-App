@@ -901,19 +901,25 @@ export function Lightbox() {
           padding adds env(safe-area-inset-bottom) so on iPad the row sits
           above the home-indicator gutter (~34px in standalone mode). */}
       <div
-        className="flex shrink-0 items-center justify-center gap-2 px-4 py-4"
+        className="flex shrink-0 flex-wrap items-center justify-center gap-2 px-4 py-4"
         style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 1rem)" }}
       >
-        {view.stylePaintingId ? (
+        {view.stylePaintingId && (
           // v2.4 + v2.7: style_explore tiles (and prompt-mode tiles
-          // spawned via prior handoff) get TWO paired toolbar actions
-          // instead of "Use as source". The semantic split is
-          // intentional: "Iterate on this direction" is refinement
-          // (Avery painter preset on top of the style); "More like
-          // this" is pure variation (same locked directive, no
-          // preset). Both reuse the same (sketch + style) inputs;
-          // they differ only in whether the preset ladder fires.
-          // Match the plan's lightbox contract + AGENTS.md §13.
+          // spawned via prior handoff) get TWO paired toolbar actions.
+          // The semantic split is intentional: "Iterate on this
+          // direction" is refinement (Avery painter preset on top of
+          // the style); "More like this" is pure variation (same
+          // locked directive, no preset). Both reuse the same
+          // (sketch + style) inputs; they differ only in whether the
+          // preset ladder fires. Match AGENTS.md §13.
+          //
+          // v5.1: these used to REPLACE "Use as source"; now they
+          // render alongside it. Zuzi's favorites flow is "pick a
+          // keeper → make it the working source", and favorited
+          // style tiles were dead-ends for that — the swap forced a
+          // detour through more generations. Use-as-source is now
+          // unconditional (below).
           <>
             <button
               type="button"
@@ -943,21 +949,20 @@ export function Lightbox() {
               More like this
             </button>
           </>
-        ) : (
-          <button
-            type="button"
-            onClick={onUseAsSource}
-            disabled={!url || busyAction !== null}
-            className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/5 px-4 py-2 text-sm text-white hover:bg-white/10 transition-colors disabled:opacity-50 no-callout"
-          >
-            {busyAction === "use" ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <ArrowUpFromLine className="h-4 w-4" strokeWidth={1.5} />
-            )}
-            Use as source
-          </button>
         )}
+        <button
+          type="button"
+          onClick={onUseAsSource}
+          disabled={!url || busyAction !== null}
+          className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/5 px-4 py-2 text-sm text-white hover:bg-white/10 transition-colors disabled:opacity-50 no-callout"
+        >
+          {busyAction === "use" ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <ArrowUpFromLine className="h-4 w-4" strokeWidth={1.5} />
+          )}
+          Use as source
+        </button>
         {canShare && (
           <button
             type="button"

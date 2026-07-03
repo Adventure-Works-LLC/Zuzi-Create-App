@@ -921,7 +921,11 @@ sticky red banner and auto-fires Stop.
     chip under every tile carrying a style_painting_id (in both
     ExploreSheet grid and the main IterationRow).
   - `components/krea/Lightbox.tsx` — Compare-target swap + "Iterate
-    on this direction" toolbar swap when `view.stylePaintingId` is set.
+    on this direction" / "More like this" pair when
+    `view.stylePaintingId` is set. Since v5.1 the pair renders
+    ALONGSIDE "Use as source" (which is unconditional on every done
+    tile) — it used to replace it, which made favorited style tiles
+    dead-ends for Zuzi's pick-a-keeper→new-source flow.
   - `lib/db/queries.ts` — `insertStylePainting`, `listStylePaintings`,
     `getStylePainting`, `hardDeleteStylePainting`,
     `nullifyTilesForStylePainting` + the parent_tile_id nullify

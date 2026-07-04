@@ -192,11 +192,24 @@ export function useSources(): UseSourcesResult {
       setUploading(true);
       setSourcesError(null);
       try {
-        const form = new FormData();
-        form.append("file", file);
+        // v5.4.2: raw-bytes upload — the file IS the body, filename in a
+        // header. Multipart's parser (undici server-side) was rejecting
+        // truncated iPad bodies with "Failed to parse body as FormData";
+        // a single binary body has nothing to mis-parse. The server keeps
+        // the multipart branch for old cached tabs.
         const resp = await authFetch(
           "/api/sources",
-          withTimeout({ method: "POST", body: form }, TIMEOUT_UPLOAD_MS),
+          withTimeout(
+            {
+              method: "POST",
+              headers: {
+                "content-type": "application/octet-stream",
+                "x-filename": encodeURIComponent(file.name ?? ""),
+              },
+              body: file,
+            },
+            TIMEOUT_UPLOAD_MS,
+          ),
         );
         if (!resp.ok) {
           const data = (await resp.json().catch(() => ({}))) as {

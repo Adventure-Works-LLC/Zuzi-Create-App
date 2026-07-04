@@ -182,14 +182,22 @@ export function useStylePaintings(): UseStylePaintingsResult {
       setUploading(true);
       setError(null);
       try {
-        const form = new FormData();
-        form.append("file", file);
+        // v5.4.2: raw-bytes upload — same rationale as useSources
+        // (undici's multipart parser rejecting truncated iPad bodies).
+        // Filename + optional artist ride in headers.
+        const headers: Record<string, string> = {
+          "content-type": "application/octet-stream",
+          "x-filename": encodeURIComponent(file.name ?? ""),
+        };
         if (artist && artist.trim().length > 0) {
-          form.append("artist", artist.trim());
+          headers["x-artist"] = encodeURIComponent(artist.trim());
         }
         const resp = await authFetch(
           "/api/style-paintings",
-          withTimeout({ method: "POST", body: form }, TIMEOUT_UPLOAD_MS),
+          withTimeout(
+            { method: "POST", headers, body: file },
+            TIMEOUT_UPLOAD_MS,
+          ),
         );
         if (!resp.ok) {
           const data = (await resp.json().catch(() => ({}))) as {

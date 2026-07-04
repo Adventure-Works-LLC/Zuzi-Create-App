@@ -101,12 +101,64 @@ export async function POST(req: Request): Promise<Response> {
     return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
   }
 
-  // Branch on content-type. Multipart → upload; JSON → promote-from-tile.
+  // Branch on content-type. JSON → promote-from-tile; multipart → legacy
+  // upload; anything else with a body (application/octet-stream from the
+  // v5.4.2 client) → raw upload.
+  //
+  // v5.4.2: the RAW path is now the canonical client upload. Zuzi hit
+  // recurring "Failed to parse body as FormData" 400s in production —
+  // undici's multipart parser is strict, and iPad Safari under
+  // connection pressure (PWA backgrounded mid-upload, wifi hiccup)
+  // delivers truncated/odd bodies it refuses. A single binary body has
+  // no boundaries to parse, which retires that entire failure class.
+  // The multipart branch stays for backward compat (older cached PWA
+  // tabs still send FormData until they pick up the new bundle).
   const contentType = req.headers.get("content-type") ?? "";
   if (contentType.includes("application/json")) {
     return handlePromoteFromTile(req);
   }
-  return handleUpload(req);
+  if (contentType.includes("multipart/form-data")) {
+    return handleUpload(req);
+  }
+  return handleRawUpload(req);
+}
+
+/** Decode an encodeURIComponent'd header value; tolerate raw values a
+ *  hand-crafted client might send. Empty / "blob" → null (matches the
+ *  multipart path's filename normalization). */
+function filenameFromHeader(req: Request, header: string): string | null {
+  const h = req.headers.get(header);
+  if (!h) return null;
+  let decoded = h;
+  try {
+    decoded = decodeURIComponent(h);
+  } catch {
+    // keep raw value
+  }
+  const trimmed = decoded.trim().slice(0, 300);
+  if (!trimmed || trimmed === "blob") return null;
+  return trimmed;
+}
+
+/** v5.4.2 raw-bytes upload: the whole body IS the file; filename rides in
+ *  the x-filename header. No multipart parser in the path. */
+async function handleRawUpload(req: Request): Promise<Response> {
+  let raw: Buffer;
+  try {
+    raw = Buffer.from(await req.arrayBuffer());
+  } catch (e) {
+    return NextResponse.json(
+      {
+        error: "body_read_failed",
+        detail: e instanceof Error ? e.message : String(e),
+      },
+      { status: 400 },
+    );
+  }
+  if (raw.length === 0) {
+    return NextResponse.json({ error: "empty_body" }, { status: 400 });
+  }
+  return processUploadBytes(raw, filenameFromHeader(req, "x-filename"));
 }
 
 async function handleUpload(req: Request): Promise<Response> {
@@ -132,18 +184,26 @@ async function handleUpload(req: Request): Promise<Response> {
     );
   }
 
-  if (file.size > MAX_RAW_BYTES) {
+  const raw = Buffer.from(await file.arrayBuffer());
+  return processUploadBytes(raw, originalFilename);
+}
+
+/** Shared post-parse tail for both upload paths: size gate → sharp
+ *  normalize → R2 + insert, with the field-tested error mapping. */
+async function processUploadBytes(
+  raw: Buffer,
+  originalFilename: string | null,
+): Promise<Response> {
+  if (raw.length > MAX_RAW_BYTES) {
     return NextResponse.json(
       {
         error: "file_too_large",
         maxBytes: MAX_RAW_BYTES,
-        gotBytes: file.size,
+        gotBytes: raw.length,
       },
       { status: 413 },
     );
   }
-
-  const raw = Buffer.from(await file.arrayBuffer());
 
   try {
     const result = await normalizeAndInsert(raw, originalFilename);

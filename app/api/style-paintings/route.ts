@@ -58,6 +58,16 @@ export async function POST(req: Request): Promise<Response> {
     return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
   }
 
+  // v5.4.2: raw-bytes upload is the canonical client path (single
+  // binary body + x-filename / x-artist headers) — no multipart parser
+  // to fail on truncated iPad bodies. Multipart stays as backward
+  // compat for cached PWA tabs. See app/api/sources/route.ts for the
+  // full rationale.
+  const contentType = req.headers.get("content-type") ?? "";
+  if (!contentType.includes("multipart/form-data")) {
+    return handleRawStyleUpload(req);
+  }
+
   let file: File;
   let originalFilename: string | null = null;
   let artist: string | null = null;
@@ -90,18 +100,71 @@ export async function POST(req: Request): Promise<Response> {
     );
   }
 
-  if (file.size > MAX_RAW_BYTES) {
+  const raw = Buffer.from(await file.arrayBuffer());
+  return processStyleUploadBytes(raw, originalFilename, artist);
+}
+
+/** v5.4.2 raw-bytes path: body IS the file; filename + optional artist
+ *  ride in x-filename / x-artist headers (encodeURIComponent'd). */
+async function handleRawStyleUpload(req: Request): Promise<Response> {
+  let raw: Buffer;
+  try {
+    raw = Buffer.from(await req.arrayBuffer());
+  } catch (e) {
+    return NextResponse.json(
+      {
+        error: "body_read_failed",
+        detail: e instanceof Error ? e.message : String(e),
+      },
+      { status: 400 },
+    );
+  }
+  if (raw.length === 0) {
+    return NextResponse.json({ error: "empty_body" }, { status: 400 });
+  }
+  return processStyleUploadBytes(
+    raw,
+    headerValue(req, "x-filename", 300),
+    headerValue(req, "x-artist", 200),
+  );
+}
+
+/** Decode an encodeURIComponent'd header; tolerate raw values. Empty /
+ *  "blob" → null. */
+function headerValue(
+  req: Request,
+  header: string,
+  maxLen: number,
+): string | null {
+  const h = req.headers.get(header);
+  if (!h) return null;
+  let decoded = h;
+  try {
+    decoded = decodeURIComponent(h);
+  } catch {
+    // keep raw value
+  }
+  const trimmed = decoded.trim().slice(0, maxLen);
+  if (!trimmed || trimmed === "blob") return null;
+  return trimmed;
+}
+
+/** Shared post-parse tail for both upload paths. */
+async function processStyleUploadBytes(
+  raw: Buffer,
+  originalFilename: string | null,
+  artist: string | null,
+): Promise<Response> {
+  if (raw.length > MAX_RAW_BYTES) {
     return NextResponse.json(
       {
         error: "file_too_large",
         maxBytes: MAX_RAW_BYTES,
-        gotBytes: file.size,
+        gotBytes: raw.length,
       },
       { status: 413 },
     );
   }
-
-  const raw = Buffer.from(await file.arrayBuffer());
 
   try {
     const resized = await sharp(raw)

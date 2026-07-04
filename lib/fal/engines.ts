@@ -116,16 +116,20 @@ export async function generateFalEngineImage(
   const result = await callWithRetry(
     () =>
       withTimeout(
-        fal.subscribe(ENGINE_ENDPOINT[tier], {
-          input: {
-            prompt,
-            image_urls,
-            image_size: size,
-            num_images: 1,
-            enable_safety_checker: true,
-          },
-          logs: false,
-        }),
+        fal
+          .subscribe(ENGINE_ENDPOINT[tier], {
+            input: {
+              prompt,
+              image_urls,
+              image_size: size,
+              num_images: 1,
+              enable_safety_checker: true,
+            },
+            logs: false,
+          })
+          .catch((e) => {
+            throw enrichFalError(e, tier, label);
+          }),
         ENGINE_CALL_TIMEOUT_MS,
         label,
       ),
@@ -151,6 +155,41 @@ export async function generateFalEngineImage(
     );
   }
   return Buffer.from(await resp.arrayBuffer());
+}
+
+/**
+ * fal's ApiError buries the useful part in `e.body.detail`, which
+ * classifyError's cause-chain walk never sees — production tiles were
+ * storing the bare "Unprocessable Entity" while the actual reason
+ * (e.g. content_policy_violation) sat unread in the body. Rethrow with
+ * the detail inlined, and word input-moderation refusals so
+ * classifyError routes them to the 'safety' → tile 'blocked' path.
+ *
+ * Observed live (July 4 2026): BFL's INPUT content checker false-
+ * positives on some of Zuzi's crayon figures — flags the sketch alone,
+ * at every safety_tolerance. Engine-side, not fixable by us; the tile
+ * shows 'skipped' and the row caption points her at Pro/Seedream.
+ */
+export function enrichFalError(e: unknown, tier: string, label: string): Error {
+  const body = (e as { body?: { detail?: unknown } })?.body;
+  const detail = body?.detail;
+  const detailArr = Array.isArray(detail) ? detail : [];
+  const isContentPolicy = detailArr.some(
+    (d) =>
+      (d as { type?: string })?.type === "content_policy_violation",
+  );
+  if (isContentPolicy) {
+    return new Error(
+      `fal ${tier} input moderation refused the image(s) (${label}) — blocked by safety filter (content_policy_violation)`,
+    );
+  }
+  if (detail !== undefined) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return new Error(
+      `fal ${tier} ${msg} (${label}): ${JSON.stringify(detail).slice(0, 400)}`,
+    );
+  }
+  return e instanceof Error ? e : new Error(String(e));
 }
 
 function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {

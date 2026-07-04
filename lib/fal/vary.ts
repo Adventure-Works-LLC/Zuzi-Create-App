@@ -28,6 +28,7 @@ import { Buffer } from "node:buffer";
 import sharp from "sharp";
 
 import { callWithRetry } from "../gemini/callWithRetry";
+import { enrichFalError } from "./engines";
 import { VARY_PROMPT, type VaryStrength } from "./varyConstants";
 
 // Locked prompt + strength set live in ./varyConstants (dependency-free
@@ -146,19 +147,27 @@ export async function generateVaryImage(
   const result = await callWithRetry(
     () =>
       withTimeout(
-        fal.subscribe(FAL_VARY_ENDPOINT, {
-          input: {
-            image_url: imageDataUri,
-            prompt: VARY_PROMPT,
-            loras: [{ path: lora, scale: 1.0 }],
-            strength,
-            num_images: 1,
-            num_inference_steps: VARY_INFERENCE_STEPS,
-            output_format: "jpeg",
-            enable_safety_checker: true,
-          },
-          logs: false,
-        }),
+        fal
+          .subscribe(FAL_VARY_ENDPOINT, {
+            input: {
+              image_url: imageDataUri,
+              prompt: VARY_PROMPT,
+              loras: [{ path: lora, scale: 1.0 }],
+              strength,
+              num_images: 1,
+              num_inference_steps: VARY_INFERENCE_STEPS,
+              output_format: "jpeg",
+              enable_safety_checker: true,
+            },
+            logs: false,
+          })
+          // Surface fal's body.detail (content_policy_violation → the
+          // 'safety'/blocked path; everything else keeps its detail
+          // instead of a bare "Unprocessable Entity"). See
+          // enrichFalError in lib/fal/engines.ts.
+          .catch((e) => {
+            throw enrichFalError(e, "vary", label);
+          }),
         VARY_CALL_TIMEOUT_MS,
         label,
       ),

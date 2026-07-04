@@ -157,7 +157,17 @@ export const IterationRow = memo(function IterationRow({
   // need a coarse read here.
   const failureKind = useMemo(() => {
     if (iteration?.status !== "failed") return null;
-    const msgs = (iteration?.tiles ?? [])
+    const tiles = iteration?.tiles ?? [];
+    // v5.4.1: every tile safety-blocked = the ENGINE's content filter
+    // refused the inputs (observed live: BFL's input moderation false-
+    // positives on some of her crayon figures — engine-side, at every
+    // tolerance). "Try again" can't fix it; switching engines can.
+    if (
+      tiles.length > 0 &&
+      tiles.every((t) => t.status === "blocked")
+    )
+      return "engine_censor";
+    const msgs = tiles
       .map((t) => t.errorMessage)
       .filter((m): m is string => !!m);
     if (msgs.some((m) => m.includes("per_model_per_day"))) return "daily_quota";
@@ -188,6 +198,10 @@ export const IterationRow = memo(function IterationRow({
       const label = varyStrengthLabel(varyStrength);
       return label ? `vary · ${label}` : "vary";
     }
+    // v5.4.1: style_explore rows always have empty presets (the locked
+    // directive bypasses the ladder), so they'd previously fall through
+    // to "make beautiful" — wrong label since v2. Name the mode.
+    if (mode === "style_explore") return "style explore";
     if (!presets || presets.length === 0) return "make beautiful";
     return presets.map((p) => PRESET_LABEL[p]).join(" · ");
   }, [presets, mode, blendInputCount, varyStrength]);
@@ -341,11 +355,13 @@ export const IterationRow = memo(function IterationRow({
             <span className="text-destructive text-xs">
               {iteration.id.startsWith("opt-")
                 ? "couldn’t submit"
-                : failureKind === "daily_quota"
-                  ? "Google’s daily limit for this model is used up — switch tiers (Flash/Pro) or use Vary; it resets overnight"
-                  : failureKind === "rate_limited"
-                    ? "Google is rate-limiting — wait a minute, then try again"
-                    : "no tiles generated — try again"}
+                : failureKind === "engine_censor"
+                  ? "this engine’s content filter refused the image — it misreads some of her figures; Pro and Seedream handle it"
+                  : failureKind === "daily_quota"
+                    ? "Google’s daily limit for this model is used up — switch tiers (Flash/Pro) or use Vary; it resets overnight"
+                    : failureKind === "rate_limited"
+                      ? "Google is rate-limiting — wait a minute, then try again"
+                      : "no tiles generated — try again"}
             </span>
           )}
           {showActionMenu && (

@@ -88,11 +88,15 @@ export const iterations = sqliteTable(
      * 'flash' | 'pro' are Gemini tiers. 'flux' (v5) marks sketch_vary
      * iterations, which run on the fal-hosted ZUZQ FLUX LoRA instead of
      * Gemini — it's an engine discriminator for display + cost lookup,
-     * not a Gemini tier. Cost paths must branch on mode/tier BEFORE
-     * indexing the Gemini pricing matrix (lib/cost.ts throws no error
-     * on a bad index — it would produce NaN).
+     * not a Gemini tier. 'flux2max' | 'seedream' (v5.4, AGENTS.md §17)
+     * are the user-pickable fal engines in the InputBar pill (FLUX 2
+     * Max / Seedream 5-Lite edit). Cost paths must branch on tier
+     * family BEFORE indexing a pricing matrix (lib/cost.ts covers the
+     * four pickable tiers; costForVary covers 'flux').
      */
-    model_tier: text("model_tier", { enum: ["flash", "pro", "flux"] })
+    model_tier: text("model_tier", {
+      enum: ["flash", "pro", "flux", "flux2max", "seedream"],
+    })
       .notNull()
       .default("pro"),
     resolution: text("resolution", { enum: ["1k", "4k"] })
@@ -300,7 +304,9 @@ export const usage_log = sqliteTable(
      * tiles, so the gauge doesn't undercount when Zuzi prunes runs.
      * NULL on pre-0010 rows (the gauge treats them as uncounted).
      */
-    model_tier: text("model_tier", { enum: ["flash", "pro", "flux"] }),
+    model_tier: text("model_tier", {
+      enum: ["flash", "pro", "flux", "flux2max", "seedream"],
+    }),
     image_count: integer("image_count"),
     created_at: integer("created_at").notNull(),
   },

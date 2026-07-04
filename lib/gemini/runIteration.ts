@@ -31,6 +31,12 @@ import { extractImageBytes } from "./extract";
 import { classifyError } from "./errors";
 import { parseBlendTileIdsJson, parseStoredPresets } from "./presets";
 import { generateVaryImage, isVaryStrength } from "../fal/vary";
+import {
+  falImageSize,
+  generateFalEngineImage,
+  isFalEngineTier,
+} from "../fal/engines";
+import { FAL_STYLE_EXPLORE_DIRECTIVE } from "../fal/engineConstants";
 import * as bus from "../bus";
 import { costForCompletedIteration, costForVary } from "../cost";
 import {
@@ -304,6 +310,41 @@ async function runOneTile(
 }
 
 /**
+ * v5.4 fal-engine tile runner (AGENTS.md §17) — FLUX 2 Max / Seedream
+ * 5-Lite when the user picked those tiers. Same composition contract as
+ * runOneTile's parts array (ordered images + directive), same
+ * persistence via the shared helpers.
+ */
+async function runOneFalEngineTile(
+  iterationId: string,
+  tileId: string,
+  idx: number,
+  tier: "flux2max" | "seedream",
+  imageBase64s: string[],
+  promptText: string,
+  size: { width: number; height: number },
+  recoveryHit: { r2_key: string; thumb_key?: string } | undefined,
+): Promise<TileRunResult> {
+  if (tryRecoveryHydrate(iterationId, tileId, idx, recoveryHit)) {
+    return { idx, ok: true, blocked: false };
+  }
+  try {
+    const bytes = await generateFalEngineImage(
+      tier,
+      imageBase64s,
+      promptText,
+      size,
+      `iter ${iterationId}#${idx}`,
+    );
+    await persistTileOutput(iterationId, tileId, idx, bytes);
+    return { idx, ok: true, blocked: false };
+  } catch (e) {
+    const status = markTileError(iterationId, tileId, idx, e);
+    return { idx, ok: false, blocked: status === "blocked" };
+  }
+}
+
+/**
  * v5 Sketch Vary tile runner (AGENTS.md §16). One fal FLUX-LoRA img2img
  * call per tile — the engine differs from Gemini but the persistence
  * contract (R2 keys, recovery row, tile row, bus events) is byte-
@@ -482,15 +523,32 @@ export async function runIteration(iterationId: string): Promise<void> {
       iter.mode === "prompt" &&
       tileRowsForPromptDecision.length > 0 &&
       tileRowsForPromptDecision.every((t) => t.style_painting_id !== null);
+    // v5.4: is this iteration on a pickable fal engine (Max/Seedream)?
+    // sketch_vary rows carry tier 'flux' and never enter this branch.
+    const falEngineTier =
+      iter.mode !== "sketch_vary" && isFalEngineTier(iter.model_tier)
+        ? iter.model_tier
+        : null;
+
     // sketch_vary never builds a Gemini prompt — the fal provider owns
     // its locked VARY_PROMPT internally (lib/fal/vary.ts). Empty string
     // here keeps the variable well-defined without implying the vary
     // path renders the freeform v0 body.
+    //
+    // v5.4: style_explore on a fal engine swaps to the locked
+    // FAL_STYLE_EXPLORE_DIRECTIVE — each engine family runs the
+    // directive it was lab-validated with (AGENTS.md §17). Preset
+    // bodies and the blend directive pass through unchanged on fal
+    // engines: picking Max/Seedream is an explicit per-run choice and
+    // the row is engine-labeled, so this is "try the same instruction
+    // on another painter", not a silent swap.
     const promptText =
       iter.mode === "sketch_vary"
         ? ""
         : iter.mode === "style_explore"
-          ? buildStyleExplorePrompt(aspectRatio)
+          ? falEngineTier !== null
+            ? FAL_STYLE_EXPLORE_DIRECTIVE
+            : buildStyleExplorePrompt(aspectRatio)
           : iter.mode === "style_blend"
             ? buildStyleBlendPrompt(aspectRatio)
             : buildPrompt({
@@ -689,6 +747,27 @@ export async function runIteration(iterationId: string): Promise<void> {
             ? styleBytesByPainting.get(t.style_painting_id) ?? null
             : null;
           imageBase64s = styleB64 ? [sketchB64, styleB64] : [sketchB64];
+        }
+        // v5.4: Max/Seedream tiles run on fal with the same ordered
+        // image composition + the (possibly engine-specific) prompt.
+        // Output size honors §3 via explicit pixels.
+        if (falEngineTier !== null) {
+          return runOneFalEngineTile(
+            iterationId,
+            t.id,
+            t.idx,
+            falEngineTier,
+            imageBase64s,
+            promptText,
+            falImageSize(aspectRatio, iter.resolution),
+            recoveryHits.get(t.idx),
+          ).catch((e): TileRunResult => {
+            console.error(
+              `[runIteration ${iterationId}] unhandled in ${falEngineTier} tile ${t.idx}:`,
+              e,
+            );
+            return { idx: t.idx, ok: false, blocked: false };
+          });
         }
         return runOneTile(
           iterationId,

@@ -64,6 +64,8 @@ CREATE TABLE iterations (
   model_tier         TEXT NOT NULL DEFAULT 'pro',     -- 'flash' (cheap exploration) | 'pro' (refined)
                                                       -- | 'flux' (v5: sketch_vary iterations only —
                                                       --   the ZUZQ LoRA engine, not a Gemini tier)
+                                                      -- | 'flux2max' | 'seedream' (v5.4: user-picked
+                                                      --   fal engines in the tier pill — AGENTS.md §17)
   resolution         TEXT NOT NULL DEFAULT '1k',      -- '1k' | '4k'
                                                       -- (model_tier × resolution = the cost cell;
                                                       --  see lib/cost.ts for the 4-tier pricing matrix)

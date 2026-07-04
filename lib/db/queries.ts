@@ -866,7 +866,7 @@ export function insertUsageLog(
   /** v5.3: engine tier + completed-call count for the daily quota
    *  gauge. See the usage_log schema comment — these survive
    *  iteration hard-deletes, unlike tile rows. */
-  modelTier: "flash" | "pro" | "flux",
+  modelTier: "flash" | "pro" | "flux" | "flux2max" | "seedream",
   imageCount: number,
 ): void {
   db()

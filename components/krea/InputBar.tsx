@@ -783,11 +783,20 @@ export function InputBar() {
 
           {!isEmpty && (
             <>
+              {/* v5.4 (AGENTS.md §17): the pill is the ENGINE picker.
+                  Flash/Pro = Gemini (count against the Pro daily gauge
+                  when Pro); Max = FLUX 2 Max and Seedream = Seedream
+                  5-Lite, both on fal — same-price painterly alternate
+                  and the 4×-cheaper explorer, both immune to Google's
+                  daily cap. Validated July 2026 against her favorited
+                  pairs; Pro remains the default. */}
               <PillToggle
                 value={modelTier}
                 options={[
                   { value: "flash", label: "Flash" },
                   { value: "pro", label: "Pro" },
+                  { value: "flux2max", label: "Max" },
+                  { value: "seedream", label: "Seedream" },
                 ]}
                 onChange={setModelTier}
                 ariaLabel="Model tier"

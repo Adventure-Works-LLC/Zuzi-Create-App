@@ -44,7 +44,7 @@ interface FavoriteRow {
   outputKey: string | null;
   thumbKey: string | null;
   favoritedAt: number;
-  modelTier: "flash" | "pro" | "flux";
+  modelTier: "flash" | "pro" | "flux" | "flux2max" | "seedream";
   resolution: "1k" | "4k";
   /** v2.4: per-tile style attribution. Threaded into the LightboxSnapshot
    *  so the Lightbox can swap its toolbar / Compare target for favorited

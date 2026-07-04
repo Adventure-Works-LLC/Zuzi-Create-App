@@ -16,7 +16,13 @@
  * from here.
  */
 
-export type ModelTier = "flash" | "pro";
+/**
+ * User-pickable engine tiers (the InputBar pill). flash/pro run on
+ * Gemini; flux2max/seedream run on fal (v5.4, AGENTS.md §17). The
+ * fifth stored tier 'flux' (the Vary LoRA) is mode-forced, never
+ * picked, and priced via costForVary below.
+ */
+export type ModelTier = "flash" | "pro" | "flux2max" | "seedream";
 export type Resolution = "1k" | "4k";
 
 const PRICE_PER_IMAGE_USD: Record<ModelTier, Record<Resolution, number>> = {
@@ -24,6 +30,15 @@ const PRICE_PER_IMAGE_USD: Record<ModelTier, Record<Resolution, number>> = {
   flash: { "1k": 0.067, "4k": 0.101 },
   // gemini-3-pro-image-preview ("Nano Banana Pro")
   pro: { "1k": 0.134, "4k": 0.24 },
+  // fal-ai/flux-2-max/edit (v5.4) — $0.07 base + ~$0.03/output MP per
+  // the July 2026 research pass. '1k' (1440 long edge ≈ 1.3MP) ≈ $0.11,
+  // '4k' (2560 ≈ 4.2MP) ≈ $0.19 — both rounded UP so the monthly cap
+  // check stays conservative. Re-verify on the fal dashboard if
+  // production spend drifts.
+  flux2max: { "1k": 0.13, "4k": 0.2 },
+  // fal-ai/bytedance/seedream/v5/lite/edit (v5.4) — flat per image
+  // (fal lists $0.035 regardless of size up to its cap).
+  seedream: { "1k": 0.035, "4k": 0.035 },
 };
 
 /**

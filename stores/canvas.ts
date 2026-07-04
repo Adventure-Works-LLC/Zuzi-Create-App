@@ -93,12 +93,13 @@ export type IterationMode =
   | "style_blend"
   | "sketch_vary";
 
-export type ModelTier = "flash" | "pro";
-/** What an ITERATION ran on — the InputBar's tier toggle only ever holds
- *  ModelTier ('flash' | 'pro'), but historical iterations can also carry
- *  'flux' (v5 sketch_vary rows, which run on the fal ZUZQ LoRA rather
- *  than a Gemini tier). Keep the two types separate so cost lookups
- *  (lib/cost.ts, Gemini-priced) can't be fed 'flux' by the compiler. */
+/** The InputBar pill's pickable tiers: Gemini Flash/Pro + the v5.4 fal
+ *  engines (FLUX 2 Max, Seedream 5-Lite). See AGENTS.md §17. */
+export type ModelTier = "flash" | "pro" | "flux2max" | "seedream";
+/** What an ITERATION ran on — everything pickable plus 'flux' (v5
+ *  sketch_vary rows: the ZUZQ LoRA, forced by mode, never picked).
+ *  Keep the types separate so pricing lookups can't be fed 'flux' by
+ *  the compiler. */
 export type EngineTier = ModelTier | "flux";
 export type Resolution = "1k" | "4k";
 /** Per-iteration aspect-ratio mode. 'match' uses the source's aspect ratio

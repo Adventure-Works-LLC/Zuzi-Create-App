@@ -1255,4 +1255,65 @@ is not the knob.
     "her lora" tier label.
   - `scripts/check-prompts.ts` — 5 vary canaries.
   - `scripts/smoke-vary.ts` — provider gate (real fal call, ~$0.04).
+
+## 17. Alternate engines in the tier pill (v5.4) — Max + Seedream
+
+The InputBar's model pill grew from `Flash | Pro` to
+`Flash | Pro | Max | Seedream`. Flash/Pro are Gemini; **Max**
+(`fal-ai/flux-2-max/edit`) and **Seedream**
+(`fal-ai/bytedance/seedream/v5/lite/edit`) run on fal. Outcome of the
+July 2026 model lab, run on Zuzi's own favorited (sketch, style)
+pairs against every serious contender (FLUX.2 pro/max, Seedream
+4.5/5-Lite, Qwen ±LoRA, Grok, GPT-Image-2, NB 2 Lite):
+
+  - **Nano Pro stays the champion + default** — best character
+    preservation with committed style transfer.
+  - **Max**: same price as Pro (~$0.13), strongest painterly surfaces,
+    occasionally softens her faces toward realism. Quota-immune.
+  - **Seedream**: ~4× cheaper ($0.035 flat), character-safe,
+    80–90% of Pro's commitment. Quota-immune.
+  - Everything else was eliminated (drift/bleed) — don't re-add
+    without a new lab pass. Seedream 5 **Full** is the watch-item;
+    when fal serves a non-Lite v5 edit endpoint, rerun the bake-off.
+
+### Contract
+
+  1. **Explicit choice, never a fallback.** The user picks the engine
+     in the pill; every IterationRow is captioned with its engine
+     ("flux max 1k", "seedream 1k"). Do NOT auto-route to these on
+     Gemini quota errors — a silent hand-swap violates the no-silent-
+     drift doctrine. (The quota-failure caption *suggests* switching;
+     the tap is hers.)
+  2. **model_tier values**: `flux2max` | `seedream` join
+     flash/pro/flux. 'flux' remains vary-only (mode-forced, never in
+     the pill). All five flow into usage_log.model_tier; only 'pro'
+     counts toward the daily gauge.
+  3. **Prompts per engine family**: style_explore on fal engines runs
+     the locked `FAL_STYLE_EXPLORE_DIRECTIVE`
+     (lib/fal/engineConstants.ts — the BFL role-per-image + anti-bleed
+     template each engine was validated with; canary-guarded). Preset
+     bodies and the blend directive pass through unchanged — trying
+     Avery-on-Max is a deliberate user experiment, engine-labeled.
+  4. **§3 aspect invariant** holds via explicit pixels: both endpoints
+     accept `image_size: {width, height}` (schema-verified; max
+     14142/side). `falImageSize(aspectRatio, resolution)` maps '1k' →
+     1440 long edge, '4k' → 2560 (Max bills per output MP — a true
+     4096 edge would double its price silently).
+  5. **Env**: FAL_KEY only (shared with Vary). Route 503s
+     `engine_not_configured` when missing — checked after idempotency,
+     like vary's.
+  6. **Pricing** lives in lib/cost.ts PRICE_PER_IMAGE_USD with
+     provenance comments; monthly cap covers all tiers.
+
+### Critical files
+
+  - `lib/fal/engineConstants.ts` — tiers, labels, locked fal explore
+    directive (client-safe).
+  - `lib/fal/engines.ts` — endpoints, falImageSize, provider call
+    (retry ×2, 180s guard, safety flag → 'blocked').
+  - `lib/gemini/runIteration.ts` — falEngineTier branch +
+    runOneFalEngineTile.
+  - `app/api/iterate/route.ts` — tier validation + engine 503.
+  - `components/krea/InputBar.tsx` — 4-option pill.
+  - `scripts/check-prompts.ts` — 2 fal-directive canaries.
 <!-- END:zuzi-studio-guardrails -->

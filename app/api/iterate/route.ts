@@ -97,6 +97,10 @@ import {
   varyConfigMissing,
   type VaryStrength,
 } from "@/lib/fal/vary";
+import {
+  falEngineConfigMissing,
+  isFalEngineTier,
+} from "@/lib/fal/engines";
 import { costFor, costForVary } from "@/lib/cost";
 
 export const runtime = "nodejs";
@@ -259,8 +263,14 @@ export async function POST(req: Request): Promise<Response> {
 
   const requestId = typeof body.requestId === "string" ? body.requestId : null;
   const sourceId = typeof body.sourceId === "string" ? body.sourceId : null;
+  // v5.4: flux2max + seedream join flash/pro as pickable tiers
+  // (AGENTS.md §17). 'flux' is NOT accepted from the body — it's the
+  // Vary LoRA's engine, forced below when mode='sketch_vary'.
   const modelTier =
-    body.modelTier === "flash" || body.modelTier === "pro"
+    body.modelTier === "flash" ||
+    body.modelTier === "pro" ||
+    body.modelTier === "flux2max" ||
+    body.modelTier === "seedream"
       ? body.modelTier
       : "pro";
   const resolution =
@@ -584,6 +594,24 @@ export async function POST(req: Request): Promise<Response> {
         {
           error: "vary_not_configured",
           detail: `Vary needs ${missing.join(" + ")} set in the server environment.`,
+        },
+        { status: 503 },
+      );
+    }
+  }
+  // v5.4: same fail-fast for the pickable fal engines (Max/Seedream) —
+  // they need only FAL_KEY (no LoRA URL). Same placement rationale as
+  // the vary check above: after idempotency, before further DB work.
+  if (isFalEngineTier(modelTier)) {
+    const missing = falEngineConfigMissing();
+    if (missing.length > 0) {
+      console.error(
+        `[iterate] ${modelTier} rejected — missing env: ${missing.join(", ")}`,
+      );
+      return NextResponse.json(
+        {
+          error: "engine_not_configured",
+          detail: `The ${modelTier === "flux2max" ? "Max" : "Seedream"} engine needs ${missing.join(" + ")} set in the server environment.`,
         },
         { status: 503 },
       );

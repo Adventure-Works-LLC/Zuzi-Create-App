@@ -68,6 +68,7 @@ import {
   VARY_STRENGTHS,
   varyStrengthLabel,
 } from "../lib/fal/varyConstants";
+import { FAL_STYLE_EXPLORE_DIRECTIVE } from "../lib/fal/engineConstants";
 import { PRESETS, type Preset } from "../lib/db/schema";
 
 const RATIOS = ["1:1", "4:5", "16:9", "9:16"] as const;
@@ -317,6 +318,32 @@ if (
   );
 }
 
+// --- 3g: v5.4 fal-engine style_explore directive (AGENTS.md §17) ---
+// Max/Seedream run the BFL role-per-image + anti-bleed template that
+// won them their picker slots in the July 2026 lab. Anchors: the
+// role-decomposition opener + the anti-bleed clause (the #2 community
+// failure mode — style-image subjects leaking into output).
+if (
+  !FAL_STYLE_EXPLORE_DIRECTIVE.startsWith(
+    "Take the character and composition from image 1.",
+  )
+) {
+  fail(
+    "[fal style_explore]",
+    "FAL_STYLE_EXPLORE_DIRECTIVE regressed (role-per-image opener canary missing)",
+  );
+}
+if (
+  !FAL_STYLE_EXPLORE_DIRECTIVE.includes(
+    "it is a style reference only",
+  )
+) {
+  fail(
+    "[fal style_explore]",
+    "FAL_STYLE_EXPLORE_DIRECTIVE lost the anti-bleed clause",
+  );
+}
+
 // --- 4: dominator routing must fire when combined with other presets ---
 const ambColor = buildPrompt({ presets: ["color", "ambiance"], aspectRatio: "4:5" });
 if (!ambColor.startsWith("This painting is the artist's work-in-progress.")) {
@@ -359,5 +386,5 @@ if (failures.length > 0) {
 }
 
 console.log(
-  `[check-prompts] ok — ${totalRenders} prompt renders across ${combos.length} preset combos × ${RATIOS.length} aspect ratios + 34 canary checks all green.`,
+  `[check-prompts] ok — ${totalRenders} prompt renders across ${combos.length} preset combos × ${RATIOS.length} aspect ratios + 36 canary checks all green.`,
 );

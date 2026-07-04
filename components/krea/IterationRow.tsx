@@ -321,7 +321,11 @@ export const IterationRow = memo(function IterationRow({
           <span className="mx-2 text-text-mute/50">·</span>
           {iteration.mode === "sketch_vary"
             ? "her lora"
-            : `${iteration.modelTier} ${iteration.resolution}`}
+            : `${
+                iteration.modelTier === "flux2max"
+                  ? "flux max"
+                  : iteration.modelTier
+              } ${iteration.resolution}`}
           <span className="mx-2 text-text-mute/50">·</span>
           {formatTime(iteration.createdAt)}
         </span>

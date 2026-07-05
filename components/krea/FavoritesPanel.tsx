@@ -182,7 +182,12 @@ export function FavoritesPanel() {
         if (e.target === e.currentTarget) setOpen(false);
       }}
     >
-      <div className="flex-1 bg-black/40" />
+      {/* v5.4.4: scrim dismiss — same fix as StylesPanel's v3.9 note.
+          The outer dialog's `target===currentTarget` test never fires
+          for taps on this child div (it covers the wrapper entirely),
+          so the backdrop needs its own onClick for tap-outside-to-
+          close to actually work. */}
+      <div className="flex-1 bg-black/40" onClick={() => setOpen(false)} />
       <aside
         className={[
           "h-dvh w-full max-w-[520px] shrink-0",

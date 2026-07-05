@@ -256,7 +256,11 @@ export function ArchivedSourcesPanel() {
         if (e.target === e.currentTarget) setOpen(false);
       }}
     >
-      <div className="flex-1 bg-black/40" />
+      {/* v5.4.4: scrim dismiss — same fix as StylesPanel's v3.9 note.
+          The wrapper's `target===currentTarget` test never fires for
+          taps on this child div, so the backdrop needs its own
+          onClick. */}
+      <div className="flex-1 bg-black/40" onClick={() => setOpen(false)} />
       <aside
         className={[
           "h-dvh w-full max-w-[520px] shrink-0",

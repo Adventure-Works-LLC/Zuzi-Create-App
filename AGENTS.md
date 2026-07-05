@@ -895,7 +895,10 @@ Worst-case cost floor on Stop = remaining-tiles-of-current-batch ×
 IntersectionObserver also gates on `userStopped` so no further
 triplets fire after Stop.
 
-MONTHLY_USD_CAP (default $80) gates every iteration. POST /api/iterate
+MONTHLY_USD_CAP (default $250 since July 2026 — the original $80 was
+hit by real usage four days into a month; override via Railway env
+var, keep the two route constants in lockstep) gates every iteration.
+POST /api/iterate
 returns 429 monthly_cap_reached with `{currentUsd, capUsd}` when the
 projected iteration cost would push month-so-far past the cap; the
 sheet parses this from generate()'s thrown error message into a

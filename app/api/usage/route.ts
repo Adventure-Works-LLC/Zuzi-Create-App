@@ -38,9 +38,10 @@ export const runtime = "nodejs";
 const _quotaParsed = Number(process.env.GEMINI_PRO_DAILY_QUOTA ?? "250");
 const PRO_DAILY_QUOTA =
   Number.isFinite(_quotaParsed) && _quotaParsed > 0 ? _quotaParsed : 250;
-const _capParsed = Number(process.env.MONTHLY_USD_CAP ?? "80");
+// Default 250 — KEEP IN LOCKSTEP with app/api/iterate/route.ts.
+const _capParsed = Number(process.env.MONTHLY_USD_CAP ?? "250");
 const MONTHLY_USD_CAP =
-  Number.isFinite(_capParsed) && _capParsed > 0 ? _capParsed : 80;
+  Number.isFinite(_capParsed) && _capParsed > 0 ? _capParsed : 250;
 
 export async function GET(): Promise<Response> {
   if (!(await requireAuth())) {

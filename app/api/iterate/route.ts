@@ -105,17 +105,20 @@ import { costFor, costForVary } from "@/lib/cost";
 
 export const runtime = "nodejs";
 
-// Hard monthly cap on Gemini spend. Default $80; bumpable via env var.
-// NaN-guarded: a non-numeric env value (e.g. "" or "lots", easy to fat-finger
-// in the Railway dashboard) would otherwise produce NaN and silently disable
+// Hard monthly cap on generation spend (all engines). Default $250 —
+// raised from the original $80 on July 4 2026 at Jeff's request after
+// Zuzi's real usage hit the old cap four days into the month.
+// Overridable via the MONTHLY_USD_CAP env var. NaN-guarded: a
+// non-numeric env value (e.g. "" or "lots", easy to fat-finger in the
+// Railway dashboard) would otherwise produce NaN and silently disable
 // the cap entirely (any monthSoFar + projected > NaN === false). Coerce
-// through `Number.isFinite` and fall back to 80 on anything non-positive
-// or non-numeric. Zero is also treated as misconfigured — a literal 0 cap
-// would block every iteration; callers who want "off" can set a very large
-// number, but the safer default is the documented $80.
-const _capParsed = Number(process.env.MONTHLY_USD_CAP ?? "80");
+// through `Number.isFinite` and fall back on anything non-positive or
+// non-numeric. Zero is also treated as misconfigured — a literal 0 cap
+// would block every iteration.
+// KEEP IN LOCKSTEP with the same constant in app/api/usage/route.ts.
+const _capParsed = Number(process.env.MONTHLY_USD_CAP ?? "250");
 const MONTHLY_USD_CAP =
-  Number.isFinite(_capParsed) && _capParsed > 0 ? _capParsed : 80;
+  Number.isFinite(_capParsed) && _capParsed > 0 ? _capParsed : 250;
 
 /** Parse + validate the `presets` field. Returns a deduped, stably-ordered
  * Preset[] (matching the order in PRESETS). Throws on bad input so the route

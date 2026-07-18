@@ -243,6 +243,9 @@ export const PRESETS = [
   "background",
   "avery",
   "etching",
+  /** v5.8: second painter-reference preset (Cézanne), the always-on
+   *  default — took the slot from Avery. See AGENTS.md §4. */
+  "cezanne",
 ] as const;
 export type Preset = (typeof PRESETS)[number];
 

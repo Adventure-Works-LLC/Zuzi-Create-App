@@ -84,6 +84,7 @@ const PRESET_LABEL: Record<string, string> = {
   lighting: "lighting",
   background: "background",
   avery: "avery",
+  cezanne: "cezanne",
   etching: "etching",
 };
 

@@ -104,6 +104,22 @@ re-read this paragraph and the plan's reference docs first.
 > painting in her voice) is the operation she actually wants. **Don't add Composition
 > back without explicit user request.**
 
+> **Etching and Lighting joined the hidden set in v5.8** (Jeff's
+> request): same treatment as Color/Ambiance below — bodies, dominator
+> routing, canaries, and smoke flags all stay; only `VISIBLE_PRESETS`
+> shrank. The picker now renders three cells: Cezanne (default),
+> Avery, Background.
+
+> **Cezanne (v1, v5.8) is the third painter-reference preset and the
+> always-on default** — took the slot from Avery (lineage: background
+> → avery → cezanne; every snap-back + context-shift reset in
+> stores/canvas.ts and InputBar.tsx now lands on `["cezanne"]`).
+> Same brief-body architecture as Avery: study-then-paint framing
+> ("study paul cezanne's paintings and paint this painting as if
+> cezanne was painting it"), preserve character + subjects, cezanne
+> color welcome. Canary locks the lowercase opener
+> `"study paul cezanne's paintings"`.
+
 > **Color and Ambiance are hidden from the UI.** After many iteration cycles
 > neither `COLOR_PROMPT_BODY` nor `AMBIANCE_PROMPT_BODY` found an operation Zuzi
 > felt confident shipping with. Rather than delete the work, the InputBar's preset

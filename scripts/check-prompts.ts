@@ -192,6 +192,17 @@ if (!averySolo.startsWith("do this like a milton avery")) {
   fail("[avery]", "Avery v1 prompt regressed (lowercase 'do this like a milton avery' opener canary missing)");
 }
 
+// Cezanne v1 (v5.8) — second painter-reference preset + the always-on
+// default. Same brief-body architecture as Avery; lock the lowercase
+// study-then-paint opener + the preserve clause.
+const cezanneSolo = buildPrompt({ presets: ["cezanne"], aspectRatio: "4:5" });
+if (!cezanneSolo.startsWith("study paul cezanne's paintings")) {
+  fail("[cezanne]", "Cezanne v1 prompt regressed (lowercase 'study paul cezanne's paintings' opener canary missing)");
+}
+if (!cezanneSolo.includes("while preserving the character and subjects")) {
+  fail("[cezanne]", "Cezanne v1 prompt lost the preserve-character clause");
+}
+
 const etchingSolo = buildPrompt({ presets: ["etching"], aspectRatio: "4:5" });
 if (!etchingSolo.startsWith("add classical old master shadow hatching")) {
   fail("[etching]", "Etching v1 prompt regressed (lowercase 'add classical old master shadow hatching' opener canary missing)");
@@ -513,5 +524,5 @@ if (failures.length > 0) {
 }
 
 console.log(
-  `[check-prompts] ok — ${totalRenders} prompt renders across ${combos.length} preset combos × ${RATIOS.length} aspect ratios + 49 canary checks all green.`,
+  `[check-prompts] ok — ${totalRenders} prompt renders across ${combos.length} preset combos × ${RATIOS.length} aspect ratios + 51 canary checks all green.`,
 );

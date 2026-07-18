@@ -25,8 +25,9 @@
  *   resolution       '1k'                  cheaper / faster — 4K is opt-in
  *   aspectRatioMode  'match'               preserve source aspect — flip is opt-in
  *   count            TILE_COUNT_DEFAULT    3 — fits the layout cleanly
- *   presets          ['avery']             Avery is the always-on default (was
- *                                          'background' before the Avery v1 lock)
+ *   presets          ['cezanne']           Cezanne is the always-on default
+ *                                          (v5.8; the slot's lineage is
+ *                                          background → avery → cezanne)
  *
  * `modelTier`, `resolution`, and `count` are sticky within a session
  * (deliberately — they reflect the user's working-tier preference, not
@@ -100,6 +101,7 @@ const PRESET_LABEL: Record<Preset, string> = {
   background: "Background",
   avery: "Avery",
   etching: "Etching",
+  cezanne: "Cezanne",
 };
 
 /**
@@ -122,9 +124,12 @@ const PRESET_LABEL: Record<Preset, string> = {
  * and the canonical default agree.
  */
 const VISIBLE_PRESETS: ReadonlyArray<Preset> = [
+  /* v5.8: Cezanne is the new always-on default, so it takes the
+   * first-cell position (visual default == canonical default, same
+   * rule Avery had). Etching + Lighting joined Color/Ambiance in the
+   * hidden set per Jeff — bodies, routing, and canaries all stay. */
+  "cezanne",
   "avery",
-  "etching",
-  "lighting",
   "background",
 ];
 
@@ -156,6 +161,7 @@ const PRESET_SUBLINE: Partial<Record<Preset, string>> = {
   color: "push her colors with confidence",
   avery: "in Milton Avery's voice",
   etching: "old-master shadow hatching",
+  cezanne: "as if Cézanne painted it",
 };
 
 /** v5 Sketch Vary strength picker copy. One line per strength — the
@@ -553,7 +559,7 @@ export function InputBar() {
       // never the previously-selected preset, per spec: dismissal
       // restores the always-on default rather than the user's last
       // selection (which they explicitly tapped × on).
-      setPreset("avery");
+      setPreset("cezanne");
       setPickerOpen(false);
     };
     document.addEventListener("pointerdown", onOutside);
@@ -662,7 +668,7 @@ export function InputBar() {
       // button now stays HTML-enabled during the transitional state and
       // routes the click here instead. Doubled with the listener — both
       // paths are idempotent.
-      setPreset("avery");
+      setPreset("cezanne");
       setPickerOpen(false);
       return;
     }
@@ -761,7 +767,7 @@ export function InputBar() {
             (handled by the document listener above). Renders only
             when a source exists. */}
         {!isEmpty && (
-          <div ref={presetCellsRef} className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <div ref={presetCellsRef} className="grid grid-cols-2 sm:grid-cols-3 gap-2">
             {VISIBLE_PRESETS.map((p) => (
               <PresetCheckbox
                 key={p}

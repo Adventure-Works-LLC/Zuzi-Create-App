@@ -257,6 +257,20 @@ The result should look like the same painting after the artist made one focused 
 const AVERY_PROMPT_BODY = `do this like a milton avery while preserving the character and subjects. feel free to use milton avery color.`;
 
 // ---------------------------------------------------------------------------
+// CEZANNE — v1 locked (v5.8). Second painter-reference preset, and the
+// always-on DEFAULT (took the slot from Avery per Jeff's request; Avery
+// stays visible in the picker).
+//
+// Same architecture as Avery: deliberately brief, trusts Pro to know
+// Cézanne, study-then-paint framing per Jeff's spec ("ask the model to
+// study his paintings and paint this painting as if he was doing it").
+// Lowercase opening matches the Avery convention; build canary locks
+// the prefix `study paul cezanne's paintings`.
+// ---------------------------------------------------------------------------
+
+const CEZANNE_PROMPT_BODY = `study paul cezanne's paintings and paint this painting as if cezanne was painting it, while preserving the character and subjects. feel free to use cezanne color.`;
+
+// ---------------------------------------------------------------------------
 // ETCHING — v1 locked. Drawing-technique preset.
 //
 // Operation: add classical old-master shadow hatching (parallel /
@@ -645,6 +659,7 @@ const PRESET_LABEL: Record<Preset, string> = {
   background: "the background environment and setting (handled separately)",
   avery: "the painted treatment in Milton Avery's voice (handled separately)",
   etching: "old-master shadow hatching on the shadow side (handled separately)",
+  cezanne: "the painted treatment in Paul Cézanne's voice (handled separately)",
 };
 
 /** Master preserve list, in stable rendering order. Each item has an `id` so
@@ -671,6 +686,7 @@ const PRESET_REMOVES_FROM_PRESERVE: Record<Preset, ReadonlyArray<string>> = {
   background: [], // unreachable — background has its own prompt body
   avery: [], // unreachable — avery has its own prompt body (v1 dominator)
   etching: [], // unreachable — etching has its own prompt body (v1 dominator)
+  cezanne: [], // unreachable — cezanne has its own prompt body (v1 dominator)
 };
 
 export interface BuildPromptArgs {
@@ -810,11 +826,21 @@ export function buildPrompt({
     );
   }
 
-  // 7. Etching — drawing-technique dominator. Newest preset; same
-  //    placement rationale as Avery (after Lighting in the ladder).
-  //    Under the mutually-exclusive UI, Etching only ever appears alone
-  //    in the array. Order vs Avery doesn't matter since the UI never
-  //    sends both — pick alphabetical for stable readability.
+  // 6b. Cezanne (v5.8) — second painter-reference dominator, the
+  //     always-on default since it replaced Avery in that slot. Same
+  //     placement rationale; the UI only ever sends it alone.
+  if (presets.includes("cezanne")) {
+    return withPrepend(
+      `${CEZANNE_PROMPT_BODY}\n\nMatch the input aspect ratio exactly (${aspectRatio}).`,
+    );
+  }
+
+  // 7. Etching — drawing-technique dominator. Same placement rationale
+  //    as Avery (after Lighting in the ladder). Under the mutually-
+  //    exclusive UI, Etching only ever appears alone in the array.
+  //    Order vs Avery doesn't matter since the UI never sends both —
+  //    pick alphabetical for stable readability. (Hidden from the UI
+  //    since v5.8 — see InputBar VISIBLE_PRESETS.)
   if (presets.includes("etching")) {
     return withPrepend(
       `${ETCHING_PROMPT_BODY}\n\nMatch the input aspect ratio exactly (${aspectRatio}).`,

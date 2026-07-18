@@ -433,7 +433,7 @@ export const useCanvas = create<CanvasState>((set) => ({
       // Match aspect). Sticky settings like modelTier / resolution / count
       // intentionally carry over since they reflect the user's working
       // tier preference, not painting-specific state.
-      presets: ["avery"],
+      presets: ["cezanne"],
       aspectRatioMode: "match",
     })),
   setCurrentSource: (sourceId) =>
@@ -446,7 +446,7 @@ export const useCanvas = create<CanvasState>((set) => ({
         // On an actual switch, restore the canonical input defaults — same
         // rationale as `addSource`. A no-op call (sourceId already current)
         // doesn't reset.
-        presets: isSwitch ? ["avery"] : s.presets,
+        presets: isSwitch ? ["cezanne"] : s.presets,
         aspectRatioMode: isSwitch ? "match" : s.aspectRatioMode,
         // v4.4: blend selection SURVIVES source switches — that's the
         // cross-source blend feature (select a tile from sketch A,
@@ -632,7 +632,7 @@ export const useCanvas = create<CanvasState>((set) => ({
   // testing, but the canonical UI state is always exactly one preset.
   // See InputBar.tsx for the picker-open transitional behavior that
   // visually shows all visible cells while preserving this invariant.
-  presets: ["avery"],
+  presets: ["cezanne"],
   count: TILE_COUNT_DEFAULT,
   setModelTier: (modelTier) => set({ modelTier }),
   setResolution: (resolution) => set({ resolution }),

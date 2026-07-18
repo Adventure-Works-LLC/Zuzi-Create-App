@@ -276,13 +276,30 @@ if (buildStyleExplorePrompt("4:5", false) !== styleExplore) {
 const styleExploreLoose = buildStyleExplorePrompt("4:5", false, true);
 if (
   !styleExploreLoose.startsWith(
-    "show a completed work from image one in the completed style of image 2.",
+    "show a completed work from image one in the completed style of image 2",
   )
 ) {
   fail(
     "[style_explore_loose]",
-    "STYLE_EXPLORE_LOOSE_DIRECTIVE regressed (subtractive opener canary missing)",
+    "STYLE_EXPLORE_LOOSE_DIRECTIVE regressed (opener canary missing)",
   );
+}
+// v5.8.1 loose v2: the liberties happen inside HER vocabulary — every
+// loose variant must carry the line-and-shape anchor (the v1 loose
+// wording let the reference's shape grammar walk in; Jeff: "it uses
+// their shape style and it sucks").
+for (const [label, text] of [
+  ["style_explore_loose", styleExploreLoose],
+  ["style_explore_loose_keep", buildStyleExplorePrompt("4:5", true, true)],
+  ["fal_style_explore_loose", FAL_STYLE_EXPLORE_LOOSE_DIRECTIVE],
+  ["fal_style_explore_loose_keep", FAL_STYLE_EXPLORE_LOOSE_KEEP_COLORS_DIRECTIVE],
+] as const) {
+  if (!/line and shape/.test(text)) {
+    fail(
+      `[${label}]`,
+      "loose v2 variant lost the line-and-shape anchor (reference shape-grammar import guard)",
+    );
+  }
 }
 if (/keep the (exact )?character/i.test(styleExploreLoose)) {
   fail(
@@ -524,5 +541,5 @@ if (failures.length > 0) {
 }
 
 console.log(
-  `[check-prompts] ok — ${totalRenders} prompt renders across ${combos.length} preset combos × ${RATIOS.length} aspect ratios + 51 canary checks all green.`,
+  `[check-prompts] ok — ${totalRenders} prompt renders across ${combos.length} preset combos × ${RATIOS.length} aspect ratios + 55 canary checks all green.`,
 );

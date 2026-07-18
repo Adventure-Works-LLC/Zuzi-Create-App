@@ -542,7 +542,7 @@ export const STYLE_EXPLORE_KEEP_COLORS_DIRECTIVE =
  * construction. Canary-locked.
  */
 export const STYLE_EXPLORE_LOOSE_DIRECTIVE =
-  "show a completed work from image one in the completed style of image 2.";
+  "show a completed work from image one in the completed style of image 2, but keep the line and shape style of image one — do not use image 2's shapes or drawing style. feel free to change and play with the drawing within image one's line and shape language. do not take subjects or content from image 2 — only its painted treatment.";
 
 /**
  * v5.7 Loose × Her-colors combo — the keep-colors variant minus its
@@ -550,7 +550,7 @@ export const STYLE_EXPLORE_LOOSE_DIRECTIVE =
  * switch's whole job). Canary-locked.
  */
 export const STYLE_EXPLORE_LOOSE_KEEP_COLORS_DIRECTIVE =
-  "keep the exact color palette from image one, and show a completed work using the painted texture, brushwork, and surface of image 2. do not take colors from image 2 — only its texture and paint handling.";
+  "keep the exact color palette from image one, and show a completed work using the painted texture, brushwork, and surface of image 2. keep the line and shape style of image one — do not use image 2's shapes or drawing style, and do not take colors from image 2 — only its texture and paint handling. feel free to change and play with the drawing within image one's line and shape language. do not take subjects or content from image 2 — only its painted treatment.";
 
 /**
  * Render the full style_explore prompt with the aspect-ratio sentence

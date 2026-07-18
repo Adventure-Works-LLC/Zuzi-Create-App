@@ -849,15 +849,19 @@ character style and shape.
 > the OFF directive — the ON variant is a distinct user-requested
 > operation, not a re-tuning). All four directives canary-locked.
 >
-> **v5.7 "Loose" switch.** Second global pill beside "Her colors" (both
-> moved to the InputBar next to Match/Flip in v5.6.2; state in the
-> canvas store, read at fire time by card-taps, sheet batches, and
-> "More like this"). ON deletes the preservation clauses from whichever
-> directive is active — SUBTRACTIVE by explicit spec (Jeff: don't add
-> "stay close" language, just remove the keep-exactly wording). The fal
-> loose variants RETAIN the anti-borrow sentence (theft protection —
-> the documented failure mode where the reference's subject replaces
-> hers — is not a preservation clause). The two switches compose into a
+> **v5.7 "Loose" switch (wording revised v5.8.1).** Second global pill
+> beside "Her colors" (both moved to the InputBar next to Match/Flip
+> in v5.6.2; state in the canvas store, read at fire time by
+> card-taps, sheet batches, and "More like this"). v1 loose was purely
+> subtractive and let the REFERENCE's shape grammar walk in (Jeff:
+> "it uses their shape style and it sucks"). v2 pins the vocabulary:
+> the reference contributes the PAINTED TREATMENT only; the line-and-
+> shape language stays image one's, and the model's liberties happen
+> INSIDE that language ("feel free to change and play with the drawing
+> within image one's line and shape language"). The fal loose variants
+> RETAIN the anti-borrow sentence (theft protection — the documented
+> failure mode where the reference's subject replaces hers). A
+> "line and shape" anchor canary guards all four loose variants. The two switches compose into a
 > 4-way directive select per engine family
 > (`buildStyleExplorePrompt(aspect, keepSourceColors, loose)` /
 > the FAL_*_LOOSE_* constants); `iterations.loose` (migration 0012)

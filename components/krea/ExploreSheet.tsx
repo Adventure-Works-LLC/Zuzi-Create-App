@@ -127,11 +127,10 @@ export function ExploreSheet() {
 
   // Local Idle-state UI. See v2.2 docstring rationale.
   const [modelTier, setModelTier] = useState<ModelTier>("flash");
-  // v5.6 "Her colors" switch — ON keeps the sketch's palette and takes
-  // only texture/brushwork from the reference (keep-source-colors
-  // directive variant per engine family). Sticky within the session
-  // like the tier toggle; default OFF = the original directive.
-  const [keepHerColors, setKeepHerColors] = useState(false);
+  // v5.6.2 "Her colors" — reads the GLOBAL switch (InputBar, next to
+  // the Aspect pill; canvas store). ON keeps the sketch's palette and
+  // takes only texture/brushwork from the reference.
+  const keepHerColors = useCanvas((s) => s.keepHerColors);
   const [batchChoice, setBatchChoice] = useState<BatchChoice>(9);
   const [state, setState] = useState<SheetState>("idle");
   const [startError, setStartError] = useState<string | null>(null);
@@ -535,39 +534,6 @@ export function ExploreSheet() {
                     } left to explore`}
             </p>
           </div>
-          {/* v5.6.1: "Her colors" lives in the HEADER so it's visible
-              and flippable in every sheet state — the first placement
-              (idle footer) vanished after the first batch of a session
-              and Jeff couldn't find it. Applies to the NEXT batch
-              fired ("Generate more" included). */}
-          {!isEmpty && (
-            <button
-              type="button"
-              onClick={() => setKeepHerColors(!keepHerColors)}
-              aria-pressed={keepHerColors}
-              title={
-                keepHerColors
-                  ? "Her colors ON — palette stays from her sketch; the style brings texture and brushwork only."
-                  : "Her colors OFF — the style reference brings its colors AND its texture."
-              }
-              className={[
-                "mt-1 inline-flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5",
-                "text-xs uppercase tracking-[0.18em] no-callout transition-colors",
-                keepHerColors
-                  ? "border-accent bg-accent/10 text-foreground"
-                  : "border-hairline bg-card text-text-mute hover:text-foreground",
-              ].join(" ")}
-            >
-              <span
-                aria-hidden
-                className={[
-                  "h-2 w-2 rounded-full transition-colors",
-                  keepHerColors ? "bg-accent" : "bg-hairline",
-                ].join(" ")}
-              />
-              Her colors
-            </button>
-          )}
           <button
             type="button"
             onClick={() => setOpen(false)}

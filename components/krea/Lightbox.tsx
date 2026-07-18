@@ -750,9 +750,11 @@ export function Lightbox() {
       const result = await generate({
         mode: "style_explore",
         stylePaintingIds: Array(TILE_COUNT_DEFAULT).fill(view.stylePaintingId),
-        // v5.6: inherit the seed's "Her colors" switch so the drill
-        // fires the same directive variant she favorited.
-        keepSourceColors: view.keepSourceColors,
+        // v5.6.2: the GLOBAL switch wins (one visible dial, one rule)
+        // — seed-inheritance was replaced when the switch moved to the
+        // InputBar; the row caption tells her which variant any old
+        // favorite used if she wants to match it manually.
+        keepSourceColors: useCanvas.getState().keepHerColors,
       });
       if (!result) {
         setActionError(

@@ -295,6 +295,14 @@ interface CanvasState {
    */
   setPreset: (preset: Preset | null) => void;
   setCount: (count: number) => void;
+  /** v5.6.2: the "Her colors" switch — global, session-sticky, shown in
+   *  the InputBar next to the Aspect pill. Every style_explore fire
+   *  path (StylesPanel card-taps, ExploreSheet batches, Lightbox "More
+   *  like this") reads it at fire time. ON = keep-source-colors
+   *  directive variant (sketch keeps its palette; reference contributes
+   *  texture only). */
+  keepHerColors: boolean;
+  setKeepHerColors: (v: boolean) => void;
 
   // ---- lightbox ----
   // Two open-modes:
@@ -622,6 +630,8 @@ export const useCanvas = create<CanvasState>((set) => ({
   setAspectRatioMode: (aspectRatioMode) => set({ aspectRatioMode }),
   setPreset: (preset) =>
     set({ presets: preset === null ? [] : [preset] }),
+  keepHerColors: false,
+  setKeepHerColors: (keepHerColors) => set({ keepHerColors }),
   togglePreset: (preset) =>
     set((s) => ({
       presets: s.presets.includes(preset)

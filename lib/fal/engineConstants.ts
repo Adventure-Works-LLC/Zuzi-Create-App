@@ -49,3 +49,16 @@ export const FAL_STYLE_EXPLORE_DIRECTIVE =
  */
 export const FAL_STYLE_EXPLORE_KEEP_COLORS_DIRECTIVE =
   "Take the character, composition, and color palette from image 1. Take ONLY the painted texture, brushwork, and surface treatment from image 2 — not its colors. Render image 1 as a completed painting with image 2's paint handling, preserving image 1's exact character design, shapes, and colors. Do not reuse any subject, content, or colors from image 2; it is a texture reference only.";
+
+/**
+ * v5.7 "Loose" variants — subtractive per Jeff's spec: the preserving-
+ * clause is deleted, nothing added. The anti-borrow sentence STAYS —
+ * it's theft protection (the lab's documented failure mode is the
+ * reference's subject walking into the output), not drawing rigidity.
+ * Canary-locked.
+ */
+export const FAL_STYLE_EXPLORE_LOOSE_DIRECTIVE =
+  "Take the character and composition from image 1. Take the painting style, brushwork, and color palette from image 2. Render image 1 as a completed painting in image 2's style. Do not reuse any subject or content from image 2; it is a style reference only.";
+
+export const FAL_STYLE_EXPLORE_LOOSE_KEEP_COLORS_DIRECTIVE =
+  "Take the character, composition, and color palette from image 1. Take ONLY the painted texture, brushwork, and surface treatment from image 2 — not its colors. Render image 1 as a completed painting with image 2's paint handling. Do not reuse any subject, content, or colors from image 2; it is a texture reference only.";

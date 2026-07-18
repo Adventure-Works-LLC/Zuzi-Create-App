@@ -66,6 +66,8 @@ interface IterationResponseRow {
   /** v5.6: Style Explore "Her colors" switch state. Absent from
    *  pre-v5.6 responses → false. */
   keepSourceColors?: boolean;
+  /** v5.7: Style Explore "Loose" switch state. */
+  loose?: boolean;
   status: Iteration["status"];
   createdAt: number;
   completedAt: number | null;
@@ -121,6 +123,7 @@ function rowToIteration(r: IterationResponseRow): Iteration {
     blendTileIds: r.blendTileIds ?? [],
     varyStrength: r.varyStrength ?? null,
     keepSourceColors: r.keepSourceColors ?? false,
+    loose: r.loose ?? false,
     status: r.status,
     createdAt: r.createdAt,
     tiles: r.tiles.map((t) => ({
@@ -200,6 +203,10 @@ export interface GenerateOptions {
    *  texture only from the reference). Server rejects true outside
    *  style_explore mode. */
   keepSourceColors?: boolean;
+  /** v5.7 style_explore: "Loose" switch — true selects the subtractive
+   *  loose directive variant. Server rejects true outside
+   *  style_explore mode. */
+  loose?: boolean;
 }
 
 export interface RecoverIterationResult {
@@ -365,10 +372,11 @@ export function useIterations(): UseIterationsResult {
     // (matches the server default). Null for every other mode.
     const varyStrength: VaryStrength | null =
       mode === "sketch_vary" ? (opts?.varyStrength ?? 0.45) : null;
-    // v5.6: "Her colors" switch — meaningful only on style_explore
-    // (server rejects true elsewhere).
+    // v5.6/v5.7: switches — meaningful only on style_explore (server
+    // rejects true elsewhere).
     const keepSourceColors =
       mode === "style_explore" && (opts?.keepSourceColors ?? false);
+    const loose = mode === "style_explore" && (opts?.loose ?? false);
     // Per-call tier / resolution overrides (ExploreSheet uses its own
     // Flash-default toggle rather than the InputBar's Pro-default). Falls
     // back to the store's values so the InputBar Generate path is
@@ -424,6 +432,7 @@ export function useIterations(): UseIterationsResult {
           : [],
       varyStrength,
       keepSourceColors,
+      loose,
       status: "pending",
       createdAt: now,
       tiles: Array.from({ length: effectiveCount }, (_, idx) => ({
@@ -522,9 +531,11 @@ export function useIterations(): UseIterationsResult {
             ? {
                 mode,
                 stylePaintingIds,
-                // v5.6: only sent when ON — absent means the original
-                // directive, keeping pre-v5.6 request logs identical.
+                // v5.6/v5.7: only sent when ON — absent means the
+                // original directives, keeping older request logs
+                // identical.
                 ...(keepSourceColors ? { keepSourceColors: true } : {}),
+                ...(loose ? { loose: true } : {}),
               }
             : mode === "style_blend" && blendTileIds
               ? { mode, blendTileIds }
@@ -562,6 +573,7 @@ export function useIterations(): UseIterationsResult {
         // idempotent replay.
         varyStrength?: number | null;
         keepSourceColors?: boolean;
+        loose?: boolean;
         error?: string;
         detail?: string;
         currentUsd?: number;
@@ -629,11 +641,13 @@ export function useIterations(): UseIterationsResult {
         : mode === "style_blend" && blendTileIds
           ? [...blendTileIds]
           : [];
-      // v5.6: replay echo of the original row's "Her colors" state.
+      // v5.6/v5.7: replay echoes of the original row's switch states.
       const canonicalKeepSourceColors =
         typeof data.keepSourceColors === "boolean"
           ? data.keepSourceColors
           : keepSourceColors;
+      const canonicalLoose =
+        typeof data.loose === "boolean" ? data.loose : loose;
 
       // Swap optimistic id → canonical id, and resize the tile array if the
       // echoed count differs. SSE will replace each tile's synthetic id with
@@ -650,6 +664,7 @@ export function useIterations(): UseIterationsResult {
                 blendTileIds: canonicalBlendStyleIds,
                 varyStrength: canonicalVaryStrength,
                 keepSourceColors: canonicalKeepSourceColors,
+                loose: canonicalLoose,
                 tiles: Array.from({ length: canonicalCount }, (_, idx) => {
                   const existing = it.tiles[idx];
                   return existing

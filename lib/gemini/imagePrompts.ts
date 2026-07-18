@@ -520,22 +520,48 @@ export const STYLE_EXPLORE_KEEP_COLORS_DIRECTIVE =
   "keep the character design and the exact color palette from image one, but show a completed work using the painted texture, brushwork, and surface of image 2. do not take colors from image 2 — only its texture and paint handling. keep the exact character style and shape.";
 
 /**
+ * v5.7 "Loose" variant — Jeff's spec, deliberately SUBTRACTIVE: the
+ * locked original with the two preservation clauses ("keep the
+ * character design exactly as is", "keep the exact character style
+ * and shape") deleted and NOTHING added. The model gets latitude to
+ * alter her drawing; image one remains the subject source by
+ * construction. Canary-locked.
+ */
+export const STYLE_EXPLORE_LOOSE_DIRECTIVE =
+  "show a completed work from image one in the completed style of image 2.";
+
+/**
+ * v5.7 Loose × Her-colors combo — the keep-colors variant minus its
+ * character-preservation clauses (palette clause stays; that's the
+ * switch's whole job). Canary-locked.
+ */
+export const STYLE_EXPLORE_LOOSE_KEEP_COLORS_DIRECTIVE =
+  "keep the exact color palette from image one, and show a completed work using the painted texture, brushwork, and surface of image 2. do not take colors from image 2 — only its texture and paint handling.";
+
+/**
  * Render the full style_explore prompt with the aspect-ratio sentence
  * appended per AGENTS.md §3 (the sketch's snapped aspect drives the call
  * — not the style painting's, since the sketch is the canvas being
  * completed). The same builder is reused by smoke-style.ts so the two
  * paths produce byte-identical prompts for the same inputs.
  *
- * `keepSourceColors` (v5.6) selects the "Her colors" variant; default
- * false preserves every historical call site byte-for-byte.
+ * `keepSourceColors` (v5.6) selects the "Her colors" variant;
+ * `loose` (v5.7) selects the preservation-clauses-deleted variant.
+ * Both default false, preserving every historical call site
+ * byte-for-byte. The two flags compose into a 4-way directive select.
  */
 export function buildStyleExplorePrompt(
   aspectRatio: string,
   keepSourceColors = false,
+  loose = false,
 ): string {
-  const directive = keepSourceColors
-    ? STYLE_EXPLORE_KEEP_COLORS_DIRECTIVE
-    : STYLE_EXPLORE_DIRECTIVE;
+  const directive = loose
+    ? keepSourceColors
+      ? STYLE_EXPLORE_LOOSE_KEEP_COLORS_DIRECTIVE
+      : STYLE_EXPLORE_LOOSE_DIRECTIVE
+    : keepSourceColors
+      ? STYLE_EXPLORE_KEEP_COLORS_DIRECTIVE
+      : STYLE_EXPLORE_DIRECTIVE;
   return `${directive}\n\nMatch the input aspect ratio exactly (${aspectRatio}).`;
 }
 

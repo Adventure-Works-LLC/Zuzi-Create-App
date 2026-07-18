@@ -103,6 +103,12 @@ CREATE TABLE iterations (
                                                       -- texture only from the reference). 0 = the
                                                       -- original directive + all pre-v5.6 rows.
                                                       -- Only meaningful when mode='style_explore'.
+  loose              INTEGER NOT NULL DEFAULT 0,      -- v5.7 (migration 0012): Style Explore "Loose"
+                                                      -- switch. 1 = subtractive loose directive
+                                                      -- (preservation clauses deleted; the model may
+                                                      -- alter her drawing). Composes with
+                                                      -- keep_source_colors (4-way directive select).
+                                                      -- Only meaningful when mode='style_explore'.
   parent_tile_id     TEXT REFERENCES tiles(id),       -- See note on FK enforcement below. Populated on
                                                       -- prompt-mode iterations spawned from a
                                                       -- style_explore tile via the lightbox's "Iterate

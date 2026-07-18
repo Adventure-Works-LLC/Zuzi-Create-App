@@ -195,6 +195,15 @@ export const iterations = sqliteTable(
      * mode='style_explore'; always 0 elsewhere (route-enforced).
      */
     keep_source_colors: integer("keep_source_colors").notNull().default(0),
+    /**
+     * v5.7 Style Explore "Loose" switch. 1 = the subtractive loose
+     * directive variant ran (preservation clauses deleted — the model
+     * may alter her drawing); 0 = the preserving directives (default,
+     * all pre-v5.7 rows). Composes with keep_source_colors into a
+     * 4-way directive select. Only meaningful when
+     * mode='style_explore'; always 0 elsewhere (route-enforced).
+     */
+    loose: integer("loose").notNull().default(0),
     parent_tile_id: text("parent_tile_id").references(
       (): import("drizzle-orm/sqlite-core").AnySQLiteColumn => tiles.id,
       { onDelete: "set null" },

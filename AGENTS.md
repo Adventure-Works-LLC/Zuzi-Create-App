@@ -832,6 +832,22 @@ character style and shape.
 > the closed prompt-tuning verdict in the session memory applies to
 > the OFF directive — the ON variant is a distinct user-requested
 > operation, not a re-tuning). All four directives canary-locked.
+>
+> **v5.7 "Loose" switch.** Second global pill beside "Her colors" (both
+> moved to the InputBar next to Match/Flip in v5.6.2; state in the
+> canvas store, read at fire time by card-taps, sheet batches, and
+> "More like this"). ON deletes the preservation clauses from whichever
+> directive is active — SUBTRACTIVE by explicit spec (Jeff: don't add
+> "stay close" language, just remove the keep-exactly wording). The fal
+> loose variants RETAIN the anti-borrow sentence (theft protection —
+> the documented failure mode where the reference's subject replaces
+> hers — is not a preservation clause). The two switches compose into a
+> 4-way directive select per engine family
+> (`buildStyleExplorePrompt(aspect, keepSourceColors, loose)` /
+> the FAL_*_LOOSE_* constants); `iterations.loose` (migration 0012)
+> persists it; captions append "· loose". Eight locked directives
+> total, all canary-guarded, including negative canaries asserting the
+> loose variants contain NO character-preservation wording.
 
 Lives in `lib/gemini/imagePrompts.ts` as `STYLE_EXPLORE_DIRECTIVE`.
 Byte-locked from Jeff's Krea validation against character work

@@ -77,7 +77,7 @@ import {
   X,
 } from "lucide-react";
 
-import { HerColorsPill } from "./HerColorsPill";
+import { HerColorsPill, LoosePill } from "./HerColorsPill";
 import { useSources } from "@/hooks/useSources";
 import { useIterations } from "@/hooks/useIterations";
 import { useImageUrl } from "@/hooks/useImageUrl";
@@ -825,12 +825,13 @@ export function InputBar() {
                 onChange={setAspectRatioMode}
                 ariaLabel="Aspect"
               />
-              {/* v5.6.2: "Her colors" — global switch for the style
-                  runs (Explore card-taps + batches + More-like-this).
-                  Lives here per Jeff so it's set alongside the other
-                  dials before opening any panel, same pattern as the
-                  tier toggle. */}
+              {/* v5.6.2/v5.7: "Her colors" + "Loose" — global switches
+                  for the style runs (Explore card-taps + batches +
+                  More-like-this). They live here per Jeff so they're
+                  set alongside the other dials before opening any
+                  panel, same pattern as the tier toggle. */}
               <HerColorsPill />
+              <LoosePill />
               <CountStepper count={count} setCount={setCount} />
               <span className="text-xs text-text-mute tabular-nums">
                 ${projectedCost.toFixed(2)}{" "}

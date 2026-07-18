@@ -573,10 +573,11 @@ export function StylesPanel() {
       const result = await generate({
         mode: "style_explore",
         stylePaintingIds: ids,
-        // v5.6.2: the global "Her colors" switch (InputBar) applies to
-        // card-tap fires too — read at fire time, same pattern as the
-        // tier inheriting from the store.
+        // v5.6.2/v5.7: the global switches (InputBar) apply to card-tap
+        // fires too — read at fire time, same pattern as the tier
+        // inheriting from the store.
         keepSourceColors: useCanvas.getState().keepHerColors,
+        loose: useCanvas.getState().looseMode,
       });
       if (!result) {
         // generate() set its own error string in useIterations; throw

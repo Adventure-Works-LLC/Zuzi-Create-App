@@ -1,0 +1,1 @@
+ALTER TABLE `iterations` ADD `loose` integer DEFAULT 0 NOT NULL;

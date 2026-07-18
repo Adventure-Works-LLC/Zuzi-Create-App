@@ -127,10 +127,11 @@ export function ExploreSheet() {
 
   // Local Idle-state UI. See v2.2 docstring rationale.
   const [modelTier, setModelTier] = useState<ModelTier>("flash");
-  // v5.6.2 "Her colors" — reads the GLOBAL switch (InputBar, next to
-  // the Aspect pill; canvas store). ON keeps the sketch's palette and
-  // takes only texture/brushwork from the reference.
+  // v5.6.2/v5.7 — the GLOBAL switches (InputBar, next to the Aspect
+  // pill; canvas store). "Her colors" keeps the sketch's palette;
+  // "Loose" lifts the preservation clauses.
   const keepHerColors = useCanvas((s) => s.keepHerColors);
+  const looseMode = useCanvas((s) => s.looseMode);
   const [batchChoice, setBatchChoice] = useState<BatchChoice>(9);
   const [state, setState] = useState<SheetState>("idle");
   const [startError, setStartError] = useState<string | null>(null);
@@ -267,6 +268,7 @@ export function ExploreSheet() {
           modelTier,
           resolution: "1k",
           keepSourceColors: keepHerColors,
+          loose: looseMode,
         });
         if (!result) {
           // v4.6: null now means a NON-cap failure (generate rethrows
@@ -303,7 +305,7 @@ export function ExploreSheet() {
         setBatchInFlight(false);
       }
     },
-    [generate, modelTier, keepHerColors],
+    [generate, modelTier, keepHerColors, looseMode],
   );
 
   // ---- lifecycle effects ----------------------------------------------

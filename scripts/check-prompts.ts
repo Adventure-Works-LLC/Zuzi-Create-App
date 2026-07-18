@@ -72,6 +72,8 @@ import {
 import {
   FAL_STYLE_EXPLORE_DIRECTIVE,
   FAL_STYLE_EXPLORE_KEEP_COLORS_DIRECTIVE,
+  FAL_STYLE_EXPLORE_LOOSE_DIRECTIVE,
+  FAL_STYLE_EXPLORE_LOOSE_KEEP_COLORS_DIRECTIVE,
 } from "../lib/fal/engineConstants";
 import { PRESETS, type Preset } from "../lib/db/schema";
 
@@ -252,6 +254,64 @@ if (buildStyleExplorePrompt("4:5", false) !== styleExplore) {
     "buildStyleExplorePrompt(aspect, false) must stay byte-identical to the original path",
   );
 }
+// v5.7 "Loose" variants — subtractive locks. Four checks:
+//   1. loose opener (no preservation clauses, image-one anchoring)
+//   2. loose contains NO "keep the character" wording (subtraction is
+//      the spec — additive drift fails the build)
+//   3. loose×her-colors keeps the palette clause + drops character
+//      clauses
+//   4. fal loose retains the anti-borrow sentence (theft protection is
+//      deliberate and load-bearing)
+const styleExploreLoose = buildStyleExplorePrompt("4:5", false, true);
+if (
+  !styleExploreLoose.startsWith(
+    "show a completed work from image one in the completed style of image 2.",
+  )
+) {
+  fail(
+    "[style_explore_loose]",
+    "STYLE_EXPLORE_LOOSE_DIRECTIVE regressed (subtractive opener canary missing)",
+  );
+}
+if (/keep the (exact )?character/i.test(styleExploreLoose)) {
+  fail(
+    "[style_explore_loose]",
+    "loose variant re-grew a character-preservation clause — the spec is subtractive",
+  );
+}
+const styleExploreLooseKeep = buildStyleExplorePrompt("4:5", true, true);
+if (
+  !styleExploreLooseKeep.includes("keep the exact color palette from image one") ||
+  /keep the (exact )?character/i.test(styleExploreLooseKeep)
+) {
+  fail(
+    "[style_explore_loose_keep]",
+    "loose×her-colors variant must keep the palette clause and drop the character clauses",
+  );
+}
+if (
+  !FAL_STYLE_EXPLORE_LOOSE_DIRECTIVE.includes(
+    "Do not reuse any subject or content from image 2",
+  ) ||
+  FAL_STYLE_EXPLORE_LOOSE_DIRECTIVE.includes("preserving image 1's exact")
+) {
+  fail(
+    "[fal_style_explore_loose]",
+    "fal loose variant must retain the anti-borrow sentence and drop the preserving clause",
+  );
+}
+if (
+  !FAL_STYLE_EXPLORE_LOOSE_KEEP_COLORS_DIRECTIVE.includes(
+    "it is a texture reference only",
+  ) ||
+  FAL_STYLE_EXPLORE_LOOSE_KEEP_COLORS_DIRECTIVE.includes("preserving image 1's exact")
+) {
+  fail(
+    "[fal_style_explore_loose_keep]",
+    "fal loose×her-colors variant must retain texture-only + drop the preserving clause",
+  );
+}
+
 // fal-engine keep-colors variant: opener + texture-only clause.
 if (
   !FAL_STYLE_EXPLORE_KEEP_COLORS_DIRECTIVE.startsWith(
@@ -453,5 +513,5 @@ if (failures.length > 0) {
 }
 
 console.log(
-  `[check-prompts] ok — ${totalRenders} prompt renders across ${combos.length} preset combos × ${RATIOS.length} aspect ratios + 43 canary checks all green.`,
+  `[check-prompts] ok — ${totalRenders} prompt renders across ${combos.length} preset combos × ${RATIOS.length} aspect ratios + 49 canary checks all green.`,
 );

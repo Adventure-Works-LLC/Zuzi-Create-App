@@ -750,11 +750,13 @@ export function Lightbox() {
       const result = await generate({
         mode: "style_explore",
         stylePaintingIds: Array(TILE_COUNT_DEFAULT).fill(view.stylePaintingId),
-        // v5.6.2: the GLOBAL switch wins (one visible dial, one rule)
-        // — seed-inheritance was replaced when the switch moved to the
-        // InputBar; the row caption tells her which variant any old
-        // favorite used if she wants to match it manually.
+        // v5.6.2/v5.7: the GLOBAL switches win (one visible dial set,
+        // one rule) — seed-inheritance was replaced when the switches
+        // moved to the InputBar; the row caption tells her which
+        // variant any old favorite used if she wants to match it
+        // manually.
         keepSourceColors: useCanvas.getState().keepHerColors,
+        loose: useCanvas.getState().looseMode,
       });
       if (!result) {
         setActionError(

@@ -203,6 +203,10 @@ export interface Iteration {
    *  True = palette from the sketch, texture only from the reference.
    *  Always false for non-explore modes + pre-v5.6 rows. */
   keepSourceColors: boolean;
+  /** v5.7: Style Explore "Loose" switch state at generation time.
+   *  True = subtractive loose directive (model may alter her drawing).
+   *  Always false for non-explore modes + pre-v5.7 rows. */
+  loose: boolean;
   status: IterationStatus;
   createdAt: number;
   tiles: Tile[];
@@ -303,6 +307,11 @@ interface CanvasState {
    *  texture only). */
   keepHerColors: boolean;
   setKeepHerColors: (v: boolean) => void;
+  /** v5.7: the "Loose" switch — same global/session-sticky pattern as
+   *  keepHerColors; shown beside it in the InputBar. ON = the
+   *  subtractive loose directive (preservation clauses deleted). */
+  looseMode: boolean;
+  setLooseMode: (v: boolean) => void;
 
   // ---- lightbox ----
   // Two open-modes:
@@ -632,6 +641,8 @@ export const useCanvas = create<CanvasState>((set) => ({
     set({ presets: preset === null ? [] : [preset] }),
   keepHerColors: false,
   setKeepHerColors: (keepHerColors) => set({ keepHerColors }),
+  looseMode: false,
+  setLooseMode: (looseMode) => set({ looseMode }),
   togglePreset: (preset) =>
     set((s) => ({
       presets: s.presets.includes(preset)

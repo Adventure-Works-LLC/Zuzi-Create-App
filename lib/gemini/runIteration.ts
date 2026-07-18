@@ -155,6 +155,43 @@ function tryRecoveryHydrate(
 }
 
 /**
+ * v5.8.2 reference-copy guard. Production occasionally emitted the
+ * STYLE REFERENCE painting verbatim as a style_explore output (~9% of
+ * default-directive tiles in the July 18 similarity scan). The prompt
+ * now carries an anti-copy sentence, but temp-1.0 draws can ignore
+ * wording — this is the deterministic backstop: 32×32 grayscale RMS
+ * distance of the output to the reference vs to the sketch. Thresholds
+ * from the scan: observed copies scored 16–32 against the reference;
+ * legitimate restyles 35+. Verdict rule matches the scan exactly
+ * (near the reference AND much nearer to it than to the sketch).
+ * On detection the tile runner retries ONCE; a second copy fails the
+ * tile honestly. This is an objective invalid-output detector, not
+ * aesthetic re-rolling — the no-re-roll doctrine governs taste, not
+ * defects.
+ */
+async function isReferenceCopy(
+  outputBytes: Buffer | Uint8Array,
+  styleRefB64: string,
+  sketchB64: string,
+): Promise<boolean> {
+  const gray = (b: Buffer | Uint8Array) =>
+    sharp(b).resize(32, 32, { fit: "fill" }).grayscale().raw().toBuffer();
+  const [out, ref, sketch] = await Promise.all([
+    gray(outputBytes),
+    gray(Buffer.from(styleRefB64, "base64")),
+    gray(Buffer.from(sketchB64, "base64")),
+  ]);
+  const dist = (a: Buffer, b: Buffer) => {
+    let s = 0;
+    for (let i = 0; i < a.length; i++) s += (a[i] - b[i]) ** 2;
+    return Math.sqrt(s / a.length);
+  };
+  const dRef = dist(out, ref);
+  const dSketch = dist(out, sketch);
+  return dRef < 45 && dRef < dSketch * 0.7;
+}
+
+/**
  * Persist a finished generation: normalize to jpeg, derive the webp
  * thumb, put both to R2, append the recovery row (AFTER R2 success,
  * BEFORE the DB update — the crash-recoverable window), update the tile
@@ -265,6 +302,10 @@ async function runOneTile(
   imageSize: string,
   promptText: string,
   recoveryHit: { r2_key: string; thumb_key?: string } | undefined,
+  /** v5.8.2: when set (style_explore tiles), each draw is checked
+   *  against the reference; a detected copy earns ONE fresh draw, and
+   *  a second copy fails the tile honestly. */
+  copyGuard?: { styleRefB64: string; sketchB64: string },
 ): Promise<TileRunResult> {
   // If recovery has bytes for this tile, hydrate without calling Gemini.
   if (tryRecoveryHydrate(iterationId, tileId, idx, recoveryHit)) {
@@ -286,27 +327,41 @@ async function runOneTile(
     }));
     parts.push({ text: promptText });
 
-    const resp = await callWithRetry(
-      () =>
-        genai().models.generateContent({
-          model: modelId,
-          contents: [
-            {
-              role: "user",
-              parts,
-            },
-          ],
-          // `imageSize` was missing previously: requesting `resolution: "4k"`
-          // billed at $0.24/img but Gemini defaulted to 1K output. SDK accepts
-          // "1K" | "2K" | "4K" (uppercase) per @google/genai's ImageConfig
-          // type; we send "1K" or "4K" depending on the per-iteration toggle.
-          config: { imageConfig: { aspectRatio, imageSize } },
-        }),
-      { label: `iter ${iterationId}#${idx}` },
-    );
+    const drawOnce = async (): Promise<Uint8Array> => {
+      const resp = await callWithRetry(
+        () =>
+          genai().models.generateContent({
+            model: modelId,
+            contents: [
+              {
+                role: "user",
+                parts,
+              },
+            ],
+            // `imageSize` was missing previously: requesting `resolution: "4k"`
+            // billed at $0.24/img but Gemini defaulted to 1K output. SDK accepts
+            // "1K" | "2K" | "4K" (uppercase) per @google/genai's ImageConfig
+            // type; we send "1K" or "4K" depending on the per-iteration toggle.
+            config: { imageConfig: { aspectRatio, imageSize } },
+          }),
+        { label: `iter ${iterationId}#${idx}` },
+      );
+      return extractImageBytes(resp).bytes;
+    };
 
-    const extracted = extractImageBytes(resp);
-    await persistTileOutput(iterationId, tileId, idx, extracted.bytes);
+    let bytes = await drawOnce();
+    if (copyGuard && (await isReferenceCopy(bytes, copyGuard.styleRefB64, copyGuard.sketchB64))) {
+      console.warn(
+        `[runIteration ${iterationId} #${idx}] output ≈ style reference (copy defect) — retrying once`,
+      );
+      bytes = await drawOnce();
+      if (await isReferenceCopy(bytes, copyGuard.styleRefB64, copyGuard.sketchB64)) {
+        throw new Error(
+          "the model returned the style reference itself instead of a new painting (twice) — try this style again",
+        );
+      }
+    }
+    await persistTileOutput(iterationId, tileId, idx, bytes);
     return { idx, ok: true, blocked: false };
   } catch (e) {
     const status = markTileError(iterationId, tileId, idx, e);
@@ -329,18 +384,33 @@ async function runOneFalEngineTile(
   promptText: string,
   size: { width: number; height: number },
   recoveryHit: { r2_key: string; thumb_key?: string } | undefined,
+  /** v5.8.2: same copy guard as runOneTile — see isReferenceCopy. */
+  copyGuard?: { styleRefB64: string; sketchB64: string },
 ): Promise<TileRunResult> {
   if (tryRecoveryHydrate(iterationId, tileId, idx, recoveryHit)) {
     return { idx, ok: true, blocked: false };
   }
   try {
-    const bytes = await generateFalEngineImage(
-      tier,
-      imageBase64s,
-      promptText,
-      size,
-      `iter ${iterationId}#${idx}`,
-    );
+    const drawOnce = () =>
+      generateFalEngineImage(
+        tier,
+        imageBase64s,
+        promptText,
+        size,
+        `iter ${iterationId}#${idx}`,
+      );
+    let bytes = await drawOnce();
+    if (copyGuard && (await isReferenceCopy(bytes, copyGuard.styleRefB64, copyGuard.sketchB64))) {
+      console.warn(
+        `[runIteration ${iterationId} #${idx}] fal output ≈ style reference (copy defect) — retrying once`,
+      );
+      bytes = await drawOnce();
+      if (await isReferenceCopy(bytes, copyGuard.styleRefB64, copyGuard.sketchB64)) {
+        throw new Error(
+          "the model returned the style reference itself instead of a new painting (twice) — try this style again",
+        );
+      }
+    }
     await persistTileOutput(iterationId, tileId, idx, bytes);
     return { idx, ok: true, blocked: false };
   } catch (e) {
@@ -765,6 +835,15 @@ export async function runIteration(iterationId: string): Promise<void> {
             : null;
           imageBase64s = styleB64 ? [sketchB64, styleB64] : [sketchB64];
         }
+        // v5.8.2: reference-copy guard for style_explore tiles — the
+        // pair [sketch, styleRef] is exactly imageBase64s in that
+        // order (composition contract above). Only explore tiles get
+        // the guard: prompt-handoff tiles legitimately hug the style,
+        // and blend tiles have no single reference semantics.
+        const copyGuard =
+          iter.mode === "style_explore" && imageBase64s.length === 2
+            ? { sketchB64: imageBase64s[0], styleRefB64: imageBase64s[1] }
+            : undefined;
         // v5.4: Max/Seedream tiles run on fal with the same ordered
         // image composition + the (possibly engine-specific) prompt.
         // Output size honors §3 via explicit pixels.
@@ -778,6 +857,7 @@ export async function runIteration(iterationId: string): Promise<void> {
             promptText,
             falImageSize(aspectRatio, iter.resolution),
             recoveryHits.get(t.idx),
+            copyGuard,
           ).catch((e): TileRunResult => {
             console.error(
               `[runIteration ${iterationId}] unhandled in ${falEngineTier} tile ${t.idx}:`,
@@ -796,6 +876,7 @@ export async function runIteration(iterationId: string): Promise<void> {
           imageSize,
           promptText,
           recoveryHits.get(t.idx),
+          copyGuard,
         ).catch((e): TileRunResult => {
           // Defensive: runOneTile already swallows its own errors. This is for the
           // truly unexpected (e.g., the catch handler itself throwing).

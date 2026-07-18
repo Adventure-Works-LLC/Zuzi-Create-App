@@ -519,7 +519,7 @@ The result should look like the same painting after she made one focused backgro
  * call sites.
  */
 export const STYLE_EXPLORE_DIRECTIVE =
-  "keep the character design exactly as is from image one but show a completed work in the completed style of image 2. keep the exact character style and shape.";
+  "keep the character design exactly as is from image one but show a completed work in the completed style of image 2. keep the exact character style and shape. never return image 2 itself as the result — the completed work must always show image one's character.";
 
 /**
  * v5.6 "Her colors" variant — the ExploreSheet's keep-source-colors
@@ -531,7 +531,7 @@ export const STYLE_EXPLORE_DIRECTIVE =
  * scripts/check-prompts.ts.
  */
 export const STYLE_EXPLORE_KEEP_COLORS_DIRECTIVE =
-  "keep the character design and the exact color palette from image one, but show a completed work using the painted texture, brushwork, and surface of image 2. do not take colors from image 2 — only its texture and paint handling. keep the exact character style and shape.";
+  "keep the character design and the exact color palette from image one, but show a completed work using the painted texture, brushwork, and surface of image 2. do not take colors from image 2 — only its texture and paint handling. keep the exact character style and shape. never return image 2 itself as the result — the completed work must always show image one's character.";
 
 /**
  * v5.7 "Loose" variant — Jeff's spec, deliberately SUBTRACTIVE: the

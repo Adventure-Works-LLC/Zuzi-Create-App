@@ -223,6 +223,19 @@ if (!styleExplore.includes(STYLE_EXPLORE_DIRECTIVE)) {
 if (!styleExplore.includes("Match the input aspect ratio exactly (4:5)")) {
   fail("[style_explore]", "buildStyleExplorePrompt dropped the aspect-ratio sentence");
 }
+// v5.8.2 anti-copy guard: production emitted the STYLE REFERENCE
+// verbatim as the output ~9% of the time on the default directive
+// (July 18 similarity scan — 3 of 33 default-directive tiles).
+// The preserving variants must carry the never-return-image-2 sentence;
+// the loose + fal variants carry their own anti-borrow guards.
+for (const [label, text] of [
+  ["style_explore", styleExplore],
+  ["style_explore_keep", buildStyleExplorePrompt("4:5", true)],
+] as const) {
+  if (!text.includes("never return image 2 itself as the result")) {
+    fail(`[${label}]`, "anti-copy guard sentence missing (reference-verbatim output defect)");
+  }
+}
 
 // v5.6 "Her colors" variant — the keep-source-colors directive. Locks:
 //   1. the opener (palette-from-image-one framing)
@@ -541,5 +554,5 @@ if (failures.length > 0) {
 }
 
 console.log(
-  `[check-prompts] ok — ${totalRenders} prompt renders across ${combos.length} preset combos × ${RATIOS.length} aspect ratios + 55 canary checks all green.`,
+  `[check-prompts] ok — ${totalRenders} prompt renders across ${combos.length} preset combos × ${RATIOS.length} aspect ratios + 57 canary checks all green.`,
 );

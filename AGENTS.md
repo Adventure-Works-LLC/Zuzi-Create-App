@@ -832,8 +832,24 @@ references** — or the FK's default NO ACTION will block the delete.
 ```
 keep the character design exactly as is from image one but show a
 completed work in the completed style of image 2. keep the exact
-character style and shape.
+character style and shape. never return image 2 itself as the result
+— the completed work must always show image one's character.
 ```
+
+> **v5.8.2 anti-copy guard (belt + suspenders).** Production emitted
+> the style REFERENCE verbatim as the output on ~9% of default-
+> directive draws (July 18 similarity scan; reproduced live). Belt:
+> the third sentence above (+ the same sentence on the keep-colors
+> variant; the loose + fal variants carry their own anti-borrow
+> clauses). Suspenders: `isReferenceCopy` in runIteration.ts — a
+> 32×32 grayscale RMS check of every style_explore output against
+> [reference, sketch]; a detected copy earns ONE fresh draw, a second
+> copy fails the tile with an honest message. Thresholds from the
+> field scan (copies 16–32 vs reference; legit restyles 35+; rule:
+> dRef < 45 AND dRef < 0.7·dSketch). This is an objective invalid-
+> output detector — the no-re-roll doctrine governs taste, not
+> defects. Prompt-handoff and blend tiles are exempt (hugging the
+> style is legitimate there).
 
 > **v5.6 "Her colors" switch.** The ExploreSheet's idle footer has a
 > per-session toggle (default OFF). ON runs a SECOND locked directive

@@ -97,6 +97,12 @@ CREATE TABLE iterations (
                                                       -- 0.60 medium | 0.75 wild). NULL for every other
                                                       -- mode. Persisted so boot-time recovery replays
                                                       -- fire the identical fal call.
+  keep_source_colors INTEGER NOT NULL DEFAULT 0,      -- v5.6 (migration 0011): Style Explore "Her
+                                                      -- colors" switch. 1 = keep-source-colors
+                                                      -- directive variant (palette from the sketch,
+                                                      -- texture only from the reference). 0 = the
+                                                      -- original directive + all pre-v5.6 rows.
+                                                      -- Only meaningful when mode='style_explore'.
   parent_tile_id     TEXT REFERENCES tiles(id),       -- See note on FK enforcement below. Populated on
                                                       -- prompt-mode iterations spawned from a
                                                       -- style_explore tile via the lightbox's "Iterate

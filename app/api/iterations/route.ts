@@ -90,6 +90,9 @@ export async function GET(req: Request): Promise<Response> {
         // organically-generated iterations).
         mode: it.mode,
         parentTileId: it.parent_tile_id,
+        // v5.6: "Her colors" switch state — IterationRow captions it and
+        // the Lightbox's "More like this" inherits it from the seed row.
+        keepSourceColors: it.keep_source_colors === 1,
         // v3.0 style_blend: parse the JSON column into a string[]. Empty
         // array for every non-blend iteration. The client uses this to
         // render attribution chips on blend tiles (per-iteration; every

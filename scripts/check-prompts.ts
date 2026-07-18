@@ -62,13 +62,17 @@ import {
   buildStyleExplorePrompt,
   STYLE_BLEND_DIRECTIVE,
   STYLE_EXPLORE_DIRECTIVE,
+  STYLE_EXPLORE_KEEP_COLORS_DIRECTIVE,
 } from "../lib/gemini/imagePrompts";
 import {
   VARY_PROMPT,
   VARY_STRENGTHS,
   varyStrengthLabel,
 } from "../lib/fal/varyConstants";
-import { FAL_STYLE_EXPLORE_DIRECTIVE } from "../lib/fal/engineConstants";
+import {
+  FAL_STYLE_EXPLORE_DIRECTIVE,
+  FAL_STYLE_EXPLORE_KEEP_COLORS_DIRECTIVE,
+} from "../lib/fal/engineConstants";
 import { PRESETS, type Preset } from "../lib/db/schema";
 
 const RATIOS = ["1:1", "4:5", "16:9", "9:16"] as const;
@@ -205,6 +209,69 @@ if (!styleExplore.includes(STYLE_EXPLORE_DIRECTIVE)) {
 }
 if (!styleExplore.includes("Match the input aspect ratio exactly (4:5)")) {
   fail("[style_explore]", "buildStyleExplorePrompt dropped the aspect-ratio sentence");
+}
+
+// v5.6 "Her colors" variant — the keep-source-colors directive. Locks:
+//   1. the opener (palette-from-image-one framing)
+//   2. the anti-color-import clause ("do not take colors from image 2")
+//   3. buildStyleExplorePrompt(aspect, true) emits the variant + the
+//      aspect sentence, while (aspect, false) stays byte-identical to
+//      the original locked directive path above.
+const styleExploreKeep = buildStyleExplorePrompt("4:5", true);
+if (
+  !styleExploreKeep.startsWith(
+    "keep the character design and the exact color palette from image one",
+  )
+) {
+  fail(
+    "[style_explore_keep_colors]",
+    "STYLE_EXPLORE_KEEP_COLORS_DIRECTIVE regressed (opener canary missing)",
+  );
+}
+if (!styleExploreKeep.includes("do not take colors from image 2")) {
+  fail(
+    "[style_explore_keep_colors]",
+    "STYLE_EXPLORE_KEEP_COLORS_DIRECTIVE lost the anti-color-import clause",
+  );
+}
+if (!styleExploreKeep.includes(STYLE_EXPLORE_KEEP_COLORS_DIRECTIVE)) {
+  fail(
+    "[style_explore_keep_colors]",
+    "buildStyleExplorePrompt(aspect, true) no longer emits the keep-colors constant",
+  );
+}
+if (!styleExploreKeep.includes("Match the input aspect ratio exactly (4:5)")) {
+  fail(
+    "[style_explore_keep_colors]",
+    "keep-colors variant dropped the aspect-ratio sentence",
+  );
+}
+if (buildStyleExplorePrompt("4:5", false) !== styleExplore) {
+  fail(
+    "[style_explore_keep_colors]",
+    "buildStyleExplorePrompt(aspect, false) must stay byte-identical to the original path",
+  );
+}
+// fal-engine keep-colors variant: opener + texture-only clause.
+if (
+  !FAL_STYLE_EXPLORE_KEEP_COLORS_DIRECTIVE.startsWith(
+    "Take the character, composition, and color palette from image 1",
+  )
+) {
+  fail(
+    "[fal_style_explore_keep_colors]",
+    "FAL_STYLE_EXPLORE_KEEP_COLORS_DIRECTIVE regressed (opener canary missing)",
+  );
+}
+if (
+  !FAL_STYLE_EXPLORE_KEEP_COLORS_DIRECTIVE.includes(
+    "it is a texture reference only",
+  )
+) {
+  fail(
+    "[fal_style_explore_keep_colors]",
+    "FAL_STYLE_EXPLORE_KEEP_COLORS_DIRECTIVE lost the texture-reference-only clause",
+  );
 }
 
 // And via the unified buildPrompt entrypoint with mode='style_explore' —
@@ -386,5 +453,5 @@ if (failures.length > 0) {
 }
 
 console.log(
-  `[check-prompts] ok — ${totalRenders} prompt renders across ${combos.length} preset combos × ${RATIOS.length} aspect ratios + 36 canary checks all green.`,
+  `[check-prompts] ok — ${totalRenders} prompt renders across ${combos.length} preset combos × ${RATIOS.length} aspect ratios + 43 canary checks all green.`,
 );

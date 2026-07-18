@@ -127,6 +127,11 @@ export function ExploreSheet() {
 
   // Local Idle-state UI. See v2.2 docstring rationale.
   const [modelTier, setModelTier] = useState<ModelTier>("flash");
+  // v5.6 "Her colors" switch — ON keeps the sketch's palette and takes
+  // only texture/brushwork from the reference (keep-source-colors
+  // directive variant per engine family). Sticky within the session
+  // like the tier toggle; default OFF = the original directive.
+  const [keepHerColors, setKeepHerColors] = useState(false);
   const [batchChoice, setBatchChoice] = useState<BatchChoice>(9);
   const [state, setState] = useState<SheetState>("idle");
   const [startError, setStartError] = useState<string | null>(null);
@@ -262,6 +267,7 @@ export function ExploreSheet() {
           stylePaintingIds: ids,
           modelTier,
           resolution: "1k",
+          keepSourceColors: keepHerColors,
         });
         if (!result) {
           // v4.6: null now means a NON-cap failure (generate rethrows
@@ -298,7 +304,7 @@ export function ExploreSheet() {
         setBatchInFlight(false);
       }
     },
-    [generate, modelTier],
+    [generate, modelTier, keepHerColors],
   );
 
   // ---- lifecycle effects ----------------------------------------------
@@ -588,6 +594,8 @@ export function ExploreSheet() {
           <IdleFooter
             modelTier={modelTier}
             setModelTier={setModelTier}
+            keepHerColors={keepHerColors}
+            setKeepHerColors={setKeepHerColors}
             batchChoice={batchChoice}
             setBatchChoice={setBatchChoice}
             libCount={libCount}
@@ -704,6 +712,8 @@ function IdleBody({
 function IdleFooter({
   modelTier,
   setModelTier,
+  keepHerColors,
+  setKeepHerColors,
   batchChoice,
   setBatchChoice,
   libCount,
@@ -715,6 +725,8 @@ function IdleFooter({
 }: {
   modelTier: ModelTier;
   setModelTier: (t: ModelTier) => void;
+  keepHerColors: boolean;
+  setKeepHerColors: (v: boolean) => void;
   batchChoice: BatchChoice;
   setBatchChoice: (b: BatchChoice) => void;
   libCount: number;
@@ -749,6 +761,34 @@ function IdleFooter({
           </button>
         ))}
       </div>
+      {/* v5.6 "Her colors" switch — ON keeps the sketch's palette;
+          the reference contributes texture/brushwork only. */}
+      <button
+        type="button"
+        onClick={() => setKeepHerColors(!keepHerColors)}
+        aria-pressed={keepHerColors}
+        title={
+          keepHerColors
+            ? "Her colors ON — palette stays from her sketch; the style brings texture and brushwork only."
+            : "Her colors OFF — the style reference brings its colors AND its texture."
+        }
+        className={[
+          "inline-flex items-center gap-2 rounded-full border px-3 py-1",
+          "text-xs uppercase tracking-[0.18em] no-callout transition-colors",
+          keepHerColors
+            ? "border-accent bg-accent/10 text-foreground"
+            : "border-hairline bg-card text-text-mute hover:text-foreground",
+        ].join(" ")}
+      >
+        <span
+          aria-hidden
+          className={[
+            "h-2 w-2 rounded-full transition-colors",
+            keepHerColors ? "bg-accent" : "bg-hairline",
+          ].join(" ")}
+        />
+        Her colors
+      </button>
       {/* Batch — 9 | 18 | Keep going */}
       <div
         role="group"

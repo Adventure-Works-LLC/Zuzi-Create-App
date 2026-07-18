@@ -147,6 +147,7 @@ export const IterationRow = memo(function IterationRow({
   const mode = iteration?.mode;
   const blendInputCount = iteration?.blendTileIds?.length ?? 0;
   const varyStrength = iteration?.varyStrength ?? null;
+  const keepSourceColors = iteration?.keepSourceColors ?? false;
 
   // v5.2: classify a fully-failed iteration by its tiles' recorded
   // errors so the caption gives honest advice. "Try again" is actively
@@ -201,10 +202,13 @@ export const IterationRow = memo(function IterationRow({
     // v5.4.1: style_explore rows always have empty presets (the locked
     // directive bypasses the ladder), so they'd previously fall through
     // to "make beautiful" — wrong label since v2. Name the mode.
-    if (mode === "style_explore") return "style explore";
+    // v5.6: caption the "Her colors" switch state so she can tell the
+    // two directive variants apart in the stream.
+    if (mode === "style_explore")
+      return keepSourceColors ? "style explore · her colors" : "style explore";
     if (!presets || presets.length === 0) return "make beautiful";
     return presets.map((p) => PRESET_LABEL[p]).join(" · ");
-  }, [presets, mode, blendInputCount, varyStrength]);
+  }, [presets, mode, blendInputCount, varyStrength, keepSourceColors]);
 
   // Stuck detection: pending/running iteration past STUCK_THRESHOLD_MS
   // since createdAt. Timer-driven so the UI updates even when no SSE

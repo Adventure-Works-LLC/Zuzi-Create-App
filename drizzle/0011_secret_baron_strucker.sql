@@ -1,0 +1,1 @@
+ALTER TABLE `iterations` ADD `keep_source_colors` integer DEFAULT 0 NOT NULL;

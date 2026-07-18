@@ -157,6 +157,9 @@ export interface LightboxSnapshot {
    *  sketch_vary tiles keep Compare — source vs varied IS the honest
    *  before/after. */
   iterationMode?: IterationMode;
+  /** v5.6: the tile's iteration's "Her colors" switch state. Optional
+   *  for back-compat with pre-v5.6 snapshots; missing → false. */
+  keepSourceColors?: boolean;
 }
 
 export interface Iteration {
@@ -196,6 +199,10 @@ export interface Iteration {
    *  0.6 | 0.75). NULL for every other mode. IterationRow renders it
    *  as the "vary · subtle/medium/wild" caption. */
   varyStrength: number | null;
+  /** v5.6: Style Explore "Her colors" switch state at generation time.
+   *  True = palette from the sketch, texture only from the reference.
+   *  Always false for non-explore modes + pre-v5.6 rows. */
+  keepSourceColors: boolean;
   status: IterationStatus;
   createdAt: number;
   tiles: Tile[];

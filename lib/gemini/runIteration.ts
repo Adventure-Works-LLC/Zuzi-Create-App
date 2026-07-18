@@ -36,7 +36,10 @@ import {
   generateFalEngineImage,
   isFalEngineTier,
 } from "../fal/engines";
-import { FAL_STYLE_EXPLORE_DIRECTIVE } from "../fal/engineConstants";
+import {
+  FAL_STYLE_EXPLORE_DIRECTIVE,
+  FAL_STYLE_EXPLORE_KEEP_COLORS_DIRECTIVE,
+} from "../fal/engineConstants";
 import * as bus from "../bus";
 import { costForCompletedIteration, costForVary } from "../cost";
 import {
@@ -542,13 +545,19 @@ export async function runIteration(iterationId: string): Promise<void> {
     // engines: picking Max/Seedream is an explicit per-run choice and
     // the row is engine-labeled, so this is "try the same instruction
     // on another painter", not a silent swap.
+    // v5.6: the "Her colors" switch selects the keep-source-colors
+    // directive variant within each engine family. Persisted on the
+    // row (keep_source_colors) so recovery replays fire identically.
+    const keepSourceColors = iter.keep_source_colors === 1;
     const promptText =
       iter.mode === "sketch_vary"
         ? ""
         : iter.mode === "style_explore"
           ? falEngineTier !== null
-            ? FAL_STYLE_EXPLORE_DIRECTIVE
-            : buildStyleExplorePrompt(aspectRatio)
+            ? keepSourceColors
+              ? FAL_STYLE_EXPLORE_KEEP_COLORS_DIRECTIVE
+              : FAL_STYLE_EXPLORE_DIRECTIVE
+            : buildStyleExplorePrompt(aspectRatio, keepSourceColors)
           : iter.mode === "style_blend"
             ? buildStyleBlendPrompt(aspectRatio)
             : buildPrompt({

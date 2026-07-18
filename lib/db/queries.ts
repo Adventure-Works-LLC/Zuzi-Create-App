@@ -602,7 +602,11 @@ export interface FavoriteRow {
   thumb_image_key: string | null;
   favorited_at: number;
   created_at: number;
-  model_tier: "flash" | "pro";
+  /** Full engine-tier union from the schema — vary rows carry 'flux',
+   *  v5.4 rows can carry 'flux2max'/'seedream'. (Was a stale
+   *  "flash"|"pro" literal pair until v5.6 — the `as FavoriteRow[]`
+   *  cast hid the drift.) */
+  model_tier: Iteration["model_tier"];
   resolution: "1k" | "4k";
   /** From `iterations.aspect_ratio_mode`. Combine with `source_aspect_ratio`
    *  to get the tile's effective aspect: `mode === 'flip' ? flip(src) : src`.
@@ -621,7 +625,10 @@ export interface FavoriteRow {
    *  hide Compare — blend doesn't use the source as input so a
    *  before/after pair would render a misleading transform
    *  relationship. */
-  mode: "prompt" | "style_explore" | "style_blend";
+  mode: Iteration["mode"];
+  /** v5.6: the iteration's "Her colors" switch state (0/1). The
+   *  Lightbox's "More like this" inherits it from the seed. */
+  keep_source_colors: number;
 }
 
 /**
@@ -659,6 +666,7 @@ export function listFavorites(opts: {
       aspect_ratio_mode: iterations.aspect_ratio_mode,
       style_painting_id: tiles.style_painting_id,
       mode: iterations.mode,
+      keep_source_colors: iterations.keep_source_colors,
     })
     .from(tiles)
     .innerJoin(iterations, eq(iterations.id, tiles.iteration_id))

@@ -508,14 +508,35 @@ export const STYLE_EXPLORE_DIRECTIVE =
   "keep the character design exactly as is from image one but show a completed work in the completed style of image 2. keep the exact character style and shape.";
 
 /**
+ * v5.6 "Her colors" variant — the ExploreSheet's keep-source-colors
+ * switch ON. Same voice and shape as the locked original (lowercase,
+ * brief, image-one/image-two anchoring) with the color clause flipped:
+ * palette stays the SKETCH's; the reference contributes texture,
+ * brushwork, and surface only. The OFF state remains the original
+ * directive above, byte-untouched. Canary-locked in
+ * scripts/check-prompts.ts.
+ */
+export const STYLE_EXPLORE_KEEP_COLORS_DIRECTIVE =
+  "keep the character design and the exact color palette from image one, but show a completed work using the painted texture, brushwork, and surface of image 2. do not take colors from image 2 — only its texture and paint handling. keep the exact character style and shape.";
+
+/**
  * Render the full style_explore prompt with the aspect-ratio sentence
  * appended per AGENTS.md §3 (the sketch's snapped aspect drives the call
  * — not the style painting's, since the sketch is the canvas being
  * completed). The same builder is reused by smoke-style.ts so the two
  * paths produce byte-identical prompts for the same inputs.
+ *
+ * `keepSourceColors` (v5.6) selects the "Her colors" variant; default
+ * false preserves every historical call site byte-for-byte.
  */
-export function buildStyleExplorePrompt(aspectRatio: string): string {
-  return `${STYLE_EXPLORE_DIRECTIVE}\n\nMatch the input aspect ratio exactly (${aspectRatio}).`;
+export function buildStyleExplorePrompt(
+  aspectRatio: string,
+  keepSourceColors = false,
+): string {
+  const directive = keepSourceColors
+    ? STYLE_EXPLORE_KEEP_COLORS_DIRECTIVE
+    : STYLE_EXPLORE_DIRECTIVE;
+  return `${directive}\n\nMatch the input aspect ratio exactly (${aspectRatio}).`;
 }
 
 // ---------------------------------------------------------------------------

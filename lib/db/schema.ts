@@ -184,6 +184,17 @@ export const iterations = sqliteTable(
      * ON DELETE SET NULL: deleting the parent tile preserves the
      * spawned iteration; only the provenance link disappears.
      */
+    /**
+     * v5.6 Style Explore "Her colors" switch. 1 = the keep-source-colors
+     * directive variant ran (palette from the sketch, texture only from
+     * the style reference); 0 = the original directive (reference brings
+     * style AND palette — the default and all pre-v5.6 rows). Persisted
+     * per-iteration because boot-time recovery replays re-read the row
+     * and must fire the identical prompt, and the IterationRow caption
+     * renders the switch state. Meaningful only when
+     * mode='style_explore'; always 0 elsewhere (route-enforced).
+     */
+    keep_source_colors: integer("keep_source_colors").notNull().default(0),
     parent_tile_id: text("parent_tile_id").references(
       (): import("drizzle-orm/sqlite-core").AnySQLiteColumn => tiles.id,
       { onDelete: "set null" },

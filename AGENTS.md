@@ -819,6 +819,20 @@ completed work in the completed style of image 2. keep the exact
 character style and shape.
 ```
 
+> **v5.6 "Her colors" switch.** The ExploreSheet's idle footer has a
+> per-session toggle (default OFF). ON runs a SECOND locked directive
+> per engine family — `STYLE_EXPLORE_KEEP_COLORS_DIRECTIVE`
+> (imagePrompts.ts, Gemini) / `FAL_STYLE_EXPLORE_KEEP_COLORS_DIRECTIVE`
+> (engineConstants.ts, Max+Seedream) — which keeps the SKETCH's palette
+> and takes only texture/brushwork/surface from the reference. Persisted
+> per-iteration as `iterations.keep_source_colors` (migration 0011) so
+> recovery replays fire identically; captioned "style explore · her
+> colors" in the stream; "More like this" inherits the seed row's
+> state. OFF remains the original directive above, byte-untouched (and
+> the closed prompt-tuning verdict in the session memory applies to
+> the OFF directive — the ON variant is a distinct user-requested
+> operation, not a re-tuning). All four directives canary-locked.
+
 Lives in `lib/gemini/imagePrompts.ts` as `STYLE_EXPLORE_DIRECTIVE`.
 Byte-locked from Jeff's Krea validation against character work
 (confirmed Zuzi's practice is figurative). If her practice ever

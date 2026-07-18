@@ -77,6 +77,10 @@ export async function GET(req: Request): Promise<Response> {
         // tiles (style_blend) and hide Compare — blend doesn't use
         // the source as input, so a before/after pair is misleading.
         iterationMode: r.mode,
+        // v5.6: "Her colors" switch state of the tile's iteration —
+        // the Lightbox's "More like this" inherits it so the drill
+        // fires the same directive variant the favorite came from.
+        keepSourceColors: r.keep_source_colors === 1,
       })),
     },
     { status: 200 },

@@ -57,6 +57,8 @@ interface FavoriteRow {
    *  (no source-based transform relationship exists for blend).
    *  sketch_vary (v5) keeps Compare — source vs varied is honest. */
   iterationMode?: "prompt" | "style_explore" | "style_blend" | "sketch_vary";
+  /** v5.6: the iteration's "Her colors" switch state. */
+  keepSourceColors?: boolean;
 }
 
 /** Effective aspect ratio for a favorite — flips if the iteration was
@@ -287,6 +289,9 @@ export function FavoritesPanel() {
                       // / pre-v3 server responses — preserves v2
                       // behavior on older builds.
                       iterationMode: fav.iterationMode ?? "prompt",
+                      // v5.6: seed's "Her colors" switch — inherited by
+                      // the Lightbox's "More like this".
+                      keepSourceColors: fav.keepSourceColors ?? false,
                     });
                   }}
                   className="block focus:outline-none focus:ring-2 focus:ring-accent rounded-md no-callout"

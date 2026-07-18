@@ -257,6 +257,11 @@ export async function POST(req: Request): Promise<Response> {
      *  VARY_STRENGTHS set (0.45 | 0.6 | 0.75). Optional — defaults to
      *  0.45 ("perfect what she did"). REJECTED in every other mode. */
     varyStrength?: unknown;
+    /** v5.6 style_explore "Her colors" switch: true = keep-source-
+     *  colors directive variant (palette from the sketch, texture only
+     *  from the reference). Optional, defaults false. REJECTED (when
+     *  true) in every other mode. */
+    keepSourceColors?: unknown;
   };
   try {
     body = await req.json();
@@ -333,6 +338,32 @@ export async function POST(req: Request): Promise<Response> {
         { status: 400 },
       );
     }
+  }
+  // v5.6: "Her colors" switch. Boolean-or-absent; anything else is a
+  // 400. Only meaningful (and only accepted as true) in style_explore
+  // mode — the cross-field block below rejects it elsewhere.
+  if (
+    body.keepSourceColors !== undefined &&
+    body.keepSourceColors !== null &&
+    typeof body.keepSourceColors !== "boolean"
+  ) {
+    return NextResponse.json(
+      {
+        error: "invalid_keepSourceColors",
+        detail: "keepSourceColors must be a boolean.",
+      },
+      { status: 400 },
+    );
+  }
+  const keepSourceColors = body.keepSourceColors === true;
+  if (keepSourceColors && mode !== "style_explore") {
+    return NextResponse.json(
+      {
+        error: "keepSourceColors_requires_style_explore_mode",
+        detail: "keepSourceColors is only valid when mode='style_explore'.",
+      },
+      { status: 400 },
+    );
   }
   const parentTileId =
     typeof body.parentTileId === "string" && body.parentTileId.length > 0
@@ -576,6 +607,9 @@ export async function POST(req: Request): Promise<Response> {
         // v5: echo the original row's strength so a vary retry whose
         // body differed reconciles to what the worker actually fires.
         varyStrength: existing.vary_strength,
+        // v5.6: echo the original row's "Her colors" switch state —
+        // same reconcile rationale as the fields above.
+        keepSourceColors: existing.keep_source_colors === 1,
       },
       { status: 200 },
     );
@@ -828,6 +862,9 @@ export async function POST(req: Request): Promise<Response> {
         parent_tile_id: parentTileId,
         blend_tile_ids: blendTileIdsJson,
         vary_strength: mode === "sketch_vary" ? varyStrength : null,
+        // v5.6: "Her colors" switch — only ever 1 on style_explore rows
+        // (the cross-field block above rejects it elsewhere).
+        keep_source_colors: keepSourceColors ? 1 : 0,
         status: "pending",
         created_at: now,
         completed_at: null,
@@ -889,6 +926,7 @@ export async function POST(req: Request): Promise<Response> {
           ),
           // v5: same echo-symmetry rule as every field above.
           varyStrength: reread.vary_strength,
+          keepSourceColors: reread.keep_source_colors === 1,
         },
         { status: 200 },
       );

@@ -40,3 +40,12 @@ export const ENGINE_LABEL: Record<FalEngineTier, string> = {
  */
 export const FAL_STYLE_EXPLORE_DIRECTIVE =
   "Take the character and composition from image 1. Take the painting style, brushwork, and color palette from image 2. Render image 1 as a completed painting in image 2's style, preserving image 1's exact character design and shapes. Do not reuse any subject or content from image 2; it is a style reference only.";
+
+/**
+ * v5.6 "Her colors" variant for the fal engines — same role-per-image
+ * template with the palette reassigned to image 1. Selected when the
+ * ExploreSheet's keep-source-colors switch is ON and the tier is
+ * flux2max/seedream. Canary-guarded.
+ */
+export const FAL_STYLE_EXPLORE_KEEP_COLORS_DIRECTIVE =
+  "Take the character, composition, and color palette from image 1. Take ONLY the painted texture, brushwork, and surface treatment from image 2 — not its colors. Render image 1 as a completed painting with image 2's paint handling, preserving image 1's exact character design, shapes, and colors. Do not reuse any subject, content, or colors from image 2; it is a texture reference only.";

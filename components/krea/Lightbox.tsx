@@ -80,6 +80,8 @@ interface LightboxView {
    *  before/after) and Use-as-source (pick a variation → new source =
    *  the Sketch Lab handoff). */
   iterationMode: "prompt" | "style_explore" | "style_blend" | "sketch_vary";
+  /** v5.6: seed iteration's "Her colors" switch (see stores/canvas.ts). */
+  keepSourceColors: boolean;
 }
 
 export function Lightbox() {
@@ -133,6 +135,9 @@ export function Lightbox() {
         // for back-compat with older client builds opening favorites
         // generated before the field existed).
         iterationMode: lightboxSnapshot.iterationMode ?? "prompt",
+        // v5.6: seed's "Her colors" switch state — "More like this"
+        // inherits it so the drill fires the same directive variant.
+        keepSourceColors: lightboxSnapshot.keepSourceColors ?? false,
       };
     }
     if (lightboxTileId !== null) {
@@ -157,6 +162,7 @@ export function Lightbox() {
             sourceInputKey: src?.inputKey ?? null,
             stylePaintingId: t.stylePaintingId,
             iterationMode: it.mode,
+            keepSourceColors: it.keepSourceColors,
           };
         }
       }
@@ -744,6 +750,9 @@ export function Lightbox() {
       const result = await generate({
         mode: "style_explore",
         stylePaintingIds: Array(TILE_COUNT_DEFAULT).fill(view.stylePaintingId),
+        // v5.6: inherit the seed's "Her colors" switch so the drill
+        // fires the same directive variant she favorited.
+        keepSourceColors: view.keepSourceColors,
       });
       if (!result) {
         setActionError(

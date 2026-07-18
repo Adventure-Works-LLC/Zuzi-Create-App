@@ -63,6 +63,9 @@ interface IterationResponseRow {
   /** v5 sketch_vary: LoRA strength (0.45/0.6/0.75). NULL / absent for
    *  every other mode. */
   varyStrength?: number | null;
+  /** v5.6: Style Explore "Her colors" switch state. Absent from
+   *  pre-v5.6 responses → false. */
+  keepSourceColors?: boolean;
   status: Iteration["status"];
   createdAt: number;
   completedAt: number | null;
@@ -117,6 +120,7 @@ function rowToIteration(r: IterationResponseRow): Iteration {
     parentTileId: r.parentTileId ?? null,
     blendTileIds: r.blendTileIds ?? [],
     varyStrength: r.varyStrength ?? null,
+    keepSourceColors: r.keepSourceColors ?? false,
     status: r.status,
     createdAt: r.createdAt,
     tiles: r.tiles.map((t) => ({
@@ -191,6 +195,11 @@ export interface GenerateOptions {
    *  0.45 ("perfect what she did") when omitted on a vary call.
    *  Ignored for every other mode. */
   varyStrength?: VaryStrength;
+  /** v5.6 style_explore: "Her colors" switch — true selects the
+   *  keep-source-colors directive variant (palette from the sketch,
+   *  texture only from the reference). Server rejects true outside
+   *  style_explore mode. */
+  keepSourceColors?: boolean;
 }
 
 export interface RecoverIterationResult {
@@ -356,6 +365,10 @@ export function useIterations(): UseIterationsResult {
     // (matches the server default). Null for every other mode.
     const varyStrength: VaryStrength | null =
       mode === "sketch_vary" ? (opts?.varyStrength ?? 0.45) : null;
+    // v5.6: "Her colors" switch — meaningful only on style_explore
+    // (server rejects true elsewhere).
+    const keepSourceColors =
+      mode === "style_explore" && (opts?.keepSourceColors ?? false);
     // Per-call tier / resolution overrides (ExploreSheet uses its own
     // Flash-default toggle rather than the InputBar's Pro-default). Falls
     // back to the store's values so the InputBar Generate path is
@@ -410,6 +423,7 @@ export function useIterations(): UseIterationsResult {
           ? [...blendTileIds]
           : [],
       varyStrength,
+      keepSourceColors,
       status: "pending",
       createdAt: now,
       tiles: Array.from({ length: effectiveCount }, (_, idx) => ({
@@ -505,7 +519,13 @@ export function useIterations(): UseIterationsResult {
           //   - prompt:        parentTileId (single, handoff only)
           // Omit parentTileId when null so the body stays clean.
           ...(mode === "style_explore" && stylePaintingIds
-            ? { mode, stylePaintingIds }
+            ? {
+                mode,
+                stylePaintingIds,
+                // v5.6: only sent when ON — absent means the original
+                // directive, keeping pre-v5.6 request logs identical.
+                ...(keepSourceColors ? { keepSourceColors: true } : {}),
+              }
             : mode === "style_blend" && blendTileIds
               ? { mode, blendTileIds }
               : mode === "sketch_vary"
@@ -541,6 +561,7 @@ export function useIterations(): UseIterationsResult {
         // v5 sketch_vary: echo of the original row's strength on
         // idempotent replay.
         varyStrength?: number | null;
+        keepSourceColors?: boolean;
         error?: string;
         detail?: string;
         currentUsd?: number;
@@ -608,6 +629,11 @@ export function useIterations(): UseIterationsResult {
         : mode === "style_blend" && blendTileIds
           ? [...blendTileIds]
           : [];
+      // v5.6: replay echo of the original row's "Her colors" state.
+      const canonicalKeepSourceColors =
+        typeof data.keepSourceColors === "boolean"
+          ? data.keepSourceColors
+          : keepSourceColors;
 
       // Swap optimistic id → canonical id, and resize the tile array if the
       // echoed count differs. SSE will replace each tile's synthetic id with
@@ -623,6 +649,7 @@ export function useIterations(): UseIterationsResult {
                 aspectRatioMode: canonicalAspectRatioMode,
                 blendTileIds: canonicalBlendStyleIds,
                 varyStrength: canonicalVaryStrength,
+                keepSourceColors: canonicalKeepSourceColors,
                 tiles: Array.from({ length: canonicalCount }, (_, idx) => {
                   const existing = it.tiles[idx];
                   return existing

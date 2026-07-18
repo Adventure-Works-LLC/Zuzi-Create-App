@@ -45,6 +45,7 @@ import {
   listStylePaintings,
 } from "@/lib/db/queries";
 import { nearestSupportedAspectRatio } from "@/lib/gemini/aspectRatio";
+import { ImportError, importImageFromUrl } from "@/lib/importImage";
 import { putObject } from "@/lib/storage/r2";
 
 export const runtime = "nodejs";
@@ -64,6 +65,13 @@ export async function POST(req: Request): Promise<Response> {
   // compat for cached PWA tabs. See app/api/sources/route.ts for the
   // full rationale.
   const contentType = req.headers.get("content-type") ?? "";
+  // v5.5: JSON body { importUrl, artist? } — server-side import from a
+  // pasted link (Pinterest pin pages resolve via og:image; direct image
+  // URLs work as-is). Built for the iPad flow where downloading-then-
+  // uploading is slow-to-impossible. See lib/importImage.ts.
+  if (contentType.includes("application/json")) {
+    return handleImportFromUrl(req);
+  }
   if (!contentType.includes("multipart/form-data")) {
     return handleRawStyleUpload(req);
   }
@@ -102,6 +110,62 @@ export async function POST(req: Request): Promise<Response> {
 
   const raw = Buffer.from(await file.arrayBuffer());
   return processStyleUploadBytes(raw, originalFilename, artist);
+}
+
+/** v5.5 link-import path: JSON { importUrl, artist? } → server fetches
+ *  the image (resolving pin/og pages) → same normalize + insert tail as
+ *  every other upload. */
+async function handleImportFromUrl(req: Request): Promise<Response> {
+  let body: { importUrl?: unknown; artist?: unknown };
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "invalid_json" }, { status: 400 });
+  }
+  const importUrl =
+    typeof body.importUrl === "string" && body.importUrl.trim().length > 0
+      ? body.importUrl.trim()
+      : null;
+  if (!importUrl || importUrl.length > 2048) {
+    return NextResponse.json(
+      { error: "missing_importUrl", detail: "Paste a link to import." },
+      { status: 400 },
+    );
+  }
+  const artist =
+    typeof body.artist === "string" && body.artist.trim().length > 0
+      ? body.artist.trim().slice(0, 200)
+      : null;
+
+  try {
+    const { bytes, resolvedUrl } = await importImageFromUrl(importUrl);
+    // Filename from the resolved URL's last path segment — gives the
+    // panel's metadata something human ("sargent-lady-agnew.jpg"
+    // beats null). Query strings + fragments stripped by URL parse.
+    let filename: string | null = null;
+    try {
+      const seg = new URL(resolvedUrl).pathname.split("/").filter(Boolean).pop();
+      filename = seg ? decodeURIComponent(seg).slice(0, 200) : null;
+    } catch {
+      filename = null;
+    }
+    return await processStyleUploadBytes(bytes, filename, artist);
+  } catch (e) {
+    if (e instanceof ImportError) {
+      const status = e.code === "fetch_failed" ? 502 : 400;
+      return NextResponse.json(
+        { error: `import_${e.code}`, detail: e.message },
+        { status },
+      );
+    }
+    return NextResponse.json(
+      {
+        error: "import_failed",
+        detail: e instanceof Error ? e.message : String(e),
+      },
+      { status: 502 },
+    );
+  }
 }
 
 /** v5.4.2 raw-bytes path: body IS the file; filename + optional artist

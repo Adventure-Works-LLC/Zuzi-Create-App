@@ -28,7 +28,14 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ImagePlus, Loader2, Trash2, UserRound, X } from "lucide-react";
+import {
+  ImagePlus,
+  Link as LinkIcon,
+  Loader2,
+  Trash2,
+  UserRound,
+  X,
+} from "lucide-react";
 
 import { useImageUrl } from "@/hooks/useImageUrl";
 import { useIterations } from "@/hooks/useIterations";
@@ -415,7 +422,15 @@ export function StylesPanel() {
   // of the system. Pro 1K × 3 = $0.40; Flash 1K × 3 = $0.20.
   const modelTier = useCanvas((s) => s.modelTier);
 
-  const { loading, error, uploading, uploadFile, setArtist, deleteForever } =
+  const {
+    loading,
+    error,
+    uploading,
+    uploadFile,
+    importFromUrl,
+    setArtist,
+    deleteForever,
+  } =
     useStylePaintings();
   const { generate } = useIterations();
   // Panel-level in-flight: only one tap-to-fire at a time across the
@@ -579,6 +594,43 @@ export function StylesPanel() {
       ? "Another tap is in flight"
       : undefined;
 
+  /** v5.5: import-from-link flow. One prompt for the URL, then the
+   *  same batch-artist prompt semantics as file uploads (prefilled
+   *  with the active filter; suppressed/cancelled prompt falls back
+   *  instead of blocking — see handleFiles's v4.5 note). */
+  const handleImportLink = async () => {
+    let urlInput: string | null = null;
+    try {
+      urlInput = window.prompt(
+        "Paste a Pinterest link (or any image link):",
+        "",
+      );
+    } catch {
+      urlInput = null;
+    }
+    const importUrl = (urlInput ?? "").trim();
+    if (!importUrl) return;
+    const suggested =
+      effectiveFilter && effectiveFilter !== UNTAGGED_FILTER
+        ? effectiveFilter
+        : "";
+    let artistInput: string | null = null;
+    try {
+      artistInput = window.prompt(
+        "Artist for this painting? (optional — blank to skip)",
+        suggested,
+      );
+    } catch {
+      artistInput = null;
+    }
+    const artist = (artistInput ?? suggested).trim() || null;
+    try {
+      await importFromUrl(importUrl, artist);
+    } catch (e) {
+      setUploadError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
   const handleFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
     // v4.0→v4.5: one artist prompt per batch, prefilled with the active
@@ -700,6 +752,25 @@ export function StylesPanel() {
               <ImagePlus className="h-4 w-4" strokeWidth={1.75} />
             )}
             <span>{uploading ? "Adding…" : "Add"}</span>
+          </button>
+          {/* v5.5: paste-a-link import (Pinterest etc.) — the iPad flow
+              where download-then-upload is a dead end. Server resolves
+              the page to its image. */}
+          <button
+            type="button"
+            onClick={() => void handleImportLink()}
+            disabled={uploading}
+            className={[
+              "flex items-center gap-2 rounded-md px-3 py-2",
+              "border border-hairline/60 bg-card",
+              "text-sm text-foreground hover:bg-secondary",
+              "transition-colors no-callout",
+              "disabled:opacity-50 disabled:cursor-wait",
+            ].join(" ")}
+            aria-label="Add style painting from a link"
+          >
+            <LinkIcon className="h-4 w-4" strokeWidth={1.75} />
+            <span>From link</span>
           </button>
           <button
             type="button"

@@ -98,6 +98,14 @@ export interface UseStylePaintingsResult {
    *  v4.0: optional `artist` batch-tags the upload (the StylesPanel
    *  prompts once per multi-file batch and stamps every file). */
   uploadFile: (file: File, artist?: string | null) => Promise<StylePainting>;
+  /** v5.5: import a style painting from a pasted link (Pinterest pin
+   *  page or direct image URL). The server resolves the page to its
+   *  image (og:image) and runs the same normalize pipeline as file
+   *  uploads. Throws with a human-readable message on failure. */
+  importFromUrl: (
+    importUrl: string,
+    artist?: string | null,
+  ) => Promise<StylePainting>;
   /** v4.0: set (or clear, via null) the artist on one style painting.
    *  PATCH first, then store update — not optimistic, so a failed PATCH
    *  never leaves the filter chips lying about server state. Throws on
@@ -224,6 +232,58 @@ export function useStylePaintings(): UseStylePaintingsResult {
     [addStylePainting, setUploading, setError],
   );
 
+  /** v5.5: import from a pasted link (Pinterest pin page or direct
+   *  image URL) — the server resolves + fetches; same store flow as
+   *  uploadFile. Shares the module upload counter so the panel's
+   *  "uploading" state covers link imports too. */
+  const importFromUrl = useCallback(
+    async (importUrl: string, artist?: string | null): Promise<StylePainting> => {
+      abortRef.current?.abort();
+      activeStyleUploads++;
+      setUploading(true);
+      setError(null);
+      try {
+        const resp = await authFetch(
+          "/api/style-paintings",
+          withTimeout(
+            {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                importUrl,
+                ...(artist && artist.trim().length > 0
+                  ? { artist: artist.trim() }
+                  : {}),
+              }),
+            },
+            TIMEOUT_UPLOAD_MS,
+          ),
+        );
+        if (!resp.ok) {
+          const data = (await resp.json().catch(() => ({}))) as {
+            error?: string;
+            detail?: string;
+          };
+          throw new Error(
+            data.detail ?? data.error ?? `import failed (${resp.status})`,
+          );
+        }
+        const data = (await resp.json()) as StylePaintingResponseRow;
+        const row = rowToStylePainting(data);
+        stylesListEpoch++; // invalidate pre-insert snapshots
+        addStylePainting(row);
+        return row;
+      } finally {
+        activeStyleUploads--;
+        if (activeStyleUploads <= 0) {
+          activeStyleUploads = 0;
+          setUploading(false);
+        }
+      }
+    },
+    [addStylePainting, setUploading, setError],
+  );
+
   const deleteForever = useCallback(
     async (id: string) => {
       // Abort any in-flight refresh BEFORE the optimistic removal +
@@ -296,6 +356,7 @@ export function useStylePaintings(): UseStylePaintingsResult {
     error,
     uploading,
     uploadFile,
+    importFromUrl,
     setArtist,
     deleteForever,
     refresh,

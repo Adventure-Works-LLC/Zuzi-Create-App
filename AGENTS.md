@@ -771,7 +771,13 @@ Explore Mode — v2 SPEC (canonical)".
     artist / Untagged), long-press → "Set artist…" edits it (PATCH), and
     multi-file uploads batch-tag via one window.prompt per batch (POST
     accepts an optional `artist` form field). `tag` remains scaffolded
-    and unused.
+    and unused. v5.5 added a second intake path: the panel's "From
+    link" button POSTs JSON `{importUrl, artist?}` and the server
+    resolves the link (direct image, or any page's og:image —
+    Pinterest pin pages upgrade to the /originals/ pinimg variant)
+    via `lib/importImage.ts` (https-only + private-host guards), then
+    runs the same normalize+insert tail as file uploads. Built for
+    the iPad flow where download-then-upload is a dead end.
   - **`iterations.mode`** — `'prompt'` (default; backfills all v1 rows)
     | `'style_explore'`. Discriminates the worker branch. The text
     column has a NOT NULL DEFAULT 'prompt' so the migration is

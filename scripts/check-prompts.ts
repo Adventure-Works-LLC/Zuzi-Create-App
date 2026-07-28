@@ -223,7 +223,14 @@ if (!finishSolo.includes("blue-chip fine art painting")) {
   fail("[finish]", "Finish v1 prompt lost the blue-chip anchor");
 }
 if (!finishSolo.includes("do not redraw anything")) {
-  fail("[finish]", "Finish v1 prompt lost the no-redraw anchor");
+  fail("[finish]", "Finish prompt lost the no-redraw anchor");
+}
+// v2 push anchors: contrast/dimensionality are commanded, hue is pinned.
+if (!finishSolo.includes("push value and form, never hue")) {
+  fail("[finish]", "Finish v2 prompt lost the push-value-never-hue anchor");
+}
+if (!finishSolo.includes("noticeably deeper value contrast")) {
+  fail("[finish]", "Finish v2 prompt lost the deeper-contrast anchor");
 }
 
 // Style Explore v1 — the directive is byte-locked from Jeff's Krea

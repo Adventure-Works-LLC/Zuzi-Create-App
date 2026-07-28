@@ -208,6 +208,24 @@ if (!etchingSolo.startsWith("add classical old master shadow hatching")) {
   fail("[etching]", "Etching v1 prompt regressed (lowercase 'add classical old master shadow hatching' opener canary missing)");
 }
 
+// Finish v1 (v5.9) — the final-pass preset. Fenced body (the failure
+// mode is over-rendering into digital slickness); lock the opener +
+// the painterly-not-digital anchor + the blue-chip anchor + the
+// no-redraw anchor.
+const finishSolo = buildPrompt({ presets: ["finish"], aspectRatio: "4:5" });
+if (!finishSolo.startsWith("this painting is finished in its composition")) {
+  fail("[finish]", "Finish v1 prompt regressed (lowercase 'this painting is finished in its composition' opener canary missing)");
+}
+if (!finishSolo.includes("this is painting, not digital rendering")) {
+  fail("[finish]", "Finish v1 prompt lost the painting-not-digital anchor");
+}
+if (!finishSolo.includes("blue-chip fine art painting")) {
+  fail("[finish]", "Finish v1 prompt lost the blue-chip anchor");
+}
+if (!finishSolo.includes("do not redraw anything")) {
+  fail("[finish]", "Finish v1 prompt lost the no-redraw anchor");
+}
+
 // Style Explore v1 — the directive is byte-locked from Jeff's Krea
 // validation. The plan note marked this canary as N/A ("directive is
 // constant"), but a constant can still be paraphrased by anyone editing

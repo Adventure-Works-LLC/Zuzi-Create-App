@@ -271,6 +271,24 @@ const AVERY_PROMPT_BODY = `do this like a milton avery while preserving the char
 const CEZANNE_PROMPT_BODY = `study paul cezanne's paintings and paint this painting as if cezanne was painting it, while preserving the character and subjects. feel free to use cezanne color.`;
 
 // ---------------------------------------------------------------------------
+// FINISH — v1 locked (v5.9). The final-pass preset: for a painting she
+// already loves (often a promoted keeper back in as the source), give
+// it a professional RENDERING pass in its own style. Not a
+// reimagining — a resolution pass: subtle dimensionality, value depth
+// in existing shadows, the smallest fabric folds where cloth already
+// bends, blue-chip surface confidence.
+//
+// The failure mode is OVER-rendering — models read "render it more" as
+// "make it realistic / smooth it into digital polish," which kills her
+// flat naive register. So this body is fenced like Etching (explicit
+// DO/DON'Ts), not brief like Avery/Cezanne. The DO-NOTs are
+// load-bearing; don't soften them. Works on every engine tier (preset
+// bodies pass through to fal engines per AGENTS.md §17).
+// ---------------------------------------------------------------------------
+
+const FINISH_PROMPT_BODY = `this painting is finished in its composition, style, and color — give it one final pass of painterly resolution, the way a fine artist resolves a canvas. this is painting, not digital rendering: keep the exact same style, palette, shapes, composition, and level of abstraction. every line, every character, every shape, every color stays exactly where it is and exactly what it is. do not make it realistic, do not make it 3d, airbrushed, or digitally smooth. do not add new elements or details that are not already there. do not redraw anything. only deepen what already exists, with paint: subtle modeling and value depth in the shadows, forms turning a little more where they already turn, the smallest hints of folds where clothing already bends — all as painted marks in the same hand. the result should read as a blue-chip fine art painting — confident, resolved, museum-quality — and unmistakably the same painting by the same painter.`;
+
+// ---------------------------------------------------------------------------
 // ETCHING — v1 locked. Drawing-technique preset.
 //
 // Operation: add classical old-master shadow hatching (parallel /
@@ -660,6 +678,7 @@ const PRESET_LABEL: Record<Preset, string> = {
   avery: "the painted treatment in Milton Avery's voice (handled separately)",
   etching: "old-master shadow hatching on the shadow side (handled separately)",
   cezanne: "the painted treatment in Paul Cézanne's voice (handled separately)",
+  finish: "a final professional rendering pass (handled separately)",
 };
 
 /** Master preserve list, in stable rendering order. Each item has an `id` so
@@ -687,6 +706,7 @@ const PRESET_REMOVES_FROM_PRESERVE: Record<Preset, ReadonlyArray<string>> = {
   avery: [], // unreachable — avery has its own prompt body (v1 dominator)
   etching: [], // unreachable — etching has its own prompt body (v1 dominator)
   cezanne: [], // unreachable — cezanne has its own prompt body (v1 dominator)
+  finish: [], // unreachable — finish has its own prompt body (v1 dominator)
 };
 
 export interface BuildPromptArgs {
@@ -844,6 +864,14 @@ export function buildPrompt({
   if (presets.includes("etching")) {
     return withPrepend(
       `${ETCHING_PROMPT_BODY}\n\nMatch the input aspect ratio exactly (${aspectRatio}).`,
+    );
+  }
+
+  // 7b. Finish (v5.9) — the final-pass dominator. Same routing pattern;
+  //     the UI only ever sends it alone.
+  if (presets.includes("finish")) {
+    return withPrepend(
+      `${FINISH_PROMPT_BODY}\n\nMatch the input aspect ratio exactly (${aspectRatio}).`,
     );
   }
 

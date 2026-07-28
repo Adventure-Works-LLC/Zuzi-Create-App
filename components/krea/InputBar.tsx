@@ -102,6 +102,7 @@ const PRESET_LABEL: Record<Preset, string> = {
   avery: "Avery",
   etching: "Etching",
   cezanne: "Cezanne",
+  finish: "Finish",
 };
 
 /**
@@ -127,10 +128,13 @@ const VISIBLE_PRESETS: ReadonlyArray<Preset> = [
   /* v5.8: Cezanne is the new always-on default, so it takes the
    * first-cell position (visual default == canonical default, same
    * rule Avery had). Etching + Lighting joined Color/Ambiance in the
-   * hidden set per Jeff — bodies, routing, and canaries all stay. */
+   * hidden set per Jeff — bodies, routing, and canaries all stay.
+   * v5.9: Finish added last — the final-pass preset for a keeper
+   * that's been promoted back in as the source. */
   "cezanne",
   "avery",
   "background",
+  "finish",
 ];
 
 /** Optional one-line subline rendered under the checkbox label. Ambiance,
@@ -162,6 +166,7 @@ const PRESET_SUBLINE: Partial<Record<Preset, string>> = {
   avery: "in Milton Avery's voice",
   etching: "old-master shadow hatching",
   cezanne: "as if Cézanne painted it",
+  finish: "a final blue-chip rendering pass",
 };
 
 /** v5 Sketch Vary strength picker copy. One line per strength — the
@@ -751,9 +756,9 @@ export function InputBar() {
         )}
 
         {/* Top row — mutually-exclusive preset picker.
-            Renders the VISIBLE_PRESETS subset (currently 4: avery,
-            etching, lighting, background — Color and Ambiance are
-            hidden, see the constant's doc above). Grid is
+            Renders the VISIBLE_PRESETS subset (currently 4: cezanne,
+            avery, background, finish — Color/Ambiance/Etching/Lighting
+            are hidden, see the constant's doc above). Grid is
             `grid-cols-2 sm:grid-cols-4` — phones (< 640px) get a 2×2
             stack so cells stay tappable; iPad portrait (744+) and up
             get one tidy row of four. Default state (showPicker=false):
@@ -767,7 +772,7 @@ export function InputBar() {
             (handled by the document listener above). Renders only
             when a source exists. */}
         {!isEmpty && (
-          <div ref={presetCellsRef} className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+          <div ref={presetCellsRef} className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             {VISIBLE_PRESETS.map((p) => (
               <PresetCheckbox
                 key={p}

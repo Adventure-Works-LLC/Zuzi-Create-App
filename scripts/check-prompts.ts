@@ -267,6 +267,13 @@ if (!finishSolo.includes("any area she painted in shadow stays in shadow")) {
 if (!finishSolo.includes("new light may never appear where she painted dark")) {
   fail("[finish]", "Finish v8 prompt lost the no-light-invasion ban");
 }
+// v9 chroma pin. v8's shadow clause used chroma verbs ("enrich",
+// "warm its darkness") and measured saturation jumped keeper 38 →
+// v8 55/58 across two draws (v7 was 44). Value verbs only + an
+// explicit match-her-saturation pin.
+if (!finishSolo.includes("let all richness come from value")) {
+  fail("[finish]", "Finish v9 prompt lost the value-not-chroma pin");
+}
 if (!finishSolo.includes("do not increase saturation or vibrance")) {
   fail("[finish]", "Finish prompt lost the anti-vibrance ban");
 }

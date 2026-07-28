@@ -257,6 +257,16 @@ if (!finishSolo.includes("already written in the highlights and shadows")) {
 if (!finishSolo.includes("a face in shadow is still exactly her face")) {
   fail("[finish]", "Finish v7 prompt lost the model-integrity face clause");
 }
+// v8 one-directional shadow conservation (Jeff: the keeper's
+// shadowed feet got cast into light). Her painted shadows are
+// authoritative — shadow may deepen/extend (cast shadows welcomed),
+// light may NEVER invade a region she painted dark.
+if (!finishSolo.includes("any area she painted in shadow stays in shadow")) {
+  fail("[finish]", "Finish v8 prompt lost the shadow-conservation law");
+}
+if (!finishSolo.includes("new light may never appear where she painted dark")) {
+  fail("[finish]", "Finish v8 prompt lost the no-light-invasion ban");
+}
 if (!finishSolo.includes("do not increase saturation or vibrance")) {
   fail("[finish]", "Finish prompt lost the anti-vibrance ban");
 }

@@ -225,12 +225,17 @@ if (!finishSolo.includes("blue-chip fine art painting")) {
 if (!finishSolo.includes("do not redraw anything")) {
   fail("[finish]", "Finish prompt lost the no-redraw anchor");
 }
-// v2 push anchors: contrast/dimensionality are commanded, hue is pinned.
-if (!finishSolo.includes("push value and form, never hue")) {
-  fail("[finish]", "Finish v2 prompt lost the push-value-never-hue anchor");
+// v3 rich-light anchors: light richness is the operation, its CASTING
+// is pinned to the keeper's, and overall legibility is guarded (v2's
+// global contrast push made paintings hard to read — Jeff rejected it).
+if (!finishSolo.includes("rich, luminous, and high quality")) {
+  fail("[finish]", "Finish v3 prompt lost the rich-light anchor");
 }
-if (!finishSolo.includes("noticeably deeper value contrast")) {
-  fail("[finish]", "Finish v2 prompt lost the deeper-contrast anchor");
+if (!finishSolo.includes("cast exactly the way it already is")) {
+  fail("[finish]", "Finish v3 prompt lost the same-casting pin");
+}
+if (!finishSolo.includes("do not darken the painting overall")) {
+  fail("[finish]", "Finish v3 prompt lost the legibility guard");
 }
 
 // Style Explore v1 — the directive is byte-locked from Jeff's Krea

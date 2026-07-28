@@ -232,22 +232,29 @@ if (!finishSolo.includes("do not redraw anything")) {
 // transitions + cool-deepening shadows, with an explicit anti-
 // vibrance ban so chroma can never again be the model's shortcut.
 if (!finishSolo.includes("beautiful light and shadow")) {
-  fail("[finish]", "Finish v4 prompt lost the light-and-shadow operation anchor");
+  fail("[finish]", "Finish prompt lost the light-and-shadow operation anchor");
 }
-if (!finishSolo.includes("same direction, same sources, same shadow placement")) {
-  fail("[finish]", "Finish v4 prompt lost the same-casting pin");
+// v6 scene-light anchors. Lineage: v3 rich-light → saturation (Jeff:
+// vibrant, no light-feel); v4 half-tones → blended her strokes away;
+// v5 stroke anchor fixed marks but the light still read as a 2D glow
+// composited on the picture plane (Jeff: "post process on a 2d
+// plane... imagine the light cast in a 3d world"). v6 commands SCENE
+// reasoning: find her light source, then paint physical illumination
+// (facing surfaces struck, form shadow, directional cast shadow).
+if (!finishSolo.includes("as a real three-dimensional scene")) {
+  fail("[finish]", "Finish v6 prompt lost the scene-reasoning anchor");
 }
-if (!finishSolo.includes("half-tone transitions")) {
-  fail("[finish]", "Finish v4 prompt lost the half-tone craft anchor");
+if (!finishSolo.includes("never add light as a flat glow")) {
+  fail("[finish]", "Finish v6 prompt lost the anti-overlay ban");
+}
+if (!finishSolo.includes("already written in the highlights and shadows")) {
+  fail("[finish]", "Finish v6 prompt lost the her-casting pin");
 }
 if (!finishSolo.includes("do not increase saturation or vibrance")) {
-  fail("[finish]", "Finish v4 prompt lost the anti-vibrance ban");
+  fail("[finish]", "Finish prompt lost the anti-vibrance ban");
 }
-// v5 stroke-anchor: v4's half-tones taught the model to BLEND — her
-// chunky marks smoothed into soft rendering. The transitions must be
-// built stroke-by-stroke in her own mark-making.
 if (!finishSolo.includes("never by blending or softening them")) {
-  fail("[finish]", "Finish v5 prompt lost the no-blend stroke anchor");
+  fail("[finish]", "Finish prompt lost the no-blend stroke anchor");
 }
 
 // Style Explore v1 — the directive is byte-locked from Jeff's Krea

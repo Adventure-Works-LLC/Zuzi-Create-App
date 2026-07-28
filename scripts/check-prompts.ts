@@ -225,17 +225,29 @@ if (!finishSolo.includes("blue-chip fine art painting")) {
 if (!finishSolo.includes("do not redraw anything")) {
   fail("[finish]", "Finish prompt lost the no-redraw anchor");
 }
-// v3 rich-light anchors: light richness is the operation, its CASTING
-// is pinned to the keeper's, and overall legibility is guarded (v2's
-// global contrast push made paintings hard to read — Jeff rejected it).
-if (!finishSolo.includes("rich, luminous, and high quality")) {
-  fail("[finish]", "Finish v3 prompt lost the rich-light anchor");
+// v4 light-and-shadow anchors. Lineage: v2 global contrast push
+// (rejected — murky), v3 "rich light" (rejected — model reached for
+// saturation because darkening was banned; Jeff: vibrant color but no
+// beautiful light/shadow feel). v4 names the craft: half-tone
+// transitions + cool-deepening shadows, with an explicit anti-
+// vibrance ban so chroma can never again be the model's shortcut.
+if (!finishSolo.includes("beautiful light and shadow")) {
+  fail("[finish]", "Finish v4 prompt lost the light-and-shadow operation anchor");
 }
-if (!finishSolo.includes("cast exactly the way it already is")) {
-  fail("[finish]", "Finish v3 prompt lost the same-casting pin");
+if (!finishSolo.includes("same direction, same sources, same shadow placement")) {
+  fail("[finish]", "Finish v4 prompt lost the same-casting pin");
 }
-if (!finishSolo.includes("do not darken the painting overall")) {
-  fail("[finish]", "Finish v3 prompt lost the legibility guard");
+if (!finishSolo.includes("half-tone transitions")) {
+  fail("[finish]", "Finish v4 prompt lost the half-tone craft anchor");
+}
+if (!finishSolo.includes("do not increase saturation or vibrance")) {
+  fail("[finish]", "Finish v4 prompt lost the anti-vibrance ban");
+}
+// v5 stroke-anchor: v4's half-tones taught the model to BLEND — her
+// chunky marks smoothed into soft rendering. The transitions must be
+// built stroke-by-stroke in her own mark-making.
+if (!finishSolo.includes("never by blending or softening them")) {
+  fail("[finish]", "Finish v5 prompt lost the no-blend stroke anchor");
 }
 
 // Style Explore v1 — the directive is byte-locked from Jeff's Krea

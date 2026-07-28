@@ -250,6 +250,13 @@ if (!finishSolo.includes("never add light as a flat glow")) {
 if (!finishSolo.includes("already written in the highlights and shadows")) {
   fail("[finish]", "Finish v6 prompt lost the her-casting pin");
 }
+// v7 model-integrity clause (Jeff's 3D-animation framing): scene light
+// wraps her drawn geometry but never re-models it — v6 dropped faces
+// into form shadow AND re-drew them darker/different. The clause pins
+// "a face in shadow is still exactly her face."
+if (!finishSolo.includes("a face in shadow is still exactly her face")) {
+  fail("[finish]", "Finish v7 prompt lost the model-integrity face clause");
+}
 if (!finishSolo.includes("do not increase saturation or vibrance")) {
   fail("[finish]", "Finish prompt lost the anti-vibrance ban");
 }

@@ -250,12 +250,16 @@ if (!finishSolo.includes("never add light as a flat glow")) {
 if (!finishSolo.includes("already written in the highlights and shadows")) {
   fail("[finish]", "Finish v6 prompt lost the her-casting pin");
 }
-// v7 model-integrity clause (Jeff's 3D-animation framing): scene light
-// wraps her drawn geometry but never re-models it — v6 dropped faces
-// into form shadow AND re-drew them darker/different. The clause pins
-// "a face in shadow is still exactly her face."
-if (!finishSolo.includes("a face in shadow is still exactly her face")) {
-  fail("[finish]", "Finish v7 prompt lost the model-integrity face clause");
+// v7 model-integrity → v10 face-exclusion lineage: v7's "a face in
+// shadow is still exactly her face, only darker" still PERMITTED
+// repainting the face, and every repaint drifted (Jeff on v9:
+// "changes the face too much"). v10 removes faces from the operation
+// entirely — reproduced untouched, light lives around them.
+if (!finishSolo.includes("reproduce every face exactly as she painted it")) {
+  fail("[finish]", "Finish v10 prompt lost the face-exclusion clause");
+}
+if (!finishSolo.includes("do not light a face, do not shade a face")) {
+  fail("[finish]", "Finish v10 prompt lost the face-light ban");
 }
 // v8 one-directional shadow conservation (Jeff: the keeper's
 // shadowed feet got cast into light). Her painted shadows are

@@ -289,9 +289,17 @@ const CEZANNE_PROMPT_BODY = `study paul cezanne's paintings and paint this paint
 //      modeling/surface.
 // ---------------------------------------------------------------------------
 
-const BOTERO_PROMPT_BODY = `study fernando botero's paintings — especially how he shades and models form: soft, smooth, and volumetric — and paint this painting as if botero was painting it, while preserving the character and subjects. keep her shapes and proportions exactly as she drew them — never inflate or round them; her shapes are the model, botero only paints them. feel free to use botero color.`;
+// v3: the painter's NAME is deliberately absent from the body. v1 and
+// v2 both proved that invoking "botero" summons his entire prior —
+// figures, faces, anatomy — and no fence survives it (same ceiling as
+// the 22-round sketch-prompting war). The shading is described as a
+// technique instead; the UI label still says Botero, but the prompt
+// never does.
+const BOTERO_SHADING_CORE = `give this painting soft, volumetric, matte shading: gentle smooth gradients that round the forms from within, quiet even light, and a calm sculptural sense of weight and volume. her drawing is the finished model: every line, every shape, every character stays exactly as she drew it — same outlines, same features, same proportions, same wonky hand-drawn geometry. do not redraw anything, do not restructure anything, do not replace her hands or figures with realistic anatomy. the faces are off limits entirely: reproduce every face exactly as she painted it, untouched — the shading lives around the faces, never on them. inside her shapes, model the forms with that soft volumetric shading so they feel gently rounded and dimensional — but the outlines of her shapes never move. this is her painting with new shading, not a new painting of her subject.`;
 
-const BOTERO_KEEP_COLORS_PROMPT_BODY = `study fernando botero's paintings — especially how he shades and models form: soft, smooth, and volumetric — and paint this painting as if botero was painting it, while preserving the character and subjects. keep her shapes and proportions exactly as she drew them — never inflate or round them; her shapes are the model, botero only paints them. keep her exact color palette — do not use botero's colors; take only his shading, modeling, and painted surface.`;
+const BOTERO_PROMPT_BODY = `${BOTERO_SHADING_CORE} feel free to shift the palette toward warm muted earth tones and gentle pastel light.`;
+
+const BOTERO_KEEP_COLORS_PROMPT_BODY = `${BOTERO_SHADING_CORE} keep her exact color palette — take only the shading, modeling, and painted surface.`;
 
 // ---------------------------------------------------------------------------
 // FINISH — v1 locked (v5.9). The final-pass preset: for a painting she

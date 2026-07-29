@@ -127,15 +127,26 @@ re-read this paragraph and the plan's reference docs first.
 > fernando botero's paintings — especially how he shades and models
 > form: soft, smooth, and volumetric"). Two deltas from the
 > Avery/Cezanne architecture:
->   1. **The shape-pin**: Botero's signature is volumetric INFLATION —
->      the body forbids it ("keep her shapes and proportions exactly…
->      never inflate or round them; her shapes are the model, botero
->      only paints them" — the Finish-v7 model-vs-painter framing).
->      Validated behavior: the pin holds on objects/composition; the
->      FIGURE still drifts toward Botero's human rendering (Pro's pull
->      on this painter is immense). This matches Avery/Cezanne's
->      accepted figure-reimagining behavior; hardening it further
->      would trade away the Botero-ness that makes the preset useful.
+>   1. **The body is NAMELESS (v3).** v1 (study-then-paint + shape-pin)
+>      and v2 (Finish-style fences + face exclusion) both failed the
+>      same way: ANY mention of "botero" summoned his entire prior —
+>      faces, hands, anatomy — past every fence (two live rounds,
+>      keeper-validated). v3 describes the shading as pure technique
+>      ("soft, volumetric, matte… gentle smooth gradients that round
+>      the forms from within") with the Finish-architecture fences
+>      (finished-model framing, face exclusion, outline pin) and NO
+>      painter name anywhere. A NEGATIVE canary enforces namelessness
+>      (/botero/i must not match the rendered prompt). Validated: her
+>      mitt-hands and outlines survive, faces keep her structure
+>      (softened surface, not restructured), volume reads
+>      Botero-adjacent. THE GENERALIZABLE LESSON for all future
+>      painter presets: if the preserve-target is her drawing itself,
+>      the painter's name cannot appear in the prompt — name the
+>      technique, not the man. (Avery/Cezanne keep their names because
+>      figure-reimagining is their accepted behavior.) Known residual:
+>      "smooth volumetric shading" is inherently at odds with her
+>      rough impasto — the surface smooths where the volume goes;
+>      irreducible without abandoning the operation.
 >   2. **Two color variants selected by `keep_source_colors`** (the
 >      "Her colors" pill, which as of v6.0 applies in prompt mode to
 >      this preset only — the hook gates the flag to Botero so other

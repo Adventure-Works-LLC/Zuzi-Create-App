@@ -206,20 +206,35 @@ if (!cezanneSolo.includes("while preserving the character and subjects")) {
 // Botero v1 (v6.0) — third painter preset, the always-on default, and
 // the only preset whose body branches on keepSourceColors.
 const boteroSolo = buildPrompt({ presets: ["botero"], aspectRatio: "4:5" });
-if (!boteroSolo.startsWith("study fernando botero's paintings")) {
-  fail("[botero]", "Botero v1 prompt regressed (lowercase 'study fernando botero's paintings' opener canary missing)");
+// v3: NAMELESS body — "botero" must NOT appear anywhere in the prompt.
+// v1/v2 proved the name summons his figure-prior past every fence; the
+// shading is described as technique instead. This negative canary is
+// the load-bearing one for this preset.
+if (/botero/i.test(boteroSolo)) {
+  fail("[botero]", "Botero v3 body mentions the painter's name — the name summons his figures; keep it nameless");
 }
-// The SHAPE-PIN is the load-bearing fence: Botero's signature is
-// volumetric inflation, exactly the drift that would destroy her
-// figures. "her shapes are the model, botero only paints them."
-if (!boteroSolo.includes("never inflate or round them")) {
-  fail("[botero]", "Botero v1 prompt lost the anti-inflation shape-pin");
+if (!boteroSolo.startsWith("give this painting soft, volumetric, matte shading")) {
+  fail("[botero]", "Botero v3 prompt regressed (nameless shading opener canary missing)");
 }
-if (!boteroSolo.includes("her shapes are the model, botero only paints them")) {
-  fail("[botero]", "Botero v1 prompt lost the model-vs-painter framing");
+// v2 (Jeff on v1: "you changed her face structure and everything to
+// match his — keep her lines, her characters, her everything, just
+// use that kind of shading"): the body was rewritten from painter-
+// reimagining (Avery/Cezanne architecture) to the Finish narrow-
+// operation architecture. Anchors:
+if (!boteroSolo.includes("her drawing is the finished model")) {
+  fail("[botero]", "Botero v2 prompt lost the finished-model framing");
 }
-if (!boteroSolo.includes("feel free to use botero color")) {
-  fail("[botero]", "Botero v1 default body lost the botero-color permission");
+if (!boteroSolo.includes("the shading lives around the faces, never on them")) {
+  fail("[botero]", "Botero v3 prompt lost the face-exclusion law");
+}
+if (!boteroSolo.includes("the outlines of her shapes never move")) {
+  fail("[botero]", "Botero v3 prompt lost the outline pin");
+}
+if (!boteroSolo.includes("this is her painting with new shading")) {
+  fail("[botero]", "Botero v3 prompt lost the operation-inversion anchor");
+}
+if (!boteroSolo.includes("warm muted earth tones")) {
+  fail("[botero]", "Botero v3 default body lost the palette-shift permission");
 }
 // Her-colors variant: selected by keepSourceColors in prompt mode.
 const boteroKeep = buildPrompt({
@@ -227,14 +242,17 @@ const boteroKeep = buildPrompt({
   aspectRatio: "4:5",
   keepSourceColors: true,
 });
-if (!boteroKeep.includes("do not use botero's colors")) {
-  fail("[botero]", "Botero keep-colors variant lost the palette ban");
+if (/botero/i.test(boteroKeep)) {
+  fail("[botero]", "Botero v3 keep-colors body mentions the painter's name — keep it nameless");
 }
-if (boteroKeep.includes("feel free to use botero color")) {
-  fail("[botero]", "Botero keep-colors variant still grants botero color — variant selection broken");
+if (!boteroKeep.includes("keep her exact color palette")) {
+  fail("[botero]", "Botero keep-colors variant lost the palette pin");
 }
-if (boteroSolo.includes("do not use botero's colors")) {
-  fail("[botero]", "Botero default body carries the keep-colors ban — variant selection broken");
+if (boteroKeep.includes("warm muted earth tones")) {
+  fail("[botero]", "Botero keep-colors variant still grants the palette shift — variant selection broken");
+}
+if (boteroSolo.includes("keep her exact color palette")) {
+  fail("[botero]", "Botero default body carries the keep-colors pin — variant selection broken");
 }
 // keepSourceColors must be a no-op for every OTHER preset body.
 const averyKeepFlag = buildPrompt({

@@ -360,11 +360,22 @@ export async function POST(req: Request): Promise<Response> {
     );
   }
   const keepSourceColors = body.keepSourceColors === true;
-  if (keepSourceColors && mode !== "style_explore") {
+  // v6.0: prompt mode joined style_explore as a legal home for the
+  // flag — the Botero preset branches its locked body on it (her
+  // palette vs botero palette). Other preset bodies ignore it, which
+  // is harmless (the flag persists + captions, and a future preset
+  // can adopt it without an API change). Still rejected in
+  // style_blend + sketch_vary where color ownership is undefined.
+  if (
+    keepSourceColors &&
+    mode !== "style_explore" &&
+    mode !== "prompt"
+  ) {
     return NextResponse.json(
       {
-        error: "keepSourceColors_requires_style_explore_mode",
-        detail: "keepSourceColors is only valid when mode='style_explore'.",
+        error: "keepSourceColors_invalid_mode",
+        detail:
+          "keepSourceColors is only valid when mode='style_explore' or mode='prompt'.",
       },
       { status: 400 },
     );

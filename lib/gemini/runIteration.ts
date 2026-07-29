@@ -642,6 +642,9 @@ export async function runIteration(iterationId: string): Promise<void> {
                 presets,
                 aspectRatio,
                 withStyleReference: promptModeHasStyleRef,
+                // v6.0: prompt mode reads the flag too — the Botero
+                // preset branches its locked body on it.
+                keepSourceColors,
               });
 
     // TEMP DEBUG (remove after Ambiance v8 deploy verification): on any iteration

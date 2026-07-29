@@ -271,6 +271,29 @@ const AVERY_PROMPT_BODY = `do this like a milton avery while preserving the char
 const CEZANNE_PROMPT_BODY = `study paul cezanne's paintings and paint this painting as if cezanne was painting it, while preserving the character and subjects. feel free to use cezanne color.`;
 
 // ---------------------------------------------------------------------------
+// BOTERO — v1 locked (v6.0). Third painter-reference preset; took the
+// visible slot + default from Cezanne (which joins the hidden set like
+// Color/Ambiance/Etching/Lighting — body + canaries all stay).
+//
+// Same study-then-paint framing as Avery/Cezanne, with TWO deltas:
+//   1. The SHAPE-PIN. Botero's signature is volumetric INFLATION —
+//      precisely the drift that would destroy her figures. The body
+//      directs his shading/modeling onto HER exact shapes and forbids
+//      inflating them. "her shapes are the model; botero only paints
+//      them" is the load-bearing framing (same model-vs-light split
+//      that fixed Finish v7).
+//   2. TWO COLOR VARIANTS, selected by the iteration's
+//      keep_source_colors flag (the "Her colors" pill, which as of
+//      v6.0 also applies to this preset in prompt mode): OFF → Botero's
+//      palette welcome; ON → her palette exactly, only his shading/
+//      modeling/surface.
+// ---------------------------------------------------------------------------
+
+const BOTERO_PROMPT_BODY = `study fernando botero's paintings — especially how he shades and models form: soft, smooth, and volumetric — and paint this painting as if botero was painting it, while preserving the character and subjects. keep her shapes and proportions exactly as she drew them — never inflate or round them; her shapes are the model, botero only paints them. feel free to use botero color.`;
+
+const BOTERO_KEEP_COLORS_PROMPT_BODY = `study fernando botero's paintings — especially how he shades and models form: soft, smooth, and volumetric — and paint this painting as if botero was painting it, while preserving the character and subjects. keep her shapes and proportions exactly as she drew them — never inflate or round them; her shapes are the model, botero only paints them. keep her exact color palette — do not use botero's colors; take only his shading, modeling, and painted surface.`;
+
+// ---------------------------------------------------------------------------
 // FINISH — v1 locked (v5.9). The final-pass preset: for a painting she
 // already loves (often a promoted keeper back in as the source), give
 // it a professional RENDERING pass in its own style. Not a
@@ -678,6 +701,7 @@ const PRESET_LABEL: Record<Preset, string> = {
   avery: "the painted treatment in Milton Avery's voice (handled separately)",
   etching: "old-master shadow hatching on the shadow side (handled separately)",
   cezanne: "the painted treatment in Paul Cézanne's voice (handled separately)",
+  botero: "the painted treatment in Fernando Botero's voice (handled separately)",
   finish: "a final professional rendering pass (handled separately)",
 };
 
@@ -706,6 +730,7 @@ const PRESET_REMOVES_FROM_PRESERVE: Record<Preset, ReadonlyArray<string>> = {
   avery: [], // unreachable — avery has its own prompt body (v1 dominator)
   etching: [], // unreachable — etching has its own prompt body (v1 dominator)
   cezanne: [], // unreachable — cezanne has its own prompt body (v1 dominator)
+  botero: [], // unreachable — botero has its own prompt body (v1 dominator)
   finish: [], // unreachable — finish has its own prompt body (v1 dominator)
 };
 
@@ -724,6 +749,14 @@ export interface BuildPromptArgs {
    * See AGENTS.md §13 for the mode contract.
    */
   mode?: "prompt" | "style_explore" | "style_blend";
+  /**
+   * v6.0: the iteration's keep_source_colors flag, now meaningful in
+   * prompt mode for the Botero preset (selects the her-palette body
+   * variant). Other preset bodies ignore it. Style Explore's use of
+   * the same flag routes through buildStyleExplorePrompt directly
+   * (worker path), not through this arg.
+   */
+  keepSourceColors?: boolean;
   /**
    * v2.4: when true (mode='prompt' only), prepends a single sentence
    * acknowledging the second image input is a style reference. Set on
@@ -755,6 +788,7 @@ export function buildPrompt({
   aspectRatio,
   mode = "prompt",
   withStyleReference = false,
+  keepSourceColors = false,
 }: BuildPromptArgs): string {
   // 0. Style Explore mode short-circuits the entire ladder. Presets are
   //    ignored — the directive is fixed and the variation comes from the
@@ -852,6 +886,20 @@ export function buildPrompt({
   if (presets.includes("cezanne")) {
     return withPrepend(
       `${CEZANNE_PROMPT_BODY}\n\nMatch the input aspect ratio exactly (${aspectRatio}).`,
+    );
+  }
+
+  // 6c. Botero (v6.0) — third painter-reference dominator, the always-on
+  //     default since it replaced Cezanne in the visible slot. The ONLY
+  //     preset whose body branches on keepSourceColors (the "Her colors"
+  //     pill): OFF → botero palette welcome; ON → her palette, only his
+  //     shading/modeling/surface. The UI only ever sends it alone.
+  if (presets.includes("botero")) {
+    const body = keepSourceColors
+      ? BOTERO_KEEP_COLORS_PROMPT_BODY
+      : BOTERO_PROMPT_BODY;
+    return withPrepend(
+      `${body}\n\nMatch the input aspect ratio exactly (${aspectRatio}).`,
     );
   }
 

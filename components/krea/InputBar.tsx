@@ -25,9 +25,9 @@
  *   resolution       '1k'                  cheaper / faster — 4K is opt-in
  *   aspectRatioMode  'match'               preserve source aspect — flip is opt-in
  *   count            TILE_COUNT_DEFAULT    3 — fits the layout cleanly
- *   presets          ['cezanne']           Cezanne is the always-on default
+ *   presets          ['botero']            Botero is the always-on default
  *                                          (v5.8; the slot's lineage is
- *                                          background → avery → cezanne)
+ *                                          background → avery → cezanne → botero)
  *
  * `modelTier`, `resolution`, and `count` are sticky within a session
  * (deliberately — they reflect the user's working-tier preference, not
@@ -102,6 +102,7 @@ const PRESET_LABEL: Record<Preset, string> = {
   avery: "Avery",
   etching: "Etching",
   cezanne: "Cezanne",
+  botero: "Botero",
   finish: "Finish",
 };
 
@@ -131,7 +132,7 @@ const VISIBLE_PRESETS: ReadonlyArray<Preset> = [
    * hidden set per Jeff — bodies, routing, and canaries all stay.
    * v5.9: Finish added last — the final-pass preset for a keeper
    * that's been promoted back in as the source. */
-  "cezanne",
+  "botero",
   "avery",
   "background",
   "finish",
@@ -166,6 +167,7 @@ const PRESET_SUBLINE: Partial<Record<Preset, string>> = {
   avery: "in Milton Avery's voice",
   etching: "old-master shadow hatching",
   cezanne: "as if Cézanne painted it",
+  botero: "her shapes, Botero's shading",
   finish: "a final blue-chip rendering pass",
 };
 
@@ -564,7 +566,7 @@ export function InputBar() {
       // never the previously-selected preset, per spec: dismissal
       // restores the always-on default rather than the user's last
       // selection (which they explicitly tapped × on).
-      setPreset("cezanne");
+      setPreset("botero");
       setPickerOpen(false);
     };
     document.addEventListener("pointerdown", onOutside);
@@ -673,7 +675,7 @@ export function InputBar() {
       // button now stays HTML-enabled during the transitional state and
       // routes the click here instead. Doubled with the listener — both
       // paths are idempotent.
-      setPreset("cezanne");
+      setPreset("botero");
       setPickerOpen(false);
       return;
     }
@@ -756,7 +758,7 @@ export function InputBar() {
         )}
 
         {/* Top row — mutually-exclusive preset picker.
-            Renders the VISIBLE_PRESETS subset (currently 4: cezanne,
+            Renders the VISIBLE_PRESETS subset (currently 4: botero,
             avery, background, finish — Color/Ambiance/Etching/Lighting
             are hidden, see the constant's doc above). Grid is
             `grid-cols-2 sm:grid-cols-4` — phones (< 640px) get a 2×2

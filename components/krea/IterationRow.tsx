@@ -85,6 +85,7 @@ const PRESET_LABEL: Record<string, string> = {
   background: "background",
   avery: "avery",
   cezanne: "cezanne",
+  botero: "botero",
   finish: "finish",
   etching: "etching",
 };
@@ -215,7 +216,11 @@ export const IterationRow = memo(function IterationRow({
       return ["style explore", ...suffixes].join(" · ");
     }
     if (!presets || presets.length === 0) return "make beautiful";
-    return presets.map((p) => PRESET_LABEL[p]).join(" · ");
+    const presetCaption = presets.map((p) => PRESET_LABEL[p]).join(" · ");
+    // v6.0: prompt-mode rows carry the flag only when the body honored
+    // it (the hook gates persistence to Botero), so appending here
+    // stays honest — "botero · her colors" vs plain "botero".
+    return keepSourceColors ? `${presetCaption} · her colors` : presetCaption;
   }, [presets, mode, blendInputCount, varyStrength, keepSourceColors, loose]);
 
   // Stuck detection: pending/running iteration past STUCK_THRESHOLD_MS

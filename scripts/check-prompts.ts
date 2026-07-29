@@ -203,6 +203,49 @@ if (!cezanneSolo.includes("while preserving the character and subjects")) {
   fail("[cezanne]", "Cezanne v1 prompt lost the preserve-character clause");
 }
 
+// Botero v1 (v6.0) — third painter preset, the always-on default, and
+// the only preset whose body branches on keepSourceColors.
+const boteroSolo = buildPrompt({ presets: ["botero"], aspectRatio: "4:5" });
+if (!boteroSolo.startsWith("study fernando botero's paintings")) {
+  fail("[botero]", "Botero v1 prompt regressed (lowercase 'study fernando botero's paintings' opener canary missing)");
+}
+// The SHAPE-PIN is the load-bearing fence: Botero's signature is
+// volumetric inflation, exactly the drift that would destroy her
+// figures. "her shapes are the model, botero only paints them."
+if (!boteroSolo.includes("never inflate or round them")) {
+  fail("[botero]", "Botero v1 prompt lost the anti-inflation shape-pin");
+}
+if (!boteroSolo.includes("her shapes are the model, botero only paints them")) {
+  fail("[botero]", "Botero v1 prompt lost the model-vs-painter framing");
+}
+if (!boteroSolo.includes("feel free to use botero color")) {
+  fail("[botero]", "Botero v1 default body lost the botero-color permission");
+}
+// Her-colors variant: selected by keepSourceColors in prompt mode.
+const boteroKeep = buildPrompt({
+  presets: ["botero"],
+  aspectRatio: "4:5",
+  keepSourceColors: true,
+});
+if (!boteroKeep.includes("do not use botero's colors")) {
+  fail("[botero]", "Botero keep-colors variant lost the palette ban");
+}
+if (boteroKeep.includes("feel free to use botero color")) {
+  fail("[botero]", "Botero keep-colors variant still grants botero color — variant selection broken");
+}
+if (boteroSolo.includes("do not use botero's colors")) {
+  fail("[botero]", "Botero default body carries the keep-colors ban — variant selection broken");
+}
+// keepSourceColors must be a no-op for every OTHER preset body.
+const averyKeepFlag = buildPrompt({
+  presets: ["avery"],
+  aspectRatio: "4:5",
+  keepSourceColors: true,
+});
+if (averyKeepFlag !== buildPrompt({ presets: ["avery"], aspectRatio: "4:5" })) {
+  fail("[botero]", "keepSourceColors leaked into a non-botero preset body");
+}
+
 const etchingSolo = buildPrompt({ presets: ["etching"], aspectRatio: "4:5" });
 if (!etchingSolo.startsWith("add classical old master shadow hatching")) {
   fail("[etching]", "Etching v1 prompt regressed (lowercase 'add classical old master shadow hatching' opener canary missing)");

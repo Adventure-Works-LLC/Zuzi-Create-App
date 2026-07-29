@@ -256,6 +256,9 @@ export function useIterations(): UseIterationsResult {
   const resolution = useCanvas((s) => s.resolution);
   const aspectRatioMode = useCanvas((s) => s.aspectRatioMode);
   const presets = useCanvas((s) => s.presets);
+  // v6.0: the "Her colors" pill feeds prompt-mode Botero generates too
+  // (explore surfaces pass it via opts from the same store slot).
+  const keepHerColors = useCanvas((s) => s.keepHerColors);
   const count = useCanvas((s) => s.count);
 
   const [loading, setLoading] = useState(false);
@@ -372,10 +375,18 @@ export function useIterations(): UseIterationsResult {
     // (matches the server default). Null for every other mode.
     const varyStrength: VaryStrength | null =
       mode === "sketch_vary" ? (opts?.varyStrength ?? 0.45) : null;
-    // v5.6/v5.7: switches — meaningful only on style_explore (server
-    // rejects true elsewhere).
+    // v5.6/v5.7: switches. keepSourceColors is meaningful on
+    // style_explore AND (v6.0) on prompt-mode BOTERO runs — the only
+    // preset whose body branches on it. Gating on the preset keeps
+    // row captions honest: a pill left ON while generating Avery
+    // would otherwise persist a flag the body ignored and caption
+    // "avery · her colors" misleadingly. Falls back to the store's
+    // global pill state (same source of truth the explore surfaces
+    // pass explicitly).
     const keepSourceColors =
-      mode === "style_explore" && (opts?.keepSourceColors ?? false);
+      (mode === "style_explore" ||
+        (mode === "prompt" && presets.includes("botero"))) &&
+      (opts?.keepSourceColors ?? keepHerColors);
     const loose = mode === "style_explore" && (opts?.loose ?? false);
     // Per-call tier / resolution overrides (ExploreSheet uses its own
     // Flash-default toggle rather than the InputBar's Pro-default). Falls
@@ -758,6 +769,7 @@ export function useIterations(): UseIterationsResult {
     resolution,
     aspectRatioMode,
     presets,
+    keepHerColors,
     count,
     prependIteration,
     setIterationStatus,

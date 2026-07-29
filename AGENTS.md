@@ -111,15 +111,40 @@ re-read this paragraph and the plan's reference docs first.
 > shrank. The picker now renders three cells: Cezanne (default),
 > Avery, Background.
 
-> **Cezanne (v1, v5.8) is the third painter-reference preset and the
-> always-on default** — took the slot from Avery (lineage: background
-> → avery → cezanne; every snap-back + context-shift reset in
-> stores/canvas.ts and InputBar.tsx now lands on `["cezanne"]`).
-> Same brief-body architecture as Avery: study-then-paint framing
-> ("study paul cezanne's paintings and paint this painting as if
-> cezanne was painting it"), preserve character + subjects, cezanne
-> color welcome. Canary locks the lowercase opener
-> `"study paul cezanne's paintings"`.
+> **Cezanne (v1, v5.8) is the third painter-reference preset** — held
+> the visible slot + default until Botero took both in v6.0 (Cezanne
+> joined the hidden set: body, routing, and canaries all stay; re-add
+> to VISIBLE_PRESETS to re-enable). Same brief-body architecture as
+> Avery: study-then-paint framing ("study paul cezanne's paintings and
+> paint this painting as if cezanne was painting it"), preserve
+> character + subjects, cezanne color welcome. Canary locks the
+> lowercase opener `"study paul cezanne's paintings"`.
+
+> **Botero (v1, v6.0) is the fourth painter-reference preset and the
+> always-on default** (lineage: background → avery → cezanne → botero;
+> every snap-back + context-shift reset lands on `["botero"]`). The
+> study-then-paint framing targets his SHADING specifically ("study
+> fernando botero's paintings — especially how he shades and models
+> form: soft, smooth, and volumetric"). Two deltas from the
+> Avery/Cezanne architecture:
+>   1. **The shape-pin**: Botero's signature is volumetric INFLATION —
+>      the body forbids it ("keep her shapes and proportions exactly…
+>      never inflate or round them; her shapes are the model, botero
+>      only paints them" — the Finish-v7 model-vs-painter framing).
+>      Validated behavior: the pin holds on objects/composition; the
+>      FIGURE still drifts toward Botero's human rendering (Pro's pull
+>      on this painter is immense). This matches Avery/Cezanne's
+>      accepted figure-reimagining behavior; hardening it further
+>      would trade away the Botero-ness that makes the preset useful.
+>   2. **Two color variants selected by `keep_source_colors`** (the
+>      "Her colors" pill, which as of v6.0 applies in prompt mode to
+>      this preset only — the hook gates the flag to Botero so other
+>      preset rows never carry a flag their body ignored): OFF →
+>      "feel free to use botero color"; ON → "keep her exact color
+>      palette — do not use botero's colors; take only his shading,
+>      modeling, and painted surface." Both bodies canary-locked,
+>      including variant-selection cross-checks and a no-op guard for
+>      every other preset.
 
 > **Color and Ambiance are hidden from the UI.** After many iteration cycles
 > neither `COLOR_PROMPT_BODY` nor `AMBIANCE_PROMPT_BODY` found an operation Zuzi

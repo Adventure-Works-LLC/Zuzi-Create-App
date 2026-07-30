@@ -25,7 +25,7 @@
  *   resolution       '1k'                  cheaper / faster — 4K is opt-in
  *   aspectRatioMode  'match'               preserve source aspect — flip is opt-in
  *   count            TILE_COUNT_DEFAULT    3 — fits the layout cleanly
- *   presets          ['botero']            Botero is the always-on default
+ *   presets          ['cezanne']           Cezanne is the always-on default
  *                                          (v5.8; the slot's lineage is
  *                                          background → avery → cezanne → botero)
  *
@@ -132,7 +132,7 @@ const VISIBLE_PRESETS: ReadonlyArray<Preset> = [
    * hidden set per Jeff — bodies, routing, and canaries all stay.
    * v5.9: Finish added last — the final-pass preset for a keeper
    * that's been promoted back in as the source. */
-  "botero",
+  "cezanne",
   "avery",
   "background",
   "finish",
@@ -566,7 +566,7 @@ export function InputBar() {
       // never the previously-selected preset, per spec: dismissal
       // restores the always-on default rather than the user's last
       // selection (which they explicitly tapped × on).
-      setPreset("botero");
+      setPreset("cezanne");
       setPickerOpen(false);
     };
     document.addEventListener("pointerdown", onOutside);
@@ -675,7 +675,7 @@ export function InputBar() {
       // button now stays HTML-enabled during the transitional state and
       // routes the click here instead. Doubled with the listener — both
       // paths are idempotent.
-      setPreset("botero");
+      setPreset("cezanne");
       setPickerOpen(false);
       return;
     }
@@ -758,7 +758,7 @@ export function InputBar() {
         )}
 
         {/* Top row — mutually-exclusive preset picker.
-            Renders the VISIBLE_PRESETS subset (currently 4: botero,
+            Renders the VISIBLE_PRESETS subset (currently 4: cezanne,
             avery, background, finish — Color/Ambiance/Etching/Lighting
             are hidden, see the constant's doc above). Grid is
             `grid-cols-2 sm:grid-cols-4` — phones (< 640px) get a 2×2

@@ -12,8 +12,9 @@
  * Every feed read marks the returned cards as served and tops up that
  * feed's buffer (ensureBuffer) — this is what "paints as she scrolls".
  *
- * Response: { cards, nextBefore, painting } — `painting` is how many cards
- * of this feed are in flight right now.
+ * Response: { cards, nextBefore, painting, stopped } — `painting` is how many
+ * cards of this feed are in flight; `stopped` is 'daily' | 'monthly' when a
+ * spend guard is holding the painter back (null otherwise).
  *
  * Auth required. runtime = 'nodejs' (better-sqlite3, sharp via producer).
  */
@@ -67,12 +68,13 @@ export async function GET(req: Request): Promise<Response> {
 
   const rows = typeof since === "number" ? listReadySince(feed, since, limit) : listReady(feed, limit, before);
   markServed(rows.map((r) => r.id), Date.now());
-  ensureBuffer(feed);
+  const stopped = ensureBuffer(feed);
   const cards = await toDTOs(rows);
   const last = rows[rows.length - 1];
   return NextResponse.json({
     cards,
     nextBefore: typeof since !== "number" && rows.length === limit && last?.ready_at ? last.ready_at : null,
     painting: countPending(feed),
+    stopped,
   });
 }

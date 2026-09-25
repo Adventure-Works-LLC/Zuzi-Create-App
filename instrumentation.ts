@@ -188,8 +188,9 @@ export async function register(): Promise<void> {
     if (process.env.FEED_AUTOFILL !== "0") {
       const { ensureBuffer } = await import("./lib/feed/producer");
       const tick = () => {
-        ensureBuffer("invented");
         ensureBuffer("museum");
+        ensureBuffer("modern");
+        ensureBuffer("invented");
       };
       setTimeout(tick, 30_000);
       setInterval(tick, 10 * 60_000).unref?.();

@@ -37,6 +37,16 @@ export function hersFromMuseumPrompt(paletteText: string): string {
   return `Image 1 is an old painting from a museum. The other images are paintings by one contemporary artist. Make HER new painting that borrows only the bones of image 1 — its composition, the arrangement of figures, the gesture and the mood — and makes it entirely her own: ${HER_HAND}. For this one, paint it in a bold palette of ${paletteText}, confident and saturated where she would be. It must not look like a copy or a parody of image 1, and must not be drawn in a cleaner, cuter or more illustrated style. It should look like a painting she made after looking at image 1 for a long time.`;
 }
 
+/**
+ * "Bring it to today" (v7.1): same arrangement, poses and gestures as image 1,
+ * but present-day clothes, objects and activities — validated Sept 25 2026
+ * (the sleeping maid at a modern kitchen table beside a robot vacuum; the
+ * napping laundresses in hoodies and sneakers on tote bags).
+ */
+export function hersTodayPrompt(paletteText: string): string {
+  return `Image 1 is a painting. The other images are paintings by one contemporary artist. Make HER new painting that keeps the arrangement, the poses and the gestures of image 1 — but brings the scene into today: the people wear clothes of today and do the present-day version of what they are doing in image 1 (the same moment, updated), with present-day objects and settings. Make it entirely her own: ${HER_HAND}. Paint it in a bold palette of ${paletteText}, confident and saturated where she would be. It must not be drawn in a cleaner, cuter or more illustrated style. It should look like a painting she made after looking at image 1 for a long time.`;
+}
+
 /** One palette dot: same painting, new colors. */
 export function recolorPrompt(paletteText: string): string {
   return `Repaint only the colors of this painting. Keep every shape, line, face, eye, hand, brush mark and the whole composition exactly the same — the drawing must not change at all. New palette: ${paletteText}. Make the color museum-grade: a clear dominant hue, nuanced temperature shifts inside each color area, colored neutrals instead of grey, and complements used sparingly, the way a great colorist handles color. Keep the painted surface and the dark wobbly outlines.`;
@@ -50,9 +60,30 @@ const ERAS = [
   "Neo-Expressionism", "Edo-period Japanese painting", "Mughal miniature", "Contemporary figurative painting",
 ];
 
+/**
+ * The Modern feed: contemporary museum painting, 1995–2025, named by movement
+ * or scene — NEVER by a living artist (real works from these years are under
+ * copyright and not in open collections, so Modern is always invented).
+ */
+const MODERN_ERAS = [
+  "contemporary figurative painting (2010s)", "ultra-contemporary New York figurative painting (2020s)",
+  "1990s London painting", "Leipzig School figuration (2000s)", "contemporary neo-surrealist painting (2010s)",
+  "contemporary domestic-interior painting (2000s)", "contemporary Los Angeles painting (2010s)",
+  "contemporary Mexican painting (2010s)", "contemporary West African figurative painting (2020s)",
+  "contemporary Indian figurative painting (2010s)", "Chinese contemporary painting (1990s)",
+  "contemporary Nordic figurative painting (2010s)", "contemporary still-life painting (2020s)",
+  "contemporary naive-inflected painting (2020s)", "contemporary heavy-impasto figure painting (2020s)",
+  "contemporary large-scale portraiture (2010s)", "contemporary Japanese figurative painting (2000s)",
+  "contemporary queer figuration (2020s)", "contemporary Brazilian painting (2010s)",
+];
+
+export function modernOriginalPrompt(b: InventedBrief): string {
+  return `A museum masterpiece of contemporary painting: ${b.era}, ${b.date}, ${b.medium}. ${b.scene}. Painted with the ambition, scale, color and surface of the best contemporary painting, as if it hung in a museum of modern and contemporary art today. Show the whole painting straight-on, edge to edge, with no frame, no wall, no text and no signature.`;
+}
+
 /** The idea-writer: briefs for invented masterpieces that rhyme with her world. */
-export function ideaWriterPrompt(n: number, avoidTitles: string[]): string {
-  return `You write briefs for "invented masterpieces": paintings that do not exist but could hang in a major museum, each one a starting point for a contemporary painter named Zuzi to paint her own version.
+export function ideaWriterPrompt(n: number, avoidTitles: string[], modern = false): string {
+  return `You write briefs for "invented masterpieces": paintings that do not exist but could hang in a ${modern ? "museum of modern and contemporary art" : "major museum"}, each one a starting point for a contemporary painter named Zuzi to paint her own version.
 
 Her world, from her own paintings (use these keys for "cast"):
 ${castMenu()}
@@ -62,7 +93,7 @@ Her recurring moods: gentle deadpan humor, sleepiness, tenderness, small absurd 
 Write ${n} briefs. Rules:
 - Each brief is a specific, original scene that rhymes with her world (her people, horses, cats, cafés, kitchens, boots, sleepers, hands from the sky) but is a NEW situation she has never painted.
 - Never describe or echo a famous existing painting or its best-known composition. Each must be an original composition.
-- Spread the eras widely; use a different era for each brief, chosen from: ${ERAS.join("; ")}.
+- ${modern ? `These are CONTEMPORARY museum paintings made between 1995 and 2025. Use a different style for each brief, chosen from: ${MODERN_ERAS.join("; ")}. Name the style or movement only; never name, imitate or reference a specific living artist.` : `Spread the eras widely; use a different era for each brief, chosen from: ${ERAS.join("; ")}.`}
 - Write the scene the way a museum catalogue would describe the painting: concrete subjects, setting, light, one telling detail. 1–2 sentences, no more than 60 words.
 - "cast" lists 1–3 keys from the list above whose characters or settings her version should use.
 - "aspect" is "4:5" (portrait) or "5:4" (landscape), whichever suits the scene.
@@ -80,9 +111,9 @@ ${castMenu()}
 
 Keep a painting only if ALL of these are true:
 - It is a painting (not a vase, snuffbox, textile, manuscript page, calligraphy or photograph).
-- Its subject rhymes with her world: people sleeping, eating, drinking, dancing, cooking, sitting at tables, riding or tending horses, cats, boots, cafés, kitchens, bedrooms, picnics, performers, or a strong single figure.
+- It has a subject she could make her own version of: people (portraits, figures at rest or at work, cafés, kitchens, bedrooms, picnics, performers, bathers), animals (horses, cats, dogs), interiors, still lifes, gardens or streets with life in them. Prefer the ones that rhyme most with her world.
 - It has a strong, readable composition that would still work simplified into flat shapes.
-- It is not a formal devotional or religious scene, a battle, or a landscape with no figures or animals.
+- It is not a formal devotional or religious scene, a battle, or an empty landscape or seascape with no figures, animals or objects of interest.
 
 Return only a JSON array with one object per image, in order: {"i": number, "keep": boolean, "cast": [1–3 keys], "rhyme": "a few words naming what it rhymes with in her work"}.`;
 }

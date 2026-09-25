@@ -18,7 +18,7 @@ import { NextResponse } from "next/server";
 
 import { requireAuth } from "@/lib/auth/requireAuth";
 import { isPaletteKey } from "@/lib/feed/palettes";
-import { insertCardIfAbsent, isFeedName } from "@/lib/feed/store";
+import { insertCardIfAbsent, isFeedName, setBriefIfMissing } from "@/lib/feed/store";
 
 export const runtime = "nodejs";
 
@@ -39,6 +39,7 @@ interface ImportCard {
   palettes: string[];
   variants: Record<string, string>;
   readyAt: number;
+  brief?: Record<string, unknown>;
 }
 
 const KEY_OK = (k: unknown): k is string => typeof k === "string" && k.startsWith("feed/") && !k.includes("..") && k.length < 256;
@@ -54,7 +55,7 @@ export async function POST(req: Request): Promise<Response> {
     return NextResponse.json({ error: "invalid_json" }, { status: 400 });
   }
   const cards = Array.isArray(body.cards) ? body.cards.slice(0, 500) : [];
-  let inserted = 0, skipped = 0, rejected = 0;
+  let inserted = 0, skipped = 0, rejected = 0, briefed = 0;
   for (const c of cards) {
     if (typeof c?.id !== "string" || !c.id.startsWith("seed-") || !isFeedName(c.feed) || !KEY_OK(c.herKey) || !KEY_OK(c.origKey)) {
       rejected++;
@@ -79,11 +80,16 @@ export async function POST(req: Request): Promise<Response> {
       her_h: c.herH,
       palettes: JSON.stringify((c.palettes ?? []).filter(isPaletteKey)),
       variants: JSON.stringify(variants),
+      brief: c.brief ? JSON.stringify(c.brief) : null,
       created_at: c.readyAt,
       ready_at: c.readyAt,
     });
     if (ok) inserted++;
-    else skipped++;
+    else {
+      skipped++;
+      // Re-import fills in a brief the first import didn't carry (cast keys etc.).
+      if (c.brief && setBriefIfMissing(c.id, JSON.stringify(c.brief))) briefed++;
+    }
   }
-  return NextResponse.json({ inserted, skipped, rejected });
+  return NextResponse.json({ inserted, skipped, rejected, briefed });
 }

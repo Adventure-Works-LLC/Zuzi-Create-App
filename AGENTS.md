@@ -1471,10 +1471,34 @@ one tap away, palette dots, and a heart. Two feeds (toggle at the top):
     same image via Nano Banana 2 with "museum-grade color" language, on
     first tap. The softer↔bolder slider is a client-side CSS filter.
 
+### Three feeds, every card a pair (v7.1)
+
+  - **Museum** (default tab): blue-chip public-domain paintings from the
+    great museums via Wikidata + Wikimedia Commons (`catalogCandidates` in
+    `lib/feed/engine.ts`: paintings with a Commons image, copyright status
+    public domain, held by ~25 top museums incl. the Met, Philadelphia, the
+    Barnes, Orsay, the National Gallery; "blue chip" = the artist has
+    Wikipedia articles in 70+ languages). Met/AIC search is the fallback.
+  - **Modern**: invented contemporary museum pieces (1995–2025 styles, named
+    by movement, never by a living artist). Real works that recent are under
+    copyright and not in open collections, so Modern is always invented.
+  - **Invented**: invented masterpieces from any era.
+  - Tapping a card opens it big. **Paint again** makes a new version from
+    the same original (a child card sharing `orig_key`; all versions stay
+    with the pair). Scrolling into **More like this** starts up to four new
+    pairs like it (child cards via `parent_id`: sibling briefs for invented,
+    same-artist Wikidata works for museum). Children never enter the main
+    feed or its buffer.
+  - **Bring it to today** (Jeff: invented scenes read "ancient clothes doing
+    ancient things"): same arrangement, poses and gestures, present-day
+    clothes and activities (`hersTodayPrompt`). About half of new Invented
+    cards are painted this way, and every opened card has the button (a
+    version with `{ today: true }`).
+
 ### Paints as she scrolls
 
 `GET /api/feed` returns ready cards newest-first, marks them served, and
-calls `ensureBuffer(feed)`: keep `FEED_BUFFER` (default 10) unseen +
+calls `ensureBuffer(feed)`: keep `FEED_BUFFER` (default 20) unseen +
 in-flight cards per feed. A card takes ~2–3 min, so the buffer plus a
 10-minute autofill interval (instrumentation.ts; `FEED_AUTOFILL=0` turns
 it off) keeps her from waiting. At the end of the list the page polls
@@ -1483,7 +1507,7 @@ it off) keeps her from waiting. At the end of the list the page polls
 
 ### Spend
 
-`FEED_DAILY_CARDS` (default 60) cards started per UTC day; feed spend is
+`FEED_DAILY_CARDS` (default 90) cards started per UTC day (feed, Paint again and More like this all count); feed spend is
 recorded on `feed_cards.cost_usd` and included in `monthlyUsageUsd()`, so
 the Studio and the Scroll share `MONTHLY_USD_CAP`. Prices live in
 `lib/cost.ts` (`FEED_PRICE_USD`): ~$0.27 per invented card, ~$0.13 per
@@ -1494,6 +1518,8 @@ museum card, ~$0.07 per palette dot painted.
   - `lib/feed/{cast,palettes,prompts,engine,store,producer,dto}.ts`
   - `app/(feed)/page.tsx` + `layout.tsx` + `feed.css` — the page
   - `app/api/feed/route.ts` (read + buffer), `[id]/route.ts` (heart),
+    `[id]/related` (versions + more like this), `[id]/again`, `[id]/more`,
+    `status` (painter state for debugging),
     `[id]/variant/route.ts` (palette dot), `import/route.ts` (seed cards,
     ids `seed-*`, images pre-uploaded under R2 `feed/`)
   - `drizzle/0013_feed_cards.sql`, `docs/SCHEMA.md` (feed_cards)

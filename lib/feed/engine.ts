@@ -169,11 +169,11 @@ function parseJsonArray(text: string): unknown[] {
   return v;
 }
 
-export async function writeBriefs(n: number, avoidTitles: string[]): Promise<InventedBrief[]> {
+export async function writeBriefs(n: number, avoidTitles: string[], modern = false): Promise<InventedBrief[]> {
   const res = await withTimeout(
     genai().models.generateContent({
       model: textModel(),
-      contents: [{ role: "user", parts: [{ text: ideaWriterPrompt(n, avoidTitles) }] }],
+      contents: [{ role: "user", parts: [{ text: ideaWriterPrompt(n, avoidTitles, modern) }] }],
       config: { responseMimeType: "application/json", temperature: 1.0 },
     }),
     "idea-writer",
@@ -199,7 +199,7 @@ export async function writeBriefs(n: number, avoidTitles: string[]): Promise<Inv
 // ---------------------------------------------------------------- museum
 
 export interface MuseumCandidate {
-  ref: string; // 'aic-123' | 'met-456'
+  ref: string; // 'wd-Q123' | 'aic-123' | 'met-456'
   title: string;
   artist: string;
   date: string;
@@ -207,6 +207,7 @@ export interface MuseumCandidate {
   page: string;
   image: string; // full-ish image URL
   thumb: string;
+  creatorQid?: string; // Wikidata artist, for "More like this"
 }
 
 const MOTIFS = ["asleep", "sleeping", "napping", "café", "tavern", "drinking", "wine", "horse", "horses", "rider", "kitchen", "cook", "peeling", "picnic", "harvest", "cat", "bar", "dance", "dancer", "night", "boots", "waiter", "reading", "bath", "music", "singer", "table", "breakfast", "garden", "stable"];
@@ -293,4 +294,133 @@ export async function judgeMuseum(cands: MuseumCandidate[]): Promise<JudgedCandi
     } catch (e) { console.warn("[feed] museum judge failed:", e instanceof Error ? e.message : e); }
   }
   return kept;
+}
+
+// ---------------------------------------------------------------- blue-chip catalog (Wikidata)
+
+/**
+ * The museum feed's main catalog: public-domain paintings with images on
+ * Wikimedia Commons, held by the great museums, by artists famous enough to
+ * have Wikipedia articles in 70+ languages (the "blue chip" filter; ~10k+
+ * paintings). Commons reproductions of public-domain 2D works are public
+ * domain. Queried live (free, no key); ~15–25s per query, so only the
+ * background refill calls it.
+ */
+const MUSEUMS: Record<string, string> = {
+  Q160236: "The Met",
+  Q510324: "Philadelphia Museum of Art",
+  Q808462: "Barnes Foundation",
+  Q239303: "Art Institute of Chicago",
+  Q214867: "National Gallery of Art",
+  Q23402: "Musée d'Orsay",
+  Q180788: "National Gallery, London",
+  Q188740: "MoMA",
+  Q19675: "Louvre",
+  Q190804: "Rijksmuseum",
+  Q160112: "Prado",
+  Q51252: "Uffizi",
+  Q95569: "Kunsthistorisches Museum",
+  Q224124: "Van Gogh Museum",
+  Q1051928: "Kröller-Müller Museum",
+  Q1134541: "Courtauld Gallery",
+  Q49133: "Museum of Fine Arts, Boston",
+  Q1099141: "Clark Art Institute",
+  Q1270597: "Phillips Collection",
+  Q657415: "Cleveland Museum of Art",
+  Q154568: "Alte Pinakothek",
+  Q170152: "Neue Pinakothek",
+  Q163804: "Städel",
+  Q430682: "Tate",
+  Q536705: "Musée de l'Orangerie",
+};
+
+async function sparql(query: string): Promise<Record<string, { value: string }>[]> {
+  const url = "https://query.wikidata.org/sparql?format=json&query=" + encodeURIComponent(query);
+  const r = await withTimeout(fetch(url, { headers: { "User-Agent": UA + " (jashbrook@gmail.com)", Accept: "application/sparql-results+json" } }), "wikidata", 70_000);
+  if (!r.ok) throw new Error(`wikidata ${r.status}`);
+  const j = (await r.json()) as { results?: { bindings?: Record<string, { value: string }>[] } };
+  return j.results?.bindings ?? [];
+}
+
+/**
+ * Random blue-chip public-domain paintings from the museums above — or, for
+ * "More like this", more by one artist (any museum).
+ */
+export async function catalogCandidates(opts: { exclude: Set<string>; limit?: number; creatorQid?: string; creatorName?: string }): Promise<MuseumCandidate[]> {
+  const limit = opts.limit ?? 40;
+  const seed = Math.random().toString(36).slice(2);
+  const museums = Object.keys(MUSEUMS).map((q) => `wd:${q}`).join(" ");
+  const creator = opts.creatorQid
+    ? `BIND(wd:${opts.creatorQid} AS ?creator)`
+    : opts.creatorName
+      ? `?creator rdfs:label ${JSON.stringify(opts.creatorName)}@en .`
+      : "";
+  const museumClause = creator ? "" : `VALUES ?museum { ${museums} } ?p wdt:P195 ?museum .`;
+  const q = `SELECT ?p ?title ?creator ?creatorLabel ?museum ?inception ?img WHERE {
+  ${creator}
+  ${museumClause}
+  ?p wdt:P31 wd:Q3305213 ; wdt:P18 ?img ; wdt:P6216 wd:Q19652 ; wdt:P170 ?creator .
+  ${creator ? "OPTIONAL { ?p wdt:P195 ?museum . }" : "?creator wikibase:sitelinks ?sl . FILTER(?sl >= 70)"}
+  ?p rdfs:label ?title . FILTER(LANG(?title) = "en")
+  ?creator rdfs:label ?creatorLabel . FILTER(LANG(?creatorLabel) = "en")
+  OPTIONAL { ?p wdt:P571 ?inception . }
+} ORDER BY MD5(CONCAT(STR(?p), "${seed}")) LIMIT ${limit * 2}`;
+  const rows = await sparql(q);
+  const out: MuseumCandidate[] = [];
+  const seen = new Set<string>();
+  for (const b of rows) {
+    const qid = b.p.value.split("/").pop() as string;
+    const ref = `wd-${qid}`;
+    if (seen.has(ref) || opts.exclude.has(ref)) continue;
+    seen.add(ref);
+    const file = b.img.value.replace(/^http:/, "https:");
+    const museumQid = b.museum?.value.split("/").pop() ?? "";
+    const year = b.inception?.value ? b.inception.value.slice(0, 4).replace(/^\+/, "") : "";
+    out.push({
+      ref,
+      title: b.title.value,
+      artist: b.creatorLabel.value,
+      date: year && /^\d{3,4}$/.test(year) ? year : "",
+      museum: MUSEUMS[museumQid] ?? "a museum collection",
+      page: `https://www.wikidata.org/wiki/${qid}`,
+      image: `${file}?width=1400`,
+      thumb: `${file}?width=400`,
+      creatorQid: b.creator.value.split("/").pop(),
+    });
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------- "More like this" ideas
+
+export async function writeLikeBriefs(parent: InventedBrief, n: number, avoidTitles: string[], modern = false): Promise<InventedBrief[]> {
+  const prompt = `${ideaWriterPrompt(n, avoidTitles, modern)}
+
+IMPORTANT — these are "more like this" for one brief she loved. Every new brief must feel like a sibling of it: the same era and medium (or a close neighbor), the same kind of subject and mood, and the same cast keys (${parent.cast.join(", ") || "any"}), but a genuinely new scene. The brief she loved:
+${JSON.stringify(parent)}`;
+  const res = await withTimeout(
+    genai().models.generateContent({
+      model: textModel(),
+      contents: [{ role: "user", parts: [{ text: prompt.replace("use a different era for each brief", "stay close to the loved brief's era") }] }],
+      config: { responseMimeType: "application/json", temperature: 1.0 },
+    }),
+    "idea-writer (more like this)",
+    120_000,
+  );
+  const out: InventedBrief[] = [];
+  for (const x of parseJsonArray(res.text ?? "")) {
+    const b = x as Partial<InventedBrief>;
+    if (!b.title || !b.era || !b.scene) continue;
+    out.push({
+      title: String(b.title).slice(0, 120),
+      era: String(b.era).slice(0, 80),
+      date: String(b.date ?? "").slice(0, 40),
+      medium: String(b.medium ?? parent.medium).slice(0, 80),
+      aspect: b.aspect === "5:4" ? "5:4" : "4:5",
+      scene: String(b.scene).slice(0, 600),
+      cast: (Array.isArray(b.cast) ? b.cast : parent.cast).filter(isCastKey).slice(0, 3),
+    });
+  }
+  return out;
 }

@@ -19,7 +19,7 @@ export function thumbKey(origKey: string): string {
 
 export interface CardDTO {
   id: string;
-  feed: "invented" | "museum";
+  feed: "invented" | "museum" | "modern";
   title: string;
   afterLabel: string;
   byline: string;

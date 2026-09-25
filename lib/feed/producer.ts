@@ -5,23 +5,30 @@
  * buffer and the museum candidate pool live in this process's memory. On a
  * second instance they would double-paint and double-spend.
  *
- * "Paints as she scrolls": every feed read calls ensureBuffer(feed), which
- * keeps FEED_BUFFER ready-but-unseen cards (plus in-flight ones) per feed.
- * A card takes ~2–3 minutes (Nano Banana Pro original + GPT Image 2 her
- * version), so the buffer — refilled on every read and by a 10-minute boot
- * interval — is what keeps her from waiting. Spend guards: FEED_DAILY_CARDS
- * started per UTC day, and the shared MONTHLY_USD_CAP (monthlyUsageUsd
- * includes feed spend).
+ * Every card is a PAIR — the painting (invented or museum) + her version —
+ * and stays that way. Three kinds of work:
+ *   - feed cards: ensureBuffer(feed) keeps FEED_BUFFER (default 24) unseen +
+ *     in-flight root cards per feed, so the bottom of the scroll is rarely
+ *     reached; a card takes ~2–3 min.
+ *   - "Paint again" (startAgain): a new version of her painting from the
+ *     SAME original — a child card sharing the parent's orig_key.
+ *   - "More like this" (startMore): new pairs like the parent — sibling
+ *     briefs for invented cards, more by the same artist for museum cards.
+ * Children (parent_id set) never count toward the feed buffer and never
+ * appear in the main feed. Spend guards: FEED_DAILY_CARDS started per UTC
+ * day, and the shared MONTHLY_USD_CAP (monthlyUsageUsd includes feed spend).
  */
 
 import { ulid } from "ulid";
 
 import { FEED_PRICE_USD } from "@/lib/cost";
 import { monthlyUsageUsd } from "@/lib/db/queries";
-import { putObject } from "@/lib/storage/r2";
+import type { FeedCard } from "@/lib/db/schema";
+import { getObject, putObject } from "@/lib/storage/r2";
 
 import {
   castImages,
+  catalogCandidates,
   dims,
   fetchImage,
   judgeMuseum,
@@ -31,12 +38,16 @@ import {
   recolor,
   toJpeg,
   writeBriefs,
+  writeLikeBriefs,
   type JudgedCandidate,
+  type MuseumCandidate,
 } from "./engine";
 import { HER_PALETTES, PALETTES, isPaletteKey, pickPalettes, type PaletteKey } from "./palettes";
 import {
   hersFromInventedPrompt,
   hersFromMuseumPrompt,
+  hersTodayPrompt,
+  modernOriginalPrompt,
   originalPrompt,
   recolorPrompt,
   type InventedBrief,
@@ -46,8 +57,10 @@ import {
   countPending,
   countReadyUnserved,
   countStartedSince,
+  countStartedTodayFailed,
   getCard,
   insertCard,
+  listChildren,
   parseJson,
   recentTitles,
   updateCard,
@@ -57,11 +70,11 @@ import {
 
 function envInt(name: string, dflt: number): number {
   const v = Number(process.env[name]);
-  return Number.isFinite(v) && v >= 0 ? Math.floor(v) : dflt;
+  return process.env[name] !== undefined && Number.isFinite(v) && v >= 0 ? Math.floor(v) : dflt;
 }
-const bufferTarget = () => envInt("FEED_BUFFER", 10);
-const dailyCards = () => envInt("FEED_DAILY_CARDS", 60);
-const maxParallel = () => Math.max(1, envInt("FEED_PARALLEL", 6));
+const bufferTarget = () => envInt("FEED_BUFFER", 20);
+const dailyCards = () => envInt("FEED_DAILY_CARDS", 90);
+const maxParallel = () => Math.max(1, envInt("FEED_PARALLEL", 8));
 function monthlyCap(): number {
   const v = Number(process.env.MONTHLY_USD_CAP ?? "250");
   return Number.isFinite(v) && v > 0 ? v : 250;
@@ -69,8 +82,10 @@ function monthlyCap(): number {
 
 let running = 0;
 const briefs: InventedBrief[] = [];
+const modernBriefs: InventedBrief[] = [];
 const museumPool: JudgedCandidate[] = [];
 let refillingBriefs: Promise<void> | null = null;
+let refillingModern: Promise<void> | null = null;
 let refillingMuseum: Promise<void> | null = null;
 
 function dayStartUtc(): number {
@@ -78,70 +93,109 @@ function dayStartUtc(): number {
   return Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate());
 }
 
-export function feedStatus() {
-  return { running, briefsQueued: briefs.length, museumPool: museumPool.length };
+/** Why the painter isn't starting more right now, or null if it can. */
+function blockedReason(): "daily" | "monthly" | null {
+  if (countStartedSince(dayStartUtc()) >= dailyCards()) return "daily";
+  if (monthlyUsageUsd() >= monthlyCap()) return "monthly";
+  return null;
 }
 
-/** Top up this feed's buffer. Cheap to call on every read; never throws. */
-export function ensureBuffer(feed: FeedName): void {
+export function feedStatus() {
+  const today = dayStartUtc();
+  return {
+    running,
+    briefsQueued: briefs.length,
+    museumPool: museumPool.length,
+    startedToday: countStartedSince(today),
+    dailyLimit: dailyCards(),
+    buffer: bufferTarget(),
+    pending: { invented: countPending("invented"), museum: countPending("museum"), modern: countPending("modern") },
+    readyUnseen: { invented: countReadyUnserved("invented"), museum: countReadyUnserved("museum"), modern: countReadyUnserved("modern") },
+    blocked: blockedReason(),
+    ...countStartedTodayFailed(today),
+  };
+}
+
+/** Top up this feed's buffer. Cheap to call on every read; never throws. Returns why it stopped, if it did. */
+export function ensureBuffer(feed: FeedName): "daily" | "monthly" | null {
   try {
     const have = countReadyUnserved(feed) + countPending(feed);
     let want = bufferTarget() - have;
-    if (want <= 0) return;
-    const budgetLeft = dailyCards() - countStartedSince(dayStartUtc());
-    if (budgetLeft <= 0) return;
-    if (monthlyUsageUsd() >= monthlyCap()) return;
-    want = Math.min(want, budgetLeft, maxParallel() - running);
-    for (let i = 0; i < want; i++) startJob(feed);
+    if (want <= 0) return null;
+    const blocked = blockedReason();
+    if (blocked) return blocked;
+    want = Math.min(want, dailyCards() - countStartedSince(dayStartUtc()), maxParallel() - running);
+    for (let i = 0; i < want; i++) startJob({ feed });
+    return null;
   } catch (e) {
     console.error("[feed] ensureBuffer failed:", e instanceof Error ? e.message : e);
+    return null;
   }
 }
 
-function startJob(feed: FeedName): void {
+interface JobOpts {
+  feed: FeedName;
+  parent?: FeedCard;
+  kind?: "version" | "like";
+  today?: boolean;
+  brief?: InventedBrief;
+  candidate?: JudgedCandidate;
+}
+
+function startJob(o: JobOpts): string {
   const id = ulid();
-  const now = Date.now();
   const seed = Math.floor(Math.random() * 1000);
   const asMade = HER_PALETTES[seed % HER_PALETTES.length];
   insertCard({
     id,
-    feed,
+    feed: o.feed,
     status: "pending",
-    title: "Painting…",
-    after_label: "",
-    byline: "",
+    title: o.parent?.title ?? "Painting…",
+    after_label: o.parent && o.kind === "version" ? o.parent.after_label : "",
+    byline: o.parent && o.kind === "version" ? o.parent.byline : "",
     palettes: JSON.stringify(pickPalettes(seed + 1).filter((k) => k !== asMade).slice(0, 3)),
     brief: JSON.stringify({ asMade }),
-    created_at: now,
+    parent_id: o.parent?.id ?? null,
+    created_at: Date.now(),
   });
   running++;
-  const job = feed === "invented" ? paintInvented(id, asMade) : paintMuseum(id, asMade);
+  const job =
+    o.kind === "version" && o.parent
+      ? paintVersion(id, o.parent, asMade, o.today === true)
+      : o.feed === "museum"
+        ? paintMuseum(id, asMade, o.candidate)
+        : paintInvented(id, asMade, o.brief, o.feed === "modern");
   job
     .catch((e) => {
       const msg = e instanceof Error ? e.message : String(e);
-      console.error(`[feed] card ${id} (${feed}) failed:`, msg);
+      console.error(`[feed] card ${id} (${o.feed}${o.kind ? "/" + o.kind : ""}) failed:`, msg);
       updateCard(id, { status: "failed", error: msg.slice(0, 500) });
     })
     .finally(() => {
       running--;
     });
+  return id;
 }
 
-async function nextBrief(): Promise<InventedBrief> {
-  for (let attempt = 0; attempt < 3 && briefs.length === 0; attempt++) {
-    if (!refillingBriefs) {
-      refillingBriefs = (async () => {
+async function nextBrief(modern = false): Promise<InventedBrief> {
+  const queue = modern ? modernBriefs : briefs;
+  for (let attempt = 0; attempt < 3 && queue.length === 0; attempt++) {
+    let refill = modern ? refillingModern : refillingBriefs;
+    if (!refill) {
+      refill = (async () => {
         try {
-          const got = await writeBriefs(8, recentTitles(60));
-          briefs.push(...got);
+          queue.push(...(await writeBriefs(8, recentTitles(80), modern)));
         } finally {
-          refillingBriefs = null;
+          if (modern) refillingModern = null;
+          else refillingBriefs = null;
         }
       })();
+      if (modern) refillingModern = refill;
+      else refillingBriefs = refill;
     }
-    await refillingBriefs.catch((e) => console.warn("[feed] idea-writer failed:", e instanceof Error ? e.message : e));
+    await refill.catch((e) => console.warn("[feed] idea-writer failed:", e instanceof Error ? e.message : e));
   }
-  const b = briefs.shift();
+  const b = queue.shift();
   if (!b) throw new Error("idea-writer returned no briefs");
   return b;
 }
@@ -153,8 +207,12 @@ async function nextMuseum(): Promise<JudgedCandidate> {
         try {
           const used = usedMuseumRefs();
           for (const c of museumPool) used.add(c.ref);
-          const cands = (await museumCandidates(used, 2)).sort(() => Math.random() - 0.5).slice(0, 30);
-          museumPool.push(...(await judgeMuseum(cands)));
+          let cands: MuseumCandidate[] = await catalogCandidates({ exclude: used, limit: 30 }).catch((e) => {
+            console.warn("[feed] blue-chip catalog failed, falling back to museum search:", e instanceof Error ? e.message : e);
+            return [] as MuseumCandidate[];
+          });
+          if (cands.length < 5) cands = cands.concat(await museumCandidates(used, 2));
+          museumPool.push(...(await judgeMuseum(cands.slice(0, 30))));
         } finally {
           refillingMuseum = null;
         }
@@ -167,8 +225,34 @@ async function nextMuseum(): Promise<JudgedCandidate> {
   return c;
 }
 
-async function paintInvented(id: string, asMade: PaletteKey): Promise<void> {
-  const b = await nextBrief();
+/** R2 writes retry a few times — transient TLS resets happen (seen Sept 2026). */
+async function put(key: string, body: Buffer): Promise<void> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await putObject(key, body, "image/jpeg");
+      return;
+    } catch (e) {
+      if (attempt >= 4) throw e;
+      await new Promise((r) => setTimeout(r, 800 * attempt));
+    }
+  }
+}
+
+async function storeOriginal(id: string, orig: Buffer): Promise<void> {
+  const od = await dims(orig);
+  await put(`feed/${id}/orig.jpg`, orig);
+  await put(`feed/${id}/orig-t.jpg`, await toJpeg(orig, 120, 76));
+  updateCard(id, { orig_key: `feed/${id}/orig.jpg`, orig_w: od.w, orig_h: od.h });
+}
+
+async function storeHers(id: string, hers: Buffer): Promise<void> {
+  const hd = await dims(hers);
+  await put(`feed/${id}/her.jpg`, hers);
+  updateCard(id, { her_key: `feed/${id}/her.jpg`, her_w: hd.w, her_h: hd.h, status: "ready", ready_at: Date.now() });
+}
+
+async function paintInvented(id: string, asMade: PaletteKey, given?: InventedBrief, modern = false): Promise<void> {
+  const b = given ?? (await nextBrief(modern));
   addCost(id, FEED_PRICE_USD.text / 8);
   updateCard(id, {
     title: b.title,
@@ -176,39 +260,126 @@ async function paintInvented(id: string, asMade: PaletteKey): Promise<void> {
     byline: `${b.era}, ${b.date} · ${b.medium} · invented; this painting does not exist`,
     brief: JSON.stringify({ ...b, asMade }),
   });
-  const orig = await paintOriginal(originalPrompt(b), b.aspect);
+  const orig = await paintOriginal(modern ? modernOriginalPrompt(b) : originalPrompt(b), b.aspect);
   addCost(id, FEED_PRICE_USD.original);
-  const od = await dims(orig);
-  await putObject(`feed/${id}/orig.jpg`, orig, "image/jpeg");
-  await putObject(`feed/${id}/orig-t.jpg`, await toJpeg(orig, 120, 76), "image/jpeg");
-  updateCard(id, { orig_key: `feed/${id}/orig.jpg`, orig_w: od.w, orig_h: od.h });
-  const hers = await paintHers(orig, await castImages(b.cast), hersFromInventedPrompt(PALETTES[asMade].text));
+  await storeOriginal(id, orig);
+  // Jeff, Sept 25 2026: invented scenes read "ancient clothes doing ancient
+  // things" — about half of the Invented feed is brought to today (same
+  // poses, present-day clothes and activities). Modern is already today.
+  const today = !modern && Math.random() < 0.5;
+  if (today) updateCard(id, { brief: JSON.stringify({ ...b, asMade, today: true }) });
+  const prompt = today ? hersTodayPrompt(PALETTES[asMade].text) : hersFromInventedPrompt(PALETTES[asMade].text);
+  const hers = await paintHers(orig, await castImages(b.cast), prompt);
   addCost(id, FEED_PRICE_USD.hers);
-  const hd = await dims(hers);
-  await putObject(`feed/${id}/her.jpg`, hers, "image/jpeg");
-  updateCard(id, { her_key: `feed/${id}/her.jpg`, her_w: hd.w, her_h: hd.h, status: "ready", ready_at: Date.now() });
+  await storeHers(id, hers);
 }
 
-async function paintMuseum(id: string, asMade: PaletteKey): Promise<void> {
-  const c = await nextMuseum();
+async function paintMuseum(id: string, asMade: PaletteKey, given?: JudgedCandidate): Promise<void> {
+  const c = given ?? (await nextMuseum());
   updateCard(id, {
     title: c.title,
     after_label: `after ${c.artist}`,
     byline: `${c.artist}${c.date ? ", " + c.date : ""} · ${c.museum}`,
     source_url: c.page,
     source_ref: c.ref,
-    brief: JSON.stringify({ cast: c.cast, rhyme: c.rhyme, asMade }),
+    brief: JSON.stringify({ cast: c.cast, rhyme: c.rhyme, artist: c.artist, creatorQid: c.creatorQid, asMade }),
   });
   const orig = await toJpeg(await fetchImage(c.image), 1280, 88);
-  const od = await dims(orig);
-  await putObject(`feed/${id}/orig.jpg`, orig, "image/jpeg");
-  await putObject(`feed/${id}/orig-t.jpg`, await toJpeg(orig, 120, 76), "image/jpeg");
-  updateCard(id, { orig_key: `feed/${id}/orig.jpg`, orig_w: od.w, orig_h: od.h });
+  await storeOriginal(id, orig);
   const hers = await paintHers(orig, await castImages(c.cast), hersFromMuseumPrompt(PALETTES[asMade].text));
   addCost(id, FEED_PRICE_USD.hers);
-  const hd = await dims(hers);
-  await putObject(`feed/${id}/her.jpg`, hers, "image/jpeg");
-  updateCard(id, { her_key: `feed/${id}/her.jpg`, her_w: hd.w, her_h: hd.h, status: "ready", ready_at: Date.now() });
+  await storeHers(id, hers);
+}
+
+/** "Paint again": a fresh version of her painting from the parent's original. */
+async function paintVersion(id: string, parent: FeedCard, asMade: PaletteKey, today: boolean): Promise<void> {
+  if (!parent.orig_key) throw new Error("parent has no original");
+  const pb = parseJson<{ cast?: string[]; asMade?: string }>(parent.brief, {});
+  // A different palette from the parent's, so the new version reads as new.
+  const palette = HER_PALETTES.find((k) => k !== pb.asMade && k !== asMade) ?? asMade;
+  updateCard(id, {
+    orig_key: parent.orig_key,
+    orig_w: parent.orig_w,
+    orig_h: parent.orig_h,
+    source_url: parent.source_url,
+    brief: JSON.stringify({ ...pb, asMade: palette, versionOf: parent.id, today }),
+  });
+  const orig = await getObject(parent.orig_key);
+  const prompt = today
+    ? hersTodayPrompt(PALETTES[palette].text)
+    : parent.feed === "museum"
+      ? hersFromMuseumPrompt(PALETTES[palette].text)
+      : hersFromInventedPrompt(PALETTES[palette].text);
+  const hers = await paintHers(orig, await castImages(pb.cast ?? ["cat", "chef"]), prompt);
+  addCost(id, FEED_PRICE_USD.hers);
+  await storeHers(id, hers);
+}
+
+function canStartChildren(): string | null {
+  const blocked = blockedReason();
+  if (blocked === "daily") return "Today's painting budget is used up. More tomorrow.";
+  if (blocked === "monthly") return "This month's painting budget is used up.";
+  return null;
+}
+
+/**
+ * "Paint again" on a card: a new version from the same original. Versions
+ * always hang off the root pair (tapping it on a version paints another
+ * version of the same original). One in flight per pair at a time.
+ */
+export function startAgain(cardId: string, today = false): { ok: boolean; message?: string } {
+  const card = getCard(cardId);
+  if (!card || card.status !== "ready" || !card.orig_key) return { ok: false, message: "That painting isn't ready yet." };
+  const parent = card.parent_id ? getCard(card.parent_id) : undefined;
+  const root = parent && parent.orig_key === card.orig_key ? parent : card;
+  const blocked = canStartChildren();
+  if (blocked) return { ok: false, message: blocked };
+  if (listChildren(root.id).some((c) => c.status === "pending" && c.orig_key === root.orig_key)) {
+    return { ok: true, message: "Already painting a new version." };
+  }
+  startJob({ feed: root.feed, parent: root, kind: "version", today });
+  return { ok: true };
+}
+
+const likeStarting = new Set<string>();
+
+/** "More like this": up to `n` new pairs like this card (idempotent per card). */
+export async function startMore(parentId: string, n = 4): Promise<{ ok: boolean; message?: string }> {
+  const parent = getCard(parentId);
+  if (!parent || parent.status !== "ready") return { ok: false, message: "That painting isn't ready yet." };
+  const existing = listChildren(parent.id).filter((c) => c.orig_key !== parent.orig_key).length;
+  const want = n - existing;
+  if (want <= 0 || likeStarting.has(parent.id)) return { ok: true };
+  const blocked = canStartChildren();
+  if (blocked) return { ok: false, message: blocked };
+  likeStarting.add(parent.id);
+  try {
+    if (parent.feed !== "museum") {
+      const pb = parseJson<Partial<InventedBrief>>(parent.brief, {});
+      const base: InventedBrief = {
+        title: parent.title,
+        era: pb.era ?? parent.after_label.replace(/^after an invented /, "").replace(/ painting$/, ""),
+        date: pb.date ?? "",
+        medium: pb.medium ?? "oil on canvas",
+        aspect: pb.aspect ?? "4:5",
+        scene: pb.scene ?? parent.title,
+        cast: pb.cast ?? ["cat", "chef"],
+      };
+      const got = await writeLikeBriefs(base, want, recentTitles(80), parent.feed === "modern");
+      for (const b of got.slice(0, want)) startJob({ feed: parent.feed, parent, kind: "like", brief: b });
+    } else {
+      const pb = parseJson<{ artist?: string; creatorQid?: string }>(parent.brief, {});
+      const artist = pb.artist ?? parent.after_label.replace(/^after /, "");
+      const used = usedMuseumRefs();
+      let cands: MuseumCandidate[] = await catalogCandidates({ exclude: used, limit: 16, creatorQid: pb.creatorQid, creatorName: pb.creatorQid ? undefined : artist }).catch(() => [] as MuseumCandidate[]);
+      if (cands.length < want) cands = cands.concat(await catalogCandidates({ exclude: used, limit: 16 }).catch(() => [] as MuseumCandidate[]));
+      const kept = await judgeMuseum(cands.slice(0, 20));
+      for (const c of kept.slice(0, want)) startJob({ feed: "museum", parent, kind: "like", candidate: c });
+    }
+    return { ok: true };
+  } finally {
+    likeStarting.delete(parent.id);
+  }
 }
 
 // ------------------------------------------------------------ palette dots
@@ -230,14 +401,12 @@ export async function ensureVariant(cardId: string, palette: string): Promise<st
   let job = variantJobs.get(jobKey);
   if (!job) {
     job = (async () => {
-      const { getObject } = await import("@/lib/storage/r2");
       const src = await getObject(card.her_key as string);
       const out = await recolor(src, recolorPrompt(PALETTES[palette].text));
       addCost(cardId, FEED_PRICE_USD.recolor);
       const key = `feed/${cardId}/var-${palette}.jpg`;
-      await putObject(key, out, "image/jpeg");
-      const fresh = getCard(cardId);
-      const vars = parseJson<Record<string, string>>(fresh?.variants, {});
+      await put(key, out);
+      const vars = parseJson<Record<string, string>>(getCard(cardId)?.variants, {});
       vars[palette] = key;
       updateCard(cardId, { variants: JSON.stringify(vars) });
       return key;

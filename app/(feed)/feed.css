@@ -105,17 +105,62 @@
 .zs-lb a { color: #e8c6e5; }
 .zs-lb .zs-x { position: fixed; top: calc(env(safe-area-inset-top, 0px) + 10px); right: 12px; background: #fff; color: #111; border: 0; border-radius: 999px; padding: 8px 14px; font-weight: 600; cursor: pointer; }
 
-/* iPad and phones: finger-sized controls (Zuzi uses it mainly on an iPad). */
+/* Tap-friendly everywhere (Zuzi uses it mainly on an iPad): every control is
+   visibly larger than a fingertip's miss, and dots/heart/links carry an
+   invisible hit area beyond their drawn edge. */
 .zs-root { -webkit-tap-highlight-color: transparent; }
+.zs-grid { gap: 16px; }
+.zs-col { gap: 16px; }
+.zs-tab { padding: 10px 17px; font-size: 0.95rem; }
+.zs-tune { font-size: 0.86rem; }
+.zs-tune input { width: 150px; height: 30px; }
+.zs-links { gap: 18px; font-size: 0.88rem; }
+.zs-links a { padding: 10px 2px; }
+.zs-dots { gap: 10px; }
+.zs-dot { width: 34px; height: 34px; }
+.zs-dot::before { content: ""; position: absolute; inset: -6px; border-radius: 50%; }
+.zs-palname { font-size: 0.8rem; }
+.zs-save { width: 50px; height: 50px; right: 10px; bottom: 10px; }
+.zs-save::before { content: ""; position: absolute; inset: -8px; border-radius: 50%; }
+.zs-save svg { width: 22px; height: 22px; }
+.zs-after { padding: 8px 12px 8px 8px; font-size: 0.84rem; min-height: 52px; margin-top: 10px; }
+.zs-after img { width: 36px; height: 36px; }
+.zs-cardtitle { font-size: 1.02rem; margin-top: 10px; }
+.zs-meta { padding: 11px 12px 12px; }
+.zs-lb .zs-x { padding: 12px 20px; font-size: 1rem; }
 @media (pointer: coarse) {
-  .zs-dots { gap: 9px; }
-  .zs-dot { width: 34px; height: 34px; }
-  .zs-save { width: 46px; height: 46px; right: 10px; bottom: 10px; }
-  .zs-save svg { width: 21px; height: 21px; }
-  .zs-after { padding: 7px 10px 7px 7px; font-size: 0.82rem; }
-  .zs-after img { width: 36px; height: 36px; }
-  .zs-tab { padding: 10px 16px; font-size: 0.92rem; }
-  .zs-tune input { width: 150px; height: 28px; }
-  .zs-links { gap: 16px; font-size: 0.86rem; }
-  .zs-links a { padding: 8px 0; }
+  .zs-tab { padding: 12px 19px; font-size: 1rem; }
+  .zs-tune input { width: 170px; height: 36px; }
+  .zs-links { font-size: 0.95rem; }
+  .zs-links a { padding: 12px 2px; }
+  .zs-dots { gap: 12px; }
+  .zs-dot { width: 40px; height: 40px; }
+  .zs-save { width: 54px; height: 54px; }
+  .zs-save svg { width: 24px; height: 24px; }
+  .zs-after { min-height: 56px; font-size: 0.9rem; }
+  .zs-after img { width: 40px; height: 40px; }
 }
+
+/* v7.1 — a card opened big: versions, Paint again, More like this. */
+.zs-detail { position: fixed; inset: 0; z-index: 45; background: var(--zs-ground); overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; padding: 0 16px calc(env(safe-area-inset-bottom, 0px) + 60px); }
+.zs-detail-bar { position: sticky; top: 0; z-index: 3; display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: calc(env(safe-area-inset-top, 0px) + 10px) 0 10px; background: var(--zs-ground); }
+.zs-back { font-size: 1rem; font-weight: 700; padding: 12px 20px; min-height: 48px; border-radius: 999px; border: 0; background: var(--zs-chip); color: var(--zs-ink); cursor: pointer; }
+.zs-back--quiet { background: transparent; color: var(--zs-muted); }
+.zs-detail-main { max-width: 820px; margin: 0 auto; }
+.zs-card--big .zs-imgbox { background: transparent; cursor: zoom-in; }
+.zs-card--big .zs-imgbox img { width: auto; max-width: 100%; max-height: 74vh; margin: 0 auto; }
+.zs-card--big .zs-cardtitle { font-size: 1.3rem; }
+.zs-byline { font-size: 0.9rem; color: var(--zs-muted); margin: 4px 0 0; }
+.zs-painting--big { aspect-ratio: 4 / 5; max-height: 74vh; }
+.zs-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin: 16px 0 6px; }
+.zs-primary { font-size: 1.05rem; font-weight: 700; padding: 14px 26px; min-height: 52px; border-radius: 999px; border: 0; background: var(--zs-accent); color: var(--zs-accent-ink); cursor: pointer; }
+.zs-primary:disabled { opacity: 0.5; cursor: default; }
+.zs-hint { font-size: 0.88rem; color: var(--zs-muted); }
+.zs-versions { display: flex; gap: 12px; overflow-x: auto; padding: 10px 2px 6px; }
+.zs-vthumb { flex: none; width: 76px; height: 92px; border-radius: 10px; border: 3px solid transparent; padding: 0; overflow: hidden; background: var(--zs-rule); cursor: pointer; }
+.zs-vthumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.zs-vthumb[aria-pressed="true"] { border-color: var(--zs-ink); }
+.zs-vthumb--painting { display: grid; place-items: center; font-size: 0.8rem; color: var(--zs-muted); font-style: italic; border: 2px dashed var(--zs-rule); background: transparent; }
+.zs-section-title { max-width: 1240px; margin: 34px auto 14px; font-size: 1.3rem; font-weight: 800; letter-spacing: -0.01em; }
+.zs-detail .zs-grid { max-width: 1240px; margin: 0 auto; }
+.zs-primary--alt { background: var(--zs-chip); color: var(--zs-ink); }

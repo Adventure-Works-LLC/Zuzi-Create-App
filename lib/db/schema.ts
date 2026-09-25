@@ -349,7 +349,7 @@ export const feed_cards = sqliteTable(
   "feed_cards",
   {
     id: text("id").primaryKey(),
-    feed: text("feed", { enum: ["invented", "museum"] }).notNull(),
+    feed: text("feed", { enum: ["invented", "museum", "modern"] }).notNull(),
     status: text("status", { enum: ["pending", "ready", "failed"] }).notNull(),
     title: text("title").notNull(),
     after_label: text("after_label").notNull(),
@@ -372,9 +372,13 @@ export const feed_cards = sqliteTable(
     error: text("error"),
     created_at: integer("created_at").notNull(),
     ready_at: integer("ready_at"),
+    // v7.1 "More like this": the card this one was painted from. NULL for
+    // ordinary feed cards. Children never enter the main feed's buffer math.
+    parent_id: text("parent_id"),
   },
   (t) => [
     index("idx_feed_cards_feed").on(t.feed, t.status, t.ready_at),
+    index("idx_feed_cards_parent").on(t.parent_id),
     index("idx_feed_cards_saved").on(t.saved_at),
     index("idx_feed_cards_ref").on(t.source_ref),
   ],

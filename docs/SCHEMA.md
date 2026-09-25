@@ -204,9 +204,11 @@ CREATE TABLE feed_cards (
   cost_usd      REAL NOT NULL DEFAULT 0,   -- all spend on this card; counts toward the monthly cap
   error         TEXT,
   created_at    INTEGER NOT NULL,
-  ready_at      INTEGER
+  ready_at      INTEGER,
+  parent_id     TEXT                       -- v7.1 (migration 0014): "More like this" — the card it was painted from
 );
 CREATE INDEX idx_feed_cards_feed ON feed_cards(feed, status, ready_at);
+CREATE INDEX idx_feed_cards_parent ON feed_cards(parent_id);
 CREATE INDEX idx_feed_cards_saved ON feed_cards(saved_at);
 CREATE INDEX idx_feed_cards_ref ON feed_cards(source_ref);
 ```

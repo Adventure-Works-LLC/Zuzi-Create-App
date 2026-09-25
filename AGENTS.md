@@ -1429,3 +1429,71 @@ pairs against every serious contender (FLUX.2 pro/max, Seedream
   - `components/krea/InputBar.tsx` — 4-option pill.
   - `scripts/check-prompts.ts` — 2 fal-directive canaries.
 <!-- END:zuzi-studio-guardrails -->
+
+## 18. Zuzi's Scroll (v7) — the home page
+
+The app's front door since Sept 25 2026. The Studio (everything in §3–§17)
+moved to `/studio`, untouched; `/` is the Scroll. Why it exists: the audit
+found Zuzi stopped using the Studio (last run Aug 12) — every keeper was her
+own painting re-skinned. What she wants is a Pinterest-style scroll of
+paintings she could paint her own version of. Jeff's verdict on the
+prototype: "insanely good."
+
+### What a card is
+
+Her version of a painting, shown FIRST, with the painting it was made from
+one tap away, palette dots, and a heart. Two feeds (toggle at the top):
+
+  - **Invented**: an idea-writer (Gemini text) writes a brief for a museum-
+    grade painting that does not exist (any era, rhyming with her world,
+    never echoing a famous composition); Nano Banana Pro paints it; then
+    her version is painted from it. Every image unique.
+  - **Museum**: public-domain paintings from the Met + Art Institute of
+    Chicago open-access APIs (free, no key), filtered by a Gemini judge for
+    paintings that rhyme with her motifs; her version borrows only the bones.
+
+### Look rules (hard-won — do not regress)
+
+  - **Casting keeps her look.** Her version is painted by
+    `fal-ai/gpt-image-2/edit` (quality high) from the painting + 1–3 of HER
+    OWN paintings (`lib/feed/cast.ts` → R2 `inputs/<sourceId>.jpg`) with
+    "draw exactly as she draws them… not cleaner, cuter or more
+    illustrated" (`lib/feed/prompts.ts`). Describing her style in words, or
+    reference-only prompting, drifts every model to stock storybook
+    characters. Nano Banana Pro "corrects" her faces; don't use it for her
+    version.
+  - **Never sacrifice look for speed or cost.** GPT Image 2.5 Flare (4x
+    faster, half the price) was rejected by Jeff: "doesn't look right."
+    Solve speed with the buffer, never with a worse model.
+  - **Not muted.** Her finished paintings are bold (cadmium orange, cobalt,
+    lemon, pink grounds). Her version is painted in one of her palettes;
+    the dots (`lib/feed/palettes.ts`: 5 of hers + 5 colorists) repaint the
+    same image via Nano Banana 2 with "museum-grade color" language, on
+    first tap. The softer↔bolder slider is a client-side CSS filter.
+
+### Paints as she scrolls
+
+`GET /api/feed` returns ready cards newest-first, marks them served, and
+calls `ensureBuffer(feed)`: keep `FEED_BUFFER` (default 10) unseen +
+in-flight cards per feed. A card takes ~2–3 min, so the buffer plus a
+10-minute autofill interval (instrumentation.ts; `FEED_AUTOFILL=0` turns
+it off) keeps her from waiting. At the end of the list the page polls
+`?since=` and appends new cards. Queue state is in-process memory —
+**single instance only** (§1). Boot marks leftover `pending` cards failed.
+
+### Spend
+
+`FEED_DAILY_CARDS` (default 60) cards started per UTC day; feed spend is
+recorded on `feed_cards.cost_usd` and included in `monthlyUsageUsd()`, so
+the Studio and the Scroll share `MONTHLY_USD_CAP`. Prices live in
+`lib/cost.ts` (`FEED_PRICE_USD`): ~$0.27 per invented card, ~$0.13 per
+museum card, ~$0.07 per palette dot painted.
+
+### Critical files
+
+  - `lib/feed/{cast,palettes,prompts,engine,store,producer,dto}.ts`
+  - `app/(feed)/page.tsx` + `layout.tsx` + `feed.css` — the page
+  - `app/api/feed/route.ts` (read + buffer), `[id]/route.ts` (heart),
+    `[id]/variant/route.ts` (palette dot), `import/route.ts` (seed cards,
+    ids `seed-*`, images pre-uploaded under R2 `feed/`)
+  - `drizzle/0013_feed_cards.sql`, `docs/SCHEMA.md` (feed_cards)

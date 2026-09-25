@@ -82,6 +82,21 @@ export default function Studio() {
 
           Padding respects env(safe-area-inset-top) so it doesn't
           collide with the iPad's status bar in PWA mode. */}
+      {/* v7: the Scroll is the home page now; the Studio lives at /studio. */}
+      <a
+        href="/"
+        className={[
+          "fixed right-28 z-40",
+          "rounded-md px-3 py-2",
+          "text-xs uppercase tracking-[0.18em]",
+          "text-text-mute/80 hover:text-foreground",
+          "bg-background/70 backdrop-blur-sm",
+          "transition-colors no-callout",
+        ].join(" ")}
+        style={{ top: "calc(env(safe-area-inset-top) + 0.75rem)" }}
+      >
+        Scroll
+      </a>
       <a
         href="/logout"
         className={[

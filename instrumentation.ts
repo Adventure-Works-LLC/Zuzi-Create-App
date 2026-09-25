@@ -175,4 +175,27 @@ export async function register(): Promise<void> {
       e instanceof Error ? e.message : e,
     );
   }
+
+  // 3) v7 Zuzi's Scroll (AGENTS.md §18). A redeploy kills in-flight
+  //    paintings, so pending cards become failed; then a 10-minute interval
+  //    keeps both feeds' buffers topped up so fresh cards are waiting when
+  //    she opens the app. FEED_AUTOFILL=0 turns the interval off (feed reads
+  //    still refill on demand).
+  try {
+    const { failStalePending } = await import("./lib/feed/store");
+    const killed = failStalePending();
+    if (killed > 0) console.warn(`[boot] feed: ${killed} pending card(s) marked failed (server_restart)`);
+    if (process.env.FEED_AUTOFILL !== "0") {
+      const { ensureBuffer } = await import("./lib/feed/producer");
+      const tick = () => {
+        ensureBuffer("invented");
+        ensureBuffer("museum");
+      };
+      setTimeout(tick, 30_000);
+      setInterval(tick, 10 * 60_000).unref?.();
+      console.log("[boot] feed autofill armed (every 10 min)");
+    }
+  } catch (e) {
+    console.error("[boot] feed setup failed (non-fatal):", e instanceof Error ? e.message : e);
+  }
 }

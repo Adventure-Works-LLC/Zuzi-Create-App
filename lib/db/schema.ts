@@ -338,6 +338,51 @@ export const usage_log = sqliteTable(
   (t) => [index("idx_usage_created").on(t.created_at)],
 );
 
+/**
+ * v7 Zuzi's Scroll — the home-page feed (see AGENTS.md §18). One row per
+ * card: her version of a painting (an invented masterpiece or a public-domain
+ * museum painting), the painting it was made from, and the palette recolors
+ * she can tap between. Deliberately self-contained — no FKs into the Studio's
+ * tables, so neither surface can break the other.
+ */
+export const feed_cards = sqliteTable(
+  "feed_cards",
+  {
+    id: text("id").primaryKey(),
+    feed: text("feed", { enum: ["invented", "museum"] }).notNull(),
+    status: text("status", { enum: ["pending", "ready", "failed"] }).notNull(),
+    title: text("title").notNull(),
+    after_label: text("after_label").notNull(),
+    byline: text("byline").notNull(),
+    source_url: text("source_url"),
+    source_ref: text("source_ref"),
+    brief: text("brief"),
+    orig_key: text("orig_key"),
+    orig_w: integer("orig_w"),
+    orig_h: integer("orig_h"),
+    her_key: text("her_key"),
+    her_w: integer("her_w"),
+    her_h: integer("her_h"),
+    palettes: text("palettes").notNull().default("[]"),
+    variants: text("variants").notNull().default("{}"),
+    saved_at: integer("saved_at"),
+    saved_palette: text("saved_palette"),
+    served_at: integer("served_at"),
+    cost_usd: real("cost_usd").notNull().default(0),
+    error: text("error"),
+    created_at: integer("created_at").notNull(),
+    ready_at: integer("ready_at"),
+  },
+  (t) => [
+    index("idx_feed_cards_feed").on(t.feed, t.status, t.ready_at),
+    index("idx_feed_cards_saved").on(t.saved_at),
+    index("idx_feed_cards_ref").on(t.source_ref),
+  ],
+);
+
+export type FeedCard = typeof feed_cards.$inferSelect;
+export type NewFeedCard = typeof feed_cards.$inferInsert;
+
 export type Source = typeof sources.$inferSelect;
 export type NewSource = typeof sources.$inferInsert;
 export type StylePainting = typeof style_paintings.$inferSelect;

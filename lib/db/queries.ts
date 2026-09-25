@@ -12,6 +12,7 @@ import { and, count, desc, eq, gte, inArray, isNull, lt, or, sql } from "drizzle
 
 import { db } from "./client";
 import {
+  feed_cards,
   iterations,
   sources,
   style_paintings,
@@ -889,7 +890,9 @@ export function insertUsageLog(
     .run();
 }
 
-/** Sum of cost_usd for the current calendar month (UTC). */
+/** Sum of cost_usd for the current calendar month (UTC) — Studio runs
+ *  (usage_log) plus v7 Scroll cards (feed_cards.cost_usd), so both
+ *  surfaces share one MONTHLY_USD_CAP. */
 export function monthlyUsageUsd(): number {
   const now = new Date();
   const monthStart = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1);
@@ -898,7 +901,12 @@ export function monthlyUsageUsd(): number {
     .from(usage_log)
     .where(gte(usage_log.created_at, monthStart))
     .get();
-  return row?.total ?? 0;
+  const feed = db()
+    .select({ total: sql<number>`COALESCE(SUM(${feed_cards.cost_usd}), 0)` })
+    .from(feed_cards)
+    .where(gte(feed_cards.created_at, monthStart))
+    .get();
+  return (row?.total ?? 0) + (feed?.total ?? 0);
 }
 
 /**

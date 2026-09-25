@@ -174,6 +174,41 @@ CREATE TABLE usage_log (
   created_at   INTEGER NOT NULL
 );
 CREATE INDEX idx_usage_created ON usage_log(created_at);
+
+-- feed_cards (v7, migration 0013): Zuzi's Scroll — the home-page feed.
+-- One row per card: her version of a painting (an invented masterpiece or a
+-- public-domain museum painting), plus the painting it was made from and the
+-- palette recolors she can tap between. Self-contained on purpose: no FKs to
+-- sources/iterations (the Scroll never touches the Studio's tables).
+CREATE TABLE feed_cards (
+  id            TEXT PRIMARY KEY,          -- ulid (generated) or seed-* (imported)
+  feed          TEXT NOT NULL,             -- 'invented' | 'museum'
+  status        TEXT NOT NULL,             -- 'pending' | 'ready' | 'failed'
+  title         TEXT NOT NULL,
+  after_label   TEXT NOT NULL,             -- "after Johannes Vermeer" / "after an invented Nabis painting"
+  byline        TEXT NOT NULL,             -- era/date/medium or artist/date/museum
+  source_url    TEXT,                      -- museum page (museum feed only)
+  source_ref    TEXT,                      -- museum object ref, e.g. 'met-437878' (dedupe)
+  brief         TEXT,                      -- JSON: the idea behind the card
+  orig_key      TEXT,                      -- R2 key: the painting it was made from
+  orig_w        INTEGER,
+  orig_h        INTEGER,
+  her_key       TEXT,                      -- R2 key: her version, as made
+  her_w         INTEGER,
+  her_h         INTEGER,
+  palettes      TEXT NOT NULL DEFAULT '[]',-- JSON array of palette keys offered as dots
+  variants      TEXT NOT NULL DEFAULT '{}',-- JSON {paletteKey: r2Key}, filled on demand
+  saved_at      INTEGER,                   -- hearted
+  saved_palette TEXT,                      -- which palette was showing when hearted
+  served_at     INTEGER,                   -- first sent to the client (buffer accounting)
+  cost_usd      REAL NOT NULL DEFAULT 0,   -- all spend on this card; counts toward the monthly cap
+  error         TEXT,
+  created_at    INTEGER NOT NULL,
+  ready_at      INTEGER
+);
+CREATE INDEX idx_feed_cards_feed ON feed_cards(feed, status, ready_at);
+CREATE INDEX idx_feed_cards_saved ON feed_cards(saved_at);
+CREATE INDEX idx_feed_cards_ref ON feed_cards(source_ref);
 ```
 
 ## Pragmas (set at boot in `lib/db/client.ts`)

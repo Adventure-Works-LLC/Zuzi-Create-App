@@ -96,3 +96,25 @@ export function costForCompletedIteration(
 ): number {
   return pricePerImage(tier, resolution) * successfulTileCount;
 }
+
+/**
+ * v7 Zuzi's Scroll (AGENTS.md §18). Per-step prices for one feed card,
+ * rounded UP so the shared monthly cap stays conservative:
+ *   - original: an invented masterpiece on gemini-3-pro-image (Nano Banana
+ *     Pro 1K, same price as the Studio's Pro tier above).
+ *   - hers: her version on fal-ai/gpt-image-2/edit, quality high, with the
+ *     painting + 1–3 of her paintings as inputs. OpenAI token pricing via
+ *     fal ($8/M image-in, $30/M image-out) ≈ $0.10–0.13 at ~1.3MP in the
+ *     Sept 2026 lab runs.
+ *   - recolor: one palette dot on gemini-3.1-flash-image (Nano Banana 2 1K,
+ *     same as the Flash tier above).
+ *   - text: idea-writer / museum-judge calls on a Gemini text model —
+ *     fractions of a cent; rounded up to one cent per call.
+ * Museum cards skip `original` (the museum supplies it).
+ */
+export const FEED_PRICE_USD = {
+  original: PRICE_PER_IMAGE_USD.pro["1k"],
+  hers: 0.13,
+  recolor: PRICE_PER_IMAGE_USD.flash["1k"],
+  text: 0.01,
+} as const;

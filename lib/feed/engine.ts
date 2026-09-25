@@ -164,6 +164,42 @@ export async function paintOriginal(prompt: string, aspect: string): Promise<Buf
   return toJpeg(geminiImage(res), 1280, 90);
 }
 
+/** fal's own reason for a refusal ("User is locked. Reason: Exhausted balance…"), not just "Forbidden". */
+function falFailure(e: unknown, label: string): Error {
+  const detail = (e as { body?: { detail?: unknown } } | null)?.body?.detail;
+  const why = typeof detail === "string" ? detail : detail ? JSON.stringify(detail).slice(0, 300) : e instanceof Error ? e.message : String(e);
+  return new Error(`${label}: ${why}`);
+}
+
+/** fal locks the account when its prepaid balance runs out; then every render fails. */
+export function isPainterLocked(message: string): boolean {
+  return /exhausted balance|user is locked/i.test(message);
+}
+
+/**
+ * Whether fal takes work again after a lock. An empty request is refused as
+ * locked (403) while the balance is out; anything else means it's back.
+ * Only called while locked, so a healthy account never sees these requests.
+ */
+export async function painterAvailable(): Promise<boolean> {
+  const key = process.env.FAL_KEY;
+  if (!key) return false;
+  try {
+    const r = await withTimeout(
+      fetch(`https://queue.fal.run/${HERS_ENDPOINT}`, {
+        method: "POST",
+        headers: { Authorization: `Key ${key}`, "Content-Type": "application/json" },
+        body: "{}",
+      }),
+      "painter check",
+      15_000,
+    );
+    return r.status !== 403 || !isPainterLocked(await r.text());
+  } catch {
+    return false;
+  }
+}
+
 /**
  * GPT Image 2: image 1 plus a painter's own paintings -> that painter's new
  * painting. Her versions cast her paintings; the Matisse checkbox casts his.
@@ -173,9 +209,13 @@ export async function paintHers(image1: Buffer, cast: Buffer[], prompt: string, 
   const { w, h } = await dims(image1);
   const urls = [dataUri(await toJpeg(image1)), ...cast.map(dataUri)];
   const r = (await withTimeout(
-    f.subscribe(HERS_ENDPOINT, {
-      input: { prompt, image_urls: urls, image_size: outSize(w, h), quality: "high", output_format: "jpeg" },
-    }),
+    f
+      .subscribe(HERS_ENDPOINT, {
+        input: { prompt, image_urls: urls, image_size: outSize(w, h), quality: "high", output_format: "jpeg" },
+      })
+      .catch((e) => {
+        throw falFailure(e, label);
+      }),
     label,
   )) as { data?: { images?: { url?: string }[] } };
   const url = r.data?.images?.[0]?.url;

@@ -31,10 +31,12 @@ import {
   catalogCandidates,
   dims,
   fetchImage,
+  isPainterLocked,
   judgeMuseum,
   matisseImages,
   museumCandidates,
   paintHers,
+  painterAvailable,
   paintOriginal,
   recolor,
   toJpeg,
@@ -98,8 +100,37 @@ function dayStartUtc(): number {
   return Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate());
 }
 
+/**
+ * Safety stop for an empty fal balance (Sept 25 2026: the account locked
+ * mid-afternoon). Without it the producer keeps starting cards that are bound
+ * to fail — and invented cards pay for their original before they reach fal.
+ * A locked failure stops new work; while stopped, fal is asked at most every
+ * 15 minutes (for free) whether it's back.
+ */
+let painterLockedAt = 0;
+let painterProbeAt = 0;
+
+function painterLocked(): boolean {
+  if (!painterLockedAt) return false;
+  if (Date.now() - painterProbeAt > 15 * 60_000) {
+    painterProbeAt = Date.now();
+    void painterAvailable().then((ok) => {
+      if (ok) painterLockedAt = 0;
+    });
+  }
+  return true;
+}
+
+function notePainterFailure(message: string): void {
+  if (!isPainterLocked(message)) return;
+  if (!painterLockedAt) console.error("[feed] fal balance exhausted — pausing new paintings until it's topped up");
+  painterLockedAt = painterLockedAt || Date.now();
+  painterProbeAt = Date.now();
+}
+
 /** Why the painter isn't starting more right now, or null if it can. */
-function blockedReason(): "daily" | "monthly" | null {
+function blockedReason(): "daily" | "monthly" | "painter" | null {
+  if (painterLocked()) return "painter";
   if (countStartedSince(dayStartUtc()) >= dailyCards()) return "daily";
   if (monthlyUsageUsd() >= monthlyCap()) return "monthly";
   return null;
@@ -123,7 +154,7 @@ export function feedStatus() {
 }
 
 /** Top up this feed's buffer. Cheap to call on every read; never throws. Returns why it stopped, if it did. */
-export function ensureBuffer(feed: FeedName): "daily" | "monthly" | null {
+export function ensureBuffer(feed: FeedName): "daily" | "monthly" | "painter" | null {
   try {
     const have = countReadyUnserved(feed) + countPending(feed);
     let want = bufferTarget() - have;
@@ -177,6 +208,7 @@ function startJob(o: JobOpts): string {
     .catch((e) => {
       const msg = e instanceof Error ? e.message : String(e);
       console.error(`[feed] card ${id} (${o.feed}${o.kind ? "/" + o.kind : ""}) failed:`, msg);
+      notePainterFailure(msg);
       updateCard(id, { status: "failed", error: msg.slice(0, 500) });
     })
     .finally(() => {
@@ -328,6 +360,7 @@ function canStartChildren(): string | null {
   const blocked = blockedReason();
   if (blocked === "daily") return "Today's painting budget is used up. More tomorrow.";
   if (blocked === "monthly") return "This month's painting budget is used up.";
+  if (blocked === "painter") return "Painting is paused right now. Try again a little later.";
   return null;
 }
 
@@ -441,6 +474,7 @@ export async function ensureMatisse(cardId: string): Promise<string> {
   const existing = parseJson<Record<string, string>>(card.variants, {});
   if (existing[MATISSE_KEY]) return existing[MATISSE_KEY];
   if (monthlyUsageUsd() >= monthlyCap()) throw new Error("monthly_cap_reached");
+  if (painterLocked()) throw new Error("painter_paused");
   const jobKey = `${cardId}:matisse`;
   let job = variantJobs.get(jobKey);
   if (!job) {
@@ -482,6 +516,7 @@ export function matisseStatus(cardId: string): { key: string } | { painting: tru
     ensureMatisse(cardId).catch((e) => {
       const msg = e instanceof Error ? e.message : String(e);
       console.error(`[feed] matisse ${cardId} failed:`, msg);
+      notePainterFailure(msg);
       matisseErrors.set(cardId, { msg, at: Date.now() });
     });
   }
@@ -519,6 +554,7 @@ export function startRepaint(ids: string[]): boolean {
       } catch (e) {
         repaintRun.failed++;
         repaintRun.lastError = e instanceof Error ? e.message : String(e);
+        notePainterFailure(repaintRun.lastError);
         console.error(`[feed] repaint ${id} failed:`, repaintRun.lastError);
       }
     }

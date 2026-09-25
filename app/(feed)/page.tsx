@@ -56,7 +56,7 @@ interface FeedResponse {
   cards: CardDTO[];
   nextBefore: number | null;
   painting: number;
-  stopped?: "daily" | "monthly" | null;
+  stopped?: "daily" | "monthly" | "painter" | null;
 }
 
 interface RelatedResponse {
@@ -423,7 +423,9 @@ export default function ScrollPage() {
                 ? "That's everything for today. New ones start painting tomorrow."
                 : stopped === "monthly"
                   ? "This month's painting budget is used up."
-                  : "New ones are on their way."}
+                  : stopped === "painter"
+                    ? "New paintings are paused right now. They'll pick up again soon."
+                    : "New ones are on their way."}
           </p>
         ) : null}
       </div>

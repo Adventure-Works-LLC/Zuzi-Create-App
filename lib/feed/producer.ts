@@ -73,14 +73,16 @@ function envInt(name: string, dflt: number): number {
   return process.env[name] !== undefined && Number.isFinite(v) && v >= 0 ? Math.floor(v) : dflt;
 }
 const bufferTarget = () => envInt("FEED_BUFFER", 20);
-const dailyCards = () => envInt("FEED_DAILY_CARDS", 90);
-const maxParallel = () => Math.max(1, envInt("FEED_PARALLEL", 8));
+const dailyCards = () => envInt("FEED_DAILY_CARDS", 120);
+/** Painting slots PER FEED, so one tab can never starve another (v7.1.1). */
+const maxParallel = () => Math.max(1, envInt("FEED_PARALLEL", 4));
 function monthlyCap(): number {
   const v = Number(process.env.MONTHLY_USD_CAP ?? "250");
   return Number.isFinite(v) && v > 0 ? v : 250;
 }
 
 let running = 0;
+const rootRunning: Record<FeedName, number> = { museum: 0, modern: 0, invented: 0 };
 const briefs: InventedBrief[] = [];
 const modernBriefs: InventedBrief[] = [];
 const museumPool: JudgedCandidate[] = [];
@@ -104,6 +106,7 @@ export function feedStatus() {
   const today = dayStartUtc();
   return {
     running,
+    runningByFeed: { ...rootRunning },
     briefsQueued: briefs.length,
     museumPool: museumPool.length,
     startedToday: countStartedSince(today),
@@ -124,7 +127,7 @@ export function ensureBuffer(feed: FeedName): "daily" | "monthly" | null {
     if (want <= 0) return null;
     const blocked = blockedReason();
     if (blocked) return blocked;
-    want = Math.min(want, dailyCards() - countStartedSince(dayStartUtc()), maxParallel() - running);
+    want = Math.min(want, dailyCards() - countStartedSince(dayStartUtc()), maxParallel() - rootRunning[feed]);
     for (let i = 0; i < want; i++) startJob({ feed });
     return null;
   } catch (e) {
@@ -159,6 +162,8 @@ function startJob(o: JobOpts): string {
     created_at: Date.now(),
   });
   running++;
+  const isRoot = !o.parent;
+  if (isRoot) rootRunning[o.feed]++;
   const job =
     o.kind === "version" && o.parent
       ? paintVersion(id, o.parent, asMade, o.today === true)
@@ -173,6 +178,7 @@ function startJob(o: JobOpts): string {
     })
     .finally(() => {
       running--;
+      if (isRoot) rootRunning[o.feed]--;
     });
   return id;
 }

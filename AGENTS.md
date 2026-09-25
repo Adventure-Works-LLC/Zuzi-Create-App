@@ -1499,7 +1499,7 @@ one tap away, palette dots, and a heart. Two feeds (toggle at the top):
 
 `GET /api/feed` returns ready cards newest-first, marks them served, and
 calls `ensureBuffer(feed)`: keep `FEED_BUFFER` (default 20) unseen +
-in-flight cards per feed. A card takes ~2–3 min, so the buffer plus a
+in-flight cards per feed, painting up to `FEED_PARALLEL` (default 4) at once PER FEED so no tab starves another. A card takes ~2–3 min, so the buffer plus a
 10-minute autofill interval (instrumentation.ts; `FEED_AUTOFILL=0` turns
 it off) keeps her from waiting. At the end of the list the page polls
 `?since=` and appends new cards. Queue state is in-process memory —
@@ -1507,7 +1507,7 @@ it off) keeps her from waiting. At the end of the list the page polls
 
 ### Spend
 
-`FEED_DAILY_CARDS` (default 90) cards started per UTC day (feed, Paint again and More like this all count); feed spend is
+`FEED_DAILY_CARDS` (default 120) cards started per UTC day (feed, Paint again and More like this all count); feed spend is
 recorded on `feed_cards.cost_usd` and included in `monthlyUsageUsd()`, so
 the Studio and the Scroll share `MONTHLY_USD_CAP`. Prices live in
 `lib/cost.ts` (`FEED_PRICE_USD`): ~$0.27 per invented card, ~$0.13 per

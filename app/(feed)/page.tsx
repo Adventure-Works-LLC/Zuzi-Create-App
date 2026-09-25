@@ -45,6 +45,7 @@ interface CardDTO {
   her: { url: string; w: number; h: number };
   orig: { url: string; thumb: string; w: number; h: number } | null;
   palettes: PaletteDTO[];
+  matisse: { url: string; w: number; h: number } | null;
   saved: boolean;
   savedPalette: string | null;
   readyAt: number;
@@ -82,6 +83,25 @@ const HEART = (
     />
   </svg>
 );
+
+// The Matisse checkbox paints cards as they come near the screen — six at a
+// time, so a fast scroll doesn't fire twenty paintings at once. Each takes
+// about two minutes, so painting starts well below the fold.
+const matisseSlots = { active: 0, waiting: [] as (() => void)[] };
+async function withMatisseSlot<T>(fn: () => Promise<T>): Promise<T> {
+  if (matisseSlots.active >= 6) await new Promise<void>((r) => matisseSlots.waiting.push(r));
+  matisseSlots.active++;
+  try {
+    return await fn();
+  } finally {
+    matisseSlots.active--;
+    matisseSlots.waiting.shift()?.();
+  }
+}
+
+function patchCard(list: CardDTO[], id: string, patch: (c: CardDTO) => CardDTO): CardDTO[] {
+  return list.map((c) => (c.id === id ? patch(c) : c));
+}
 
 // Fewer, wider columns so every painting reads big on her iPad: 2 across in
 // portrait, 3 in landscape, 4 only on very wide screens.
@@ -160,7 +180,24 @@ export default function ScrollPage() {
   const [toast, setToast] = useState<string | null>(null);
   const [zoom, setZoom] = useState<Zoom | null>(null);
   const [detail, setDetail] = useState<string[]>([]);
+  const [matisse, setMatisse] = useState(false);
   const cols = useColumns();
+
+  useEffect(() => {
+    try {
+      setMatisse(window.localStorage.getItem("zs-matisse") === "1");
+    } catch {
+      // storage unavailable — default to her versions
+    }
+  }, []);
+  const toggleMatisse = (on: boolean) => {
+    setMatisse(on);
+    try {
+      window.localStorage.setItem("zs-matisse", on ? "1" : "0");
+    } catch {
+      // per-device convenience only
+    }
+  };
 
   const tabRef = useRef<Tab>(tab);
   const sentinel = useRef<HTMLDivElement | null>(null);
@@ -288,6 +325,12 @@ export default function ScrollPage() {
     );
   }, []);
 
+  const fillMatisse = useCallback((cardId: string, url: string) => {
+    setCards((prev) =>
+      patchCard(prev, cardId, (c) => ({ ...c, matisse: { url, w: c.orig?.w ?? c.her.w, h: c.orig?.h ?? c.her.h } })),
+    );
+  }, []);
+
   const tuneStyle = useMemo(() => {
     const x = tune / 10;
     return {
@@ -330,6 +373,15 @@ export default function ScrollPage() {
               />
               Bolder
             </label>
+            <label className="zs-check" htmlFor="zs-matisse">
+              <input
+                id="zs-matisse"
+                type="checkbox"
+                checked={matisse}
+                onChange={(e) => toggleMatisse(e.target.checked)}
+              />
+              Painted by Matisse
+            </label>
             <nav className="zs-links" aria-label="Elsewhere">
               <a href="/studio">Studio</a>
               <a href="/logout">Sign out</a>
@@ -350,7 +402,15 @@ export default function ScrollPage() {
           cols={cols}
           placeholders={placeholders}
           render={(c) => (
-            <Card card={c} onSave={save} onFill={fillPalette} onOpen={() => openDetail(c.id)} onError={flash} />
+            <Card
+              card={c}
+              matisse={matisse}
+              onSave={save}
+              onFill={fillPalette}
+              onMatisse={fillMatisse}
+              onOpen={() => openDetail(c.id)}
+              onError={flash}
+            />
           )}
         />
         <div ref={sentinel} className="zs-sentinel" aria-hidden="true" />
@@ -380,6 +440,7 @@ export default function ScrollPage() {
           onSave={save}
           onZoom={setZoom}
           onError={flash}
+          matisse={matisse}
         />
       ) : null}
 
@@ -434,7 +495,9 @@ function Detail({
   onSave,
   onZoom,
   onError,
+  matisse,
 }: {
+  matisse: boolean;
   id: string;
   depth: number;
   cols: number;
@@ -532,6 +595,18 @@ function Detail({
           }
         : d,
     );
+  const fillMatisseLocal = (cardId: string, url: string) =>
+    setData((d) => {
+      if (!d) return d;
+      const f = (c: CardDTO) => ({ ...c, matisse: { url, w: c.orig?.w ?? c.her.w, h: c.orig?.h ?? c.her.h } });
+      return {
+        ...d,
+        root: d.root && d.root.id === cardId ? f(d.root) : d.root,
+        versions: patchCard(d.versions, cardId, f),
+        like: patchCard(d.like, cardId, f),
+        similar: patchCard(d.similar, cardId, f),
+      };
+    });
   const setSavedLocal = (cardId: string, saved: boolean) =>
     setData((d) => (d ? { ...d, versions: d.versions.map((c) => (c.id === cardId ? { ...c, saved } : c)) } : d));
   const more = [...(data?.like ?? []), ...(data?.similar ?? [])];
@@ -555,6 +630,8 @@ function Detail({
             key={shown.id}
             card={shown}
             big
+            matisse={matisse}
+            onMatisse={fillMatisseLocal}
             onSave={async (c, saved, palette) => {
               setSavedLocal(c.id, saved);
               if (!(await onSave(c, saved, palette))) setSavedLocal(c.id, !saved);
@@ -621,7 +698,15 @@ function Detail({
         cols={cols}
         placeholders={data?.likePainting ?? 0}
         render={(c) => (
-          <Card card={c} onSave={onSave} onFill={() => undefined} onOpen={() => onOpen(c.id)} onError={onError} />
+          <Card
+            card={c}
+            matisse={matisse}
+            onSave={onSave}
+            onFill={() => undefined}
+            onMatisse={fillMatisseLocal}
+            onOpen={() => onOpen(c.id)}
+            onError={onError}
+          />
         )}
       />
       {data && more.length === 0 && (data.likePainting ?? 0) === 0 ? (
@@ -634,13 +719,17 @@ function Detail({
 function Card({
   card,
   big,
+  matisse,
   onSave,
   onFill,
+  onMatisse,
   onOpen,
   onError,
 }: {
   card: CardDTO;
   big?: boolean;
+  matisse?: boolean;
+  onMatisse?: (cardId: string, url: string) => void;
   onSave: (card: CardDTO, saved: boolean, palette: string | null) => void | Promise<unknown>;
   onFill: (cardId: string, key: string, url: string) => void;
   onOpen: (z: Zoom) => void;
@@ -651,11 +740,48 @@ function Card({
   const [palette, setPalette] = useState<string | null>(initial);
   const [showOrig, setShowOrig] = useState(false);
   const [pending, setPending] = useState<string | null>(null);
+  const [mState, setMState] = useState<"idle" | "painting" | "failed">("idle");
+  const figRef = useRef<HTMLElement | null>(null);
+
+  // Matisse checkbox: paint this card's Matisse version once it comes within
+  // about two screens of view.
+  useEffect(() => {
+    if (!matisse || card.matisse || !card.orig || !onMatisse) return;
+    const el = figRef.current;
+    if (!el) return;
+    let cancelled = false;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((e) => e.isIntersecting)) return;
+        io.disconnect();
+        setMState("painting");
+        void withMatisseSlot(async () => {
+          // The server paints in the background (~2 min); ask every 8 seconds.
+          while (!cancelled) {
+            const r = await authFetch(`/api/feed/${card.id}/matisse`, { method: "POST" });
+            if (!r.ok) throw new Error(String(r.status));
+            const { url } = (await r.json()) as { url?: string };
+            if (url) return void (!cancelled && onMatisse(card.id, url));
+            await new Promise((res) => setTimeout(res, 8000));
+          }
+        })
+          .then(() => !cancelled && setMState("idle"))
+          .catch(() => !cancelled && setMState("failed"));
+      },
+      { rootMargin: "1600px 0px" },
+    );
+    io.observe(el);
+    return () => {
+      cancelled = true;
+      io.disconnect();
+    };
+  }, [matisse, card.matisse, card.orig, card.id, onMatisse]);
 
   const current = card.palettes.find((p) => p.key === palette && p.url);
-  const src = showOrig && card.orig ? card.orig.url : current?.url ?? card.her.url;
-  const dims = showOrig && card.orig ? card.orig : card.her;
-  const palName = current ? current.name : "as made";
+  const asMatisse = !!(matisse && !showOrig && card.matisse);
+  const src = showOrig && card.orig ? card.orig.url : asMatisse && card.matisse ? card.matisse.url : current?.url ?? card.her.url;
+  const dims = showOrig && card.orig ? card.orig : asMatisse && card.matisse ? card.matisse : card.her;
+  const palName = asMatisse ? "as Matisse would paint it" : current ? current.name : "as made";
 
   async function pick(p: PaletteDTO) {
     setShowOrig(false);
@@ -689,10 +815,12 @@ function Card({
 
   const caption = showOrig
     ? `${card.feed === "museum" ? "The original" : "The invented original"}: ${card.title} · ${card.byline}`
-    : `Her version, ${palName}: ${card.title} · ${card.byline}`;
+    : asMatisse
+      ? `As if Matisse painted it: ${card.title} · ${card.byline}`
+      : `Her version, ${palName}: ${card.title} · ${card.byline}`;
 
   return (
-    <figure className={`zs-card${big ? " zs-card--big" : ""}`}>
+    <figure className={`zs-card${big ? " zs-card--big" : ""}`} ref={figRef}>
       <div className="zs-media">
         <button
           type="button"
@@ -712,19 +840,23 @@ function Card({
         </button>
         {showOrig ? (
           <span className="zs-origtag">{card.feed === "museum" ? "The original" : "The invented original"}</span>
+        ) : matisse && !card.matisse ? (
+          <span className="zs-origtag">
+            {mState === "failed" ? "Matisse couldn't paint this one" : "Matisse is painting…"}
+          </span>
         ) : null}
         <button
           type="button"
           className="zs-save"
           aria-label={card.saved ? "Remove from saved" : "Save this painting"}
           aria-pressed={card.saved}
-          onClick={() => void onSave(card, !card.saved, palette)}
+          onClick={() => void onSave(card, !card.saved, asMatisse ? "matisse" : palette)}
         >
           {HEART}
         </button>
       </div>
       <figcaption className="zs-meta">
-        <div className="zs-dots" role="group" aria-label="Colors">
+        <div className="zs-dots" role="group" aria-label="Colors" hidden={matisse && !showOrig}>
           <button
             type="button"
             className="zs-dot zs-asmade"
@@ -750,6 +882,7 @@ function Card({
           ))}
           <span className="zs-palname">{showOrig ? "" : pending ? "painting…" : palName}</span>
         </div>
+        {matisse && !showOrig ? <p className="zs-palname zs-matisse-label">{palName}</p> : null}
         <p className="zs-cardtitle">{card.title}</p>
         {big ? <p className="zs-byline">{card.byline}</p> : null}
         {card.orig ? (

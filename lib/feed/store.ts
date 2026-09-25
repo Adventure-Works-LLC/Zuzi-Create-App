@@ -194,3 +194,19 @@ export function setBriefIfMissing(id: string, brief: string): boolean {
     .run();
   return r.changes > 0;
 }
+
+/** Unsaved museum cards in the main feed — what the knockoff sweep checks. */
+export function listUnsavedMuseumRoots(): FeedCard[] {
+  return db()
+    .select()
+    .from(feed_cards)
+    .where(and(eq(feed_cards.feed, "museum"), eq(feed_cards.status, "ready"), isNull(feed_cards.parent_id), isNull(feed_cards.saved_at)))
+    .orderBy(desc(feed_cards.ready_at))
+    .all();
+}
+
+/** Take cards out of every list without deleting anything (reversible: set status back to 'ready'). */
+export function hideCards(ids: string[], reason: string): void {
+  if (ids.length === 0) return;
+  db().update(feed_cards).set({ status: "hidden", error: reason }).where(inArray(feed_cards.id, ids)).run();
+}

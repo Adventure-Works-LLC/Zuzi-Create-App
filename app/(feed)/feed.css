@@ -164,3 +164,9 @@
 .zs-section-title { max-width: 1240px; margin: 34px auto 14px; font-size: 1.3rem; font-weight: 800; letter-spacing: -0.01em; }
 .zs-detail .zs-grid { max-width: 1240px; margin: 0 auto; }
 .zs-primary--alt { background: var(--zs-chip); color: var(--zs-ink); }
+
+/* v7.2 — the Matisse checkbox. */
+.zs-check { display: flex; align-items: center; gap: 8px; font-size: 0.92rem; font-weight: 600; color: var(--zs-ink-2); cursor: pointer; padding: 8px 4px; }
+.zs-check input { width: 24px; height: 24px; accent-color: var(--zs-accent); cursor: pointer; }
+@media (pointer: coarse) { .zs-check { font-size: 1rem; padding: 10px 4px; } .zs-check input { width: 28px; height: 28px; } }
+.zs-matisse-label { margin: 0 0 2px; font-style: italic; }

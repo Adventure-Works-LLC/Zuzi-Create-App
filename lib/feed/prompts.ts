@@ -47,6 +47,32 @@ export function hersTodayPrompt(paletteText: string): string {
   return `Image 1 is a painting. The other images are paintings by one contemporary artist. Make HER new painting that keeps the arrangement, the poses and the gestures of image 1 — but brings the scene into today: the people wear clothes of today and do the present-day version of what they are doing in image 1 (the same moment, updated), with present-day objects and settings. Make it entirely her own: ${HER_HAND}. Paint it in a bold palette of ${paletteText}, confident and saturated where she would be. It must not be drawn in a cleaner, cuter or more illustrated style. It should look like a painting she made after looking at image 1 for a long time.`;
 }
 
+/** How Matisse draws — the list the model is told to redraw every shape with. */
+const MATISSE_DRAWING =
+  "simplified, flattened, elongated and gently distorted figures; faces made of a few lines (almond eyes, one line for the nose, a small mouth); hands and bodies as rhythmic curving contours; bold, fluid outlines in dark blue or black; rooms and tables tilted up flat; big flat areas of radiant color; decorative patterns (wallpaper, textiles, arabesques) spreading across the surface";
+
+/**
+ * The "Painted by Matisse" checkbox (v7.2, Zuzi's request): the card's
+ * ORIGINAL as Matisse would have painted it, shown instead of her version
+ * while the box is checked. Same architecture as her version: image 1 is the
+ * painting, the other images are three of his own paintings
+ * (lib/feed/matisse.ts), on GPT Image 2.
+ *
+ * Validated Sept 25 2026 on nine museum paintings. The first version (Nano
+ * Banana Pro, prompt only) was rejected by Jeff: it kept the museum
+ * painting's realistic shapes and only changed the color ("a big part of
+ * Matisse is how he does shapes and drawing and lines"). Load-bearing:
+ *   - his paintings as references, and "borrows only the bones";
+ *   - MATISSE_DRAWING plus "must not keep the realistic shapes…";
+ *   - "never their people, poses, subjects or nudity": without it, his nude
+ *     dancers replaced the horse dealers in Bonheur's Horse Fair.
+ * Nano Banana Pro with the same references and wording was 5x faster but
+ * stayed close to the museum drawing and read as illustration.
+ */
+export function matissePrompt(): string {
+  return `Image 1 is a painting. The other images are paintings by Henri Matisse. Make a new painting BY MATISSE that borrows only the bones of image 1 — its subject, the arrangement of figures, the gesture and the mood — and makes it entirely his: his figures, drawn exactly as he draws them in the other images (${MATISSE_DRAWING}), and his thin, loose, hand-painted surface. Take from the other images only his way of drawing and painting — never their people, poses, subjects or nudity: the people and animals are the ones in image 1. It must not keep the realistic shapes, anatomy, shading or perspective of image 1, and must not look like a copy of it with a filter. It should look like a painting Matisse made after looking at image 1. Show only the painting, edge to edge: no frame, no wall, no text, no signature.`;
+}
+
 /** One palette dot: same painting, new colors. */
 export function recolorPrompt(paletteText: string): string {
   return `Repaint only the colors of this painting. Keep every shape, line, face, eye, hand, brush mark and the whole composition exactly the same — the drawing must not change at all. New palette: ${paletteText}. Make the color museum-grade: a clear dominant hue, nuanced temperature shifts inside each color area, colored neutrals instead of grey, and complements used sparingly, the way a great colorist handles color. Keep the painted surface and the dark wobbly outlines.`;
@@ -102,6 +128,19 @@ Write ${n} briefs. Rules:
 Return only a JSON array of ${n} objects with keys: title, era, date, medium, aspect, scene, cast.`;
 }
 
+/**
+ * The naturalistic-only rule (Jeff, Sept 25 2026): new versions of realistic
+ * paintings are the ones he loves; from an already-modern one (Cézanne's Card
+ * Players) the new version reads as a knockoff of it — "we never want to look
+ * like that". Telling the model to invent a new composition for such sources
+ * did not work (the Card Players still came back as the Card Players), so the
+ * rule lives here, in which paintings are used at all.
+ */
+const NATURALISTIC =
+  "modeled forms, real light, believable space (old masters, academic, Realist and most Impressionist painting)";
+const ALREADY_MODERN =
+  "already looks modern — flat, simplified or stylized, like Post-Impressionism (Cézanne, Gauguin, van Gogh), Pointillism, the Nabis, Fauvism, Expressionism, Cubism, naive or folk painting, or Japanese, Chinese, Persian and Indian painting and prints";
+
 /** The museum judge: which public-domain paintings are strong starting points for her. */
 export function museumJudgePrompt(count: number): string {
   return `You pick paintings for Zuzi, a contemporary painter, to paint her own version of. You will see ${count} numbered images from museum collections, each with its title and artist.
@@ -114,6 +153,12 @@ Keep a painting only if ALL of these are true:
 - It has a subject she could make her own version of: people (portraits, figures at rest or at work, cafés, kitchens, bedrooms, picnics, performers, bathers), animals (horses, cats, dogs), interiors, still lifes, gardens or streets with life in them. Prefer the ones that rhyme most with her world.
 - It has a strong, readable composition that would still work simplified into flat shapes.
 - It is not a formal devotional or religious scene, a battle, or an empty landscape or seascape with no figures, animals or objects of interest.
+- It is painted naturalistically — ${NATURALISTIC}. Reject any painting that ${ALREADY_MODERN}: a new version of those reads as a knockoff of the original.
 
 Return only a JSON array with one object per image, in order: {"i": number, "keep": boolean, "cast": [1–3 keys], "rhyme": "a few words naming what it rhymes with in her work"}.`;
+}
+
+/** The same rule on its own, for sweeping cards made before it existed. */
+export function modernLookPrompt(count: number): string {
+  return `You will see ${count} numbered paintings. For each one, answer whether it ${ALREADY_MODERN}. Naturalistic painting — ${NATURALISTIC} — does not. Return only a JSON array with one object per image, in order: {"i": number, "modern": boolean}.`;
 }

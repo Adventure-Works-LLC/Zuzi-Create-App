@@ -350,7 +350,7 @@ export const feed_cards = sqliteTable(
   {
     id: text("id").primaryKey(),
     feed: text("feed", { enum: ["invented", "museum", "modern"] }).notNull(),
-    status: text("status", { enum: ["pending", "ready", "failed"] }).notNull(),
+    status: text("status", { enum: ["pending", "ready", "failed", "hidden"] }).notNull(),
     title: text("title").notNull(),
     after_label: text("after_label").notNull(),
     byline: text("byline").notNull(),

@@ -32,6 +32,7 @@ import {
   dims,
   fetchImage,
   judgeMuseum,
+  matisseImages,
   museumCandidates,
   paintHers,
   paintOriginal,
@@ -42,11 +43,13 @@ import {
   type JudgedCandidate,
   type MuseumCandidate,
 } from "./engine";
+import { pickMatisseRefs } from "./matisse";
 import { HER_PALETTES, PALETTES, isPaletteKey, pickPalettes, type PaletteKey } from "./palettes";
 import {
   hersFromInventedPrompt,
   hersFromMuseumPrompt,
   hersTodayPrompt,
+  matissePrompt,
   modernOriginalPrompt,
   originalPrompt,
   recolorPrompt,
@@ -420,4 +423,67 @@ export async function ensureVariant(cardId: string, palette: string): Promise<st
     variantJobs.set(jobKey, job);
   }
   return job;
+}
+
+// ------------------------------------------------------------ Matisse checkbox
+
+/** Variant key under which a card's Matisse painting is stored (variants JSON). */
+export const MATISSE_KEY = "painter:matisse";
+
+/**
+ * The R2 key of this card's ORIGINAL painted as if by Matisse, painting it on
+ * first view while the checkbox is on (~2 min, GPT Image 2 cast with three of
+ * his paintings). Concurrent requests for the same card share one job.
+ */
+export async function ensureMatisse(cardId: string): Promise<string> {
+  const card = getCard(cardId);
+  if (!card || card.status !== "ready" || !card.orig_key) throw new Error("card not ready");
+  const existing = parseJson<Record<string, string>>(card.variants, {});
+  if (existing[MATISSE_KEY]) return existing[MATISSE_KEY];
+  if (monthlyUsageUsd() >= monthlyCap()) throw new Error("monthly_cap_reached");
+  const jobKey = `${cardId}:matisse`;
+  let job = variantJobs.get(jobKey);
+  if (!job) {
+    job = (async () => {
+      const src = await getObject(card.orig_key as string);
+      const refs = await matisseImages(pickMatisseRefs(cardId));
+      const out = await paintHers(src, refs, matissePrompt(), "matisse version");
+      addCost(cardId, FEED_PRICE_USD.hers);
+      const key = `feed/${cardId}/matisse.jpg`;
+      await put(key, out);
+      const vars = parseJson<Record<string, string>>(getCard(cardId)?.variants, {});
+      vars[MATISSE_KEY] = key;
+      updateCard(cardId, { variants: JSON.stringify(vars) });
+      return key;
+    })().finally(() => variantJobs.delete(jobKey));
+    variantJobs.set(jobKey, job);
+  }
+  return job;
+}
+
+/** Why a card's last Matisse painting failed, so polling doesn't restart a paid job forever. */
+const matisseErrors = new Map<string, { msg: string; at: number }>();
+
+/**
+ * Non-blocking form of ensureMatisse for the route: a painting takes about two
+ * minutes, longer than an iPad should hold one request open, so the page
+ * polls. Starts the job if needed; a failure is reported for 10 minutes before
+ * the next poll may try again.
+ */
+export function matisseStatus(cardId: string): { key: string } | { painting: true } | { error: string } {
+  const card = getCard(cardId);
+  if (!card || card.status !== "ready" || !card.orig_key) return { error: "card not ready" };
+  const key = parseJson<Record<string, string>>(card.variants, {})[MATISSE_KEY];
+  if (key) return { key };
+  const err = matisseErrors.get(cardId);
+  if (err && Date.now() - err.at < 10 * 60_000) return { error: err.msg };
+  if (!variantJobs.has(`${cardId}:matisse`)) {
+    matisseErrors.delete(cardId);
+    ensureMatisse(cardId).catch((e) => {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error(`[feed] matisse ${cardId} failed:`, msg);
+      matisseErrors.set(cardId, { msg, at: Date.now() });
+    });
+  }
+  return { painting: true };
 }

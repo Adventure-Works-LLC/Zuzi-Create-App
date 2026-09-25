@@ -34,7 +34,7 @@ export async function PATCH(
   if (typeof body.saved !== "boolean") {
     return NextResponse.json({ error: "saved_must_be_boolean" }, { status: 400 });
   }
-  const palette = isPaletteKey(body.palette) ? body.palette : "as made";
+  const palette = isPaletteKey(body.palette) || body.palette === "matisse" ? (body.palette as string) : "as made";
   updateCard(id, body.saved ? { saved_at: Date.now(), saved_palette: palette } : { saved_at: null, saved_palette: null });
   return NextResponse.json({ id, saved: body.saved, palette: body.saved ? palette : null });
 }

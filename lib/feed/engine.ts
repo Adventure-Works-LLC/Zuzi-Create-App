@@ -5,6 +5,8 @@
  * look" — GPT Image 2.5 was rejected despite being 4x faster):
  *   - invented originals:  gemini-3-pro-image (Nano Banana Pro)
  *   - her version:         fal-ai/gpt-image-2/edit, quality high
+ *   - Matisse checkbox:    the same, cast with his paintings (Nano Banana Pro
+ *                          was 5x faster but kept the museum drawing)
  *   - palette recolors:    gemini-3.1-flash-image (Nano Banana 2)
  *   - idea-writer / judge: a Gemini text model (FEED_TEXT_MODEL)
  * Speed is handled by the producer's buffer, never by a cheaper model.
@@ -17,11 +19,14 @@
 import sharp from "sharp";
 
 import { genai } from "@/lib/gemini/client";
-import { getObject } from "@/lib/storage/r2";
+import { getObject, putObject } from "@/lib/storage/r2";
 
 import { CAST, isCastKey } from "./cast";
+import catalogJson from "./catalog.json";
+import { matisseRefUrl, type MatisseRefKey } from "./matisse";
 import {
   ideaWriterPrompt,
+  modernLookPrompt,
   museumJudgePrompt,
   type InventedBrief,
 } from "./prompts";
@@ -114,6 +119,37 @@ export async function castImages(keys: string[]): Promise<Buffer[]> {
   return out;
 }
 
+const matisseCache = new Map<string, Buffer>();
+
+/**
+ * Matisse's paintings for the given keys (lib/feed/matisse.ts): memory, then
+ * R2 `feed/matisse-refs/`, then Wikimedia Commons (which rate-limits, so a
+ * fetched one is saved to R2 for next time).
+ */
+export async function matisseImages(keys: MatisseRefKey[]): Promise<Buffer[]> {
+  const out: Buffer[] = [];
+  for (const k of keys) {
+    let b = matisseCache.get(k);
+    if (!b) {
+      const key = `feed/matisse-refs/${k}.jpg`;
+      try {
+        b = await getObject(key).catch(async () => {
+          const fresh = await toJpeg(await fetchImage(matisseRefUrl(k)));
+          await putObject(key, fresh, "image/jpeg").catch(() => undefined);
+          return fresh;
+        });
+        matisseCache.set(k, b);
+      } catch (e) {
+        console.warn(`[feed] matisse ref ${k} unavailable:`, e instanceof Error ? e.message : e);
+        continue;
+      }
+    }
+    out.push(b);
+  }
+  if (out.length === 0) throw new Error("matisse references unavailable");
+  return out;
+}
+
 // ---------------------------------------------------------------- painting
 
 export async function paintOriginal(prompt: string, aspect: string): Promise<Buffer> {
@@ -128,7 +164,11 @@ export async function paintOriginal(prompt: string, aspect: string): Promise<Buf
   return toJpeg(geminiImage(res), 1280, 90);
 }
 
-export async function paintHers(image1: Buffer, cast: Buffer[], prompt: string): Promise<Buffer> {
+/**
+ * GPT Image 2: image 1 plus a painter's own paintings -> that painter's new
+ * painting. Her versions cast her paintings; the Matisse checkbox casts his.
+ */
+export async function paintHers(image1: Buffer, cast: Buffer[], prompt: string, label = "her version"): Promise<Buffer> {
   const f = await fal();
   const { w, h } = await dims(image1);
   const urls = [dataUri(await toJpeg(image1)), ...cast.map(dataUri)];
@@ -136,13 +176,22 @@ export async function paintHers(image1: Buffer, cast: Buffer[], prompt: string):
     f.subscribe(HERS_ENDPOINT, {
       input: { prompt, image_urls: urls, image_size: outSize(w, h), quality: "high", output_format: "jpeg" },
     }),
-    "her version",
+    label,
   )) as { data?: { images?: { url?: string }[] } };
   const url = r.data?.images?.[0]?.url;
-  if (!url) throw new Error("her version: no image returned");
-  const resp = await fetch(url);
-  if (!resp.ok) throw new Error(`her version download ${resp.status}`);
-  return toJpeg(Buffer.from(await resp.arrayBuffer()), 1280, 88);
+  if (!url) throw new Error(`${label}: no image returned`);
+  // The painting is already paid for — never lose it to a flaky download
+  // (fal's CDN returned 500s on Sept 25 2026). Retry with backoff.
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const resp = await withTimeout(fetch(url), `${label} download`, 60_000);
+      if (!resp.ok) throw new Error(`${label} download ${resp.status}`);
+      return toJpeg(Buffer.from(await resp.arrayBuffer()), 1280, 88);
+    } catch (e) {
+      if (attempt >= 5) throw e;
+      await new Promise((res) => setTimeout(res, 1500 * attempt));
+    }
+  }
 }
 
 export async function recolor(src: Buffer, prompt: string): Promise<Buffer> {
@@ -296,98 +345,80 @@ export async function judgeMuseum(cands: MuseumCandidate[]): Promise<JudgedCandi
   return kept;
 }
 
-// ---------------------------------------------------------------- blue-chip catalog (Wikidata)
+/** For each painting (JPEG bytes), whether it already looks modern. Batches of 10; unsure = false. */
+export async function judgeModernLook(images: Buffer[]): Promise<boolean[]> {
+  const out = images.map(() => false);
+  for (let i = 0; i < images.length; i += 10) {
+    const batch = images.slice(i, i + 10);
+    const parts: { text?: string; inlineData?: { mimeType: string; data: string } }[] = [{ text: modernLookPrompt(batch.length) }];
+    for (const [k, b] of batch.entries()) {
+      const t = await sharp(b).resize(384, 384, { fit: "inside" }).jpeg({ quality: 70 }).toBuffer();
+      parts.push({ text: `Image ${k}:` }, { inlineData: { mimeType: "image/jpeg", data: t.toString("base64") } });
+    }
+    const res = await withTimeout(
+      genai().models.generateContent({ model: textModel(), contents: [{ role: "user", parts }], config: { responseMimeType: "application/json", temperature: 0 } }),
+      "modern-look judge",
+      120_000,
+    );
+    for (const x of parseJsonArray(res.text ?? "")) {
+      const v = x as { i?: number; modern?: boolean };
+      if (typeof v.i === "number" && v.i >= 0 && v.i < batch.length) out[i + v.i] = v.modern === true;
+    }
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------- blue-chip catalog
 
 /**
  * The museum feed's main catalog: public-domain paintings with images on
  * Wikimedia Commons, held by the great museums, by artists famous enough to
- * have Wikipedia articles in 70+ languages (the "blue chip" filter; ~10k+
- * paintings). Commons reproductions of public-domain 2D works are public
- * domain. Queried live (free, no key); ~15–25s per query, so only the
- * background refill calls it.
+ * have Wikipedia articles in 70+ languages (the "blue chip" filter). Commons
+ * reproductions of public-domain 2D works are public domain.
+ *
+ * Built offline into catalog.json by scripts/build-catalog.ts: the live
+ * Wikidata query started timing out (Sept 2026) and the feed quietly fell back
+ * to Met-search leftovers. Already-modern painters are left out at build time
+ * (a new version of one reads as a knockoff); the judge checks each painting.
  */
-const MUSEUMS: Record<string, string> = {
-  Q160236: "The Met",
-  Q510324: "Philadelphia Museum of Art",
-  Q808462: "Barnes Foundation",
-  Q239303: "Art Institute of Chicago",
-  Q214867: "National Gallery of Art",
-  Q23402: "Musée d'Orsay",
-  Q180788: "National Gallery, London",
-  Q188740: "MoMA",
-  Q19675: "Louvre",
-  Q190804: "Rijksmuseum",
-  Q160112: "Prado",
-  Q51252: "Uffizi",
-  Q95569: "Kunsthistorisches Museum",
-  Q224124: "Van Gogh Museum",
-  Q1051928: "Kröller-Müller Museum",
-  Q1134541: "Courtauld Gallery",
-  Q49133: "Museum of Fine Arts, Boston",
-  Q1099141: "Clark Art Institute",
-  Q1270597: "Phillips Collection",
-  Q657415: "Cleveland Museum of Art",
-  Q154568: "Alte Pinakothek",
-  Q170152: "Neue Pinakothek",
-  Q163804: "Städel",
-  Q430682: "Tate",
-  Q536705: "Musée de l'Orangerie",
-};
+interface CatalogEntry {
+  q: string; // Wikidata painting
+  t: string; // title
+  a: string; // artist
+  aq: string; // Wikidata artist
+  y: string; // year, or ""
+  m: string; // museum
+  f: string; // Commons file name
+}
+const CATALOG = catalogJson as CatalogEntry[];
 
-async function sparql(query: string): Promise<Record<string, { value: string }>[]> {
-  const url = "https://query.wikidata.org/sparql?format=json&query=" + encodeURIComponent(query);
-  const r = await withTimeout(fetch(url, { headers: { "User-Agent": UA + " (jashbrook@gmail.com)", Accept: "application/sparql-results+json" } }), "wikidata", 70_000);
-  if (!r.ok) throw new Error(`wikidata ${r.status}`);
-  const j = (await r.json()) as { results?: { bindings?: Record<string, { value: string }>[] } };
-  return j.results?.bindings ?? [];
+/** Commons serves a fixed set of thumbnail widths; others get rate-limited. */
+function commonsImage(file: string, width: 500 | 1280): string {
+  return `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(file)}?width=${width}`;
 }
 
-/**
- * Random blue-chip public-domain paintings from the museums above — or, for
- * "More like this", more by one artist (any museum).
- */
 export async function catalogCandidates(opts: { exclude: Set<string>; limit?: number; creatorQid?: string; creatorName?: string }): Promise<MuseumCandidate[]> {
   const limit = opts.limit ?? 40;
-  const seed = Math.random().toString(36).slice(2);
-  const museums = Object.keys(MUSEUMS).map((q) => `wd:${q}`).join(" ");
-  const creator = opts.creatorQid
-    ? `BIND(wd:${opts.creatorQid} AS ?creator)`
-    : opts.creatorName
-      ? `?creator rdfs:label ${JSON.stringify(opts.creatorName)}@en .`
-      : "";
-  const museumClause = creator ? "" : `VALUES ?museum { ${museums} } ?p wdt:P195 ?museum .`;
-  const q = `SELECT ?p ?title ?creator ?creatorLabel ?museum ?inception ?img WHERE {
-  ${creator}
-  ${museumClause}
-  ?p wdt:P31 wd:Q3305213 ; wdt:P18 ?img ; wdt:P6216 wd:Q19652 ; wdt:P170 ?creator .
-  ${creator ? "OPTIONAL { ?p wdt:P195 ?museum . }" : "?creator wikibase:sitelinks ?sl . FILTER(?sl >= 70)"}
-  ?p rdfs:label ?title . FILTER(LANG(?title) = "en")
-  ?creator rdfs:label ?creatorLabel . FILTER(LANG(?creatorLabel) = "en")
-  OPTIONAL { ?p wdt:P571 ?inception . }
-} ORDER BY MD5(CONCAT(STR(?p), "${seed}")) LIMIT ${limit * 2}`;
-  const rows = await sparql(q);
+  const pool = CATALOG.filter(
+    (e) =>
+      !opts.exclude.has(`wd-${e.q}`) &&
+      (!opts.creatorQid || e.aq === opts.creatorQid) &&
+      (!opts.creatorName || e.a === opts.creatorName),
+  );
   const out: MuseumCandidate[] = [];
-  const seen = new Set<string>();
-  for (const b of rows) {
-    const qid = b.p.value.split("/").pop() as string;
-    const ref = `wd-${qid}`;
-    if (seen.has(ref) || opts.exclude.has(ref)) continue;
-    seen.add(ref);
-    const file = b.img.value.replace(/^http:/, "https:");
-    const museumQid = b.museum?.value.split("/").pop() ?? "";
-    const year = b.inception?.value ? b.inception.value.slice(0, 4).replace(/^\+/, "") : "";
+  while (out.length < limit && pool.length > 0) {
+    const e = pool.splice(Math.floor(Math.random() * pool.length), 1)[0];
     out.push({
-      ref,
-      title: b.title.value,
-      artist: b.creatorLabel.value,
-      date: year && /^\d{3,4}$/.test(year) ? year : "",
-      museum: MUSEUMS[museumQid] ?? "a museum collection",
-      page: `https://www.wikidata.org/wiki/${qid}`,
-      image: `${file}?width=1400`,
-      thumb: `${file}?width=400`,
-      creatorQid: b.creator.value.split("/").pop(),
+      ref: `wd-${e.q}`,
+      title: e.t,
+      artist: e.a,
+      date: e.y,
+      museum: e.m,
+      page: `https://www.wikidata.org/wiki/${e.q}`,
+      image: commonsImage(e.f, 1280),
+      thumb: commonsImage(e.f, 500),
+      creatorQid: e.aq,
     });
-    if (out.length >= limit) break;
   }
   return out;
 }

@@ -27,6 +27,7 @@ export interface CardDTO {
   her: { url: string; w: number; h: number };
   orig: { url: string; thumb: string; w: number; h: number } | null;
   palettes: { key: string; name: string; chips: string[]; url: string | null }[];
+  matisse: { url: string; w: number; h: number } | null;
   saved: boolean;
   savedPalette: string | null;
   readyAt: number;
@@ -56,6 +57,7 @@ export async function toDTO(c: FeedCard): Promise<CardDTO | null> {
         url: vars[k] ? await signedUrlFor(vars[k], TTL) : null,
       })),
     ),
+    matisse: vars["painter:matisse"] ? { url: await signedUrlFor(vars["painter:matisse"], TTL), w: c.orig_w ?? 1024, h: c.orig_h ?? 1280 } : null,
     saved: c.saved_at !== null,
     savedPalette: c.saved_palette,
     readyAt: c.ready_at ?? c.created_at,

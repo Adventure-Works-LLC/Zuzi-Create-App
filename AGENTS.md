@@ -1474,11 +1474,26 @@ one tap away, palette dots, and a heart. Two feeds (toggle at the top):
 ### Three feeds, every card a pair (v7.1)
 
   - **Museum** (default tab): blue-chip public-domain paintings from the
-    great museums via Wikidata + Wikimedia Commons (`catalogCandidates` in
-    `lib/feed/engine.ts`: paintings with a Commons image, copyright status
-    public domain, held by ~25 top museums incl. the Met, Philadelphia, the
-    Barnes, Orsay, the National Gallery; "blue chip" = the artist has
-    Wikipedia articles in 70+ languages). Met/AIC search is the fallback.
+    great museums — `lib/feed/catalog.json` (~1,700 paintings, ~65 artists),
+    built by `scripts/build-catalog.ts` from Wikidata + Wikimedia Commons
+    (Commons image, public domain, held by top museums incl. the Met,
+    Philadelphia, the Barnes, Orsay, the National Gallery; "blue chip" = the
+    artist has Wikipedia articles in 70+ languages; at most 40 per artist).
+    It is a FILE because the live query started timing out (Sept 2026) and
+    the feed silently fell back to Met-search leftovers (unknown-artist
+    miniatures). Met/AIC search remains the last-resort fallback. Rerun the
+    script to grow it. Commons images use its standard widths (500 / 1280).
+  - **Naturalistic sources only** (Jeff, Sept 25 2026: "we never want to look
+    like" a knockoff). A new version of an already-modern painting (Cézanne's
+    Card Players) reads as a knockoff of it; new versions of realistic ones
+    are the ones he loves. So modern painters are left out of the catalog
+    and the museum judge rejects flat / simplified / stylized paintings
+    (Post-Impressionism, Fauvism, Japanese and Indian painting…). Prompting
+    the model to "invent a new composition" for such sources was tested and
+    did NOT work — the Card Players still came back as the Card Players.
+    `POST /api/feed/prune` sweeps older cards by the same rule: it reports,
+    and with `{ apply: true }` sets them `hidden` (reversible; hearted cards
+    are never touched).
   - **Modern**: invented contemporary museum pieces (1995–2025 styles, named
     by movement, never by a living artist). Real works that recent are under
     copyright and not in open collections, so Modern is always invented.
@@ -1494,6 +1509,40 @@ one tap away, palette dots, and a heart. Two feeds (toggle at the top):
     clothes and activities (`hersTodayPrompt`). About half of new Invented
     cards are painted this way, and every opened card has the button (a
     version with `{ today: true }`).
+
+### The "Painted by Matisse" checkbox (v7.2, Zuzi's request)
+
+A header checkbox (remembered per device). On: every card shows its ORIGINAL
+painted as if by Matisse; off: her version as usual. Palette dots hide while
+it's on. Stored as variant `painter:matisse` (`feed/<id>/matisse.jpg`).
+
+Same architecture as her version, cast with HIS paintings: GPT Image 2 edit,
+image 1 = the card's original, then three of his public-domain paintings
+(`lib/feed/matisse.ts`; stored in R2 `feed/matisse-refs/`, Commons as the
+fallback; picked per card so the feed rotates through ten), prompt
+`matissePrompt`. Look rules:
+  - The first version (Nano Banana Pro, prompt only) was REJECTED: it kept
+    the museum painting's realistic shapes and only changed the color. Jeff:
+    "a big part of Matisse is how he does shapes and drawing and lines." His
+    paintings as references + the redraw-every-shape list + "must not keep the
+    realistic shapes" fixed it. Nano Banana Pro with the same references was
+    5x faster but stayed close to the museum drawing — rejected on look.
+  - References are chosen for his LINE AND SHAPE (flat, reductive,
+    contour-drawn: Harmony in Red, The Conversation, The Young Sailor…);
+    softer, brushier ones (Tea, The Open Window) let the realistic museum
+    drawing back in. Clothed figures only, and the prompt forbids borrowing
+    "their people, poses, subjects or nudity": with his nudes in the set, the
+    Horse Fair's dealers came back as nude dancers.
+  - A rotating set, not a fixed one: with one set most cards came back as
+    Harmony in Red.
+  - "No frame, no wall" is load-bearing.
+
+A painting takes ~2 min, so `POST /api/feed/:id/matisse` never waits: it
+starts the job and answers 202 until the painting exists, and the page polls
+every 8s. The page starts cards about two screens before they're visible, six
+at a time. A failed card reports its error for 10 minutes before a poll may
+retry it (a failed call can still be billed). Cost counts as a her-version
+render toward the monthly cap.
 
 ### Paints as she scrolls
 
@@ -1511,15 +1560,17 @@ it off) keeps her from waiting. At the end of the list the page polls
 recorded on `feed_cards.cost_usd` and included in `monthlyUsageUsd()`, so
 the Studio and the Scroll share `MONTHLY_USD_CAP`. Prices live in
 `lib/cost.ts` (`FEED_PRICE_USD`): ~$0.27 per invented card, ~$0.13 per
-museum card, ~$0.07 per palette dot painted.
+museum card, ~$0.07 per palette dot painted, ~$0.13 per Matisse painting.
 
 ### Critical files
 
-  - `lib/feed/{cast,palettes,prompts,engine,store,producer,dto}.ts`
+  - `lib/feed/{cast,matisse,palettes,prompts,engine,store,producer,dto}.ts`
+    + `lib/feed/catalog.json` (built by `scripts/build-catalog.ts`)
   - `app/(feed)/page.tsx` + `layout.tsx` + `feed.css` — the page
   - `app/api/feed/route.ts` (read + buffer), `[id]/route.ts` (heart),
     `[id]/related` (versions + more like this), `[id]/again`, `[id]/more`,
     `status` (painter state for debugging),
-    `[id]/variant/route.ts` (palette dot), `import/route.ts` (seed cards,
+    `[id]/variant/route.ts` (palette dot), `[id]/matisse` (Matisse
+    checkbox), `prune` (knockoff sweep), `import/route.ts` (seed cards,
     ids `seed-*`, images pre-uploaded under R2 `feed/`)
   - `drizzle/0013_feed_cards.sql`, `docs/SCHEMA.md` (feed_cards)

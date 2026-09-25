@@ -183,7 +183,7 @@ CREATE INDEX idx_usage_created ON usage_log(created_at);
 CREATE TABLE feed_cards (
   id            TEXT PRIMARY KEY,          -- ulid (generated) or seed-* (imported)
   feed          TEXT NOT NULL,             -- 'invented' | 'museum'
-  status        TEXT NOT NULL,             -- 'pending' | 'ready' | 'failed'
+  status        TEXT NOT NULL,             -- 'pending' | 'ready' | 'failed' | 'hidden' (swept out; reversible)
   title         TEXT NOT NULL,
   after_label   TEXT NOT NULL,             -- "after Johannes Vermeer" / "after an invented Nabis painting"
   byline        TEXT NOT NULL,             -- era/date/medium or artist/date/museum

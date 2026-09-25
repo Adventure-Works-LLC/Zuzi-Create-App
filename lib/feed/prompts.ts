@@ -2,9 +2,9 @@
  * v7 Zuzi's Scroll — every prompt the feed sends (AGENTS.md §18).
  *
  * Validated in the Sept 25 2026 lab against her real paintings and Jeff's
- * review. The two "her version" prompts are what hold her look — keep the
- * "draw exactly as she draws them" and "not cleaner, cuter or more
- * illustrated" clauses; they are load-bearing.
+ * review. The "her version" prompts are what hold her look — keep the
+ * "draw exactly as she draws them" clause (HER_HAND) and the v7.3 painting
+ * sentences (HER_COMPOSITION, HER_COLOR_AND_MARKS); they are load-bearing.
  */
 
 import { castMenu } from "./cast";
@@ -27,24 +27,48 @@ export function originalPrompt(b: InventedBrief): string {
 const HER_HAND =
   "her characters, drawn exactly as she draws them (the same head shapes, the same eyes placed and drawn exactly the way she draws them, the same noses, cheeks, mouths, hands and proportions), her way of simplifying a setting, and her surface (flat chalky brush marks, dark wobbly outlines, flat color areas)";
 
+/**
+ * How she paints, beyond the faces (v7.3). Zuzi, Sept 25 2026: the versions
+ * "look terrible — they don't look like good paintings". Side by side with
+ * her real paintings the gap was never the faces; it was three painting
+ * decisions the old prompts overrode:
+ *   - COMPOSITION: she paints very few things, big and close, cropped, on
+ *     plain ground; the old prompts kept image 1's crowded arrangement, so
+ *     her characters shrank into busy storybook illustrations.
+ *   - COLOR: "bold palette, confident and saturated" produced flat, garish
+ *     digital fields; her color is chalky and broken over a toned ground.
+ *   - SURFACE: smooth, evenly filled, evenly outlined = illustration; hers
+ *     is scribbly, dry and unfinished.
+ * Validated on five sources (Vermeer, Manet, Bonheur, two invented).
+ * Tested and REJECTED: a finishing pass through her FLUX LoRA (§16) — it
+ * adds her real line and eyes, but even at strength 0.35 it hallucinates
+ * faces and eyes into fruit, folds and patterns (not safe unsupervised).
+ */
+const HER_COLOR_AND_MARKS = (paletteText: string) =>
+  `Paint it in ${paletteText}, in dry, chalky, broken strokes over a toned ground that shows through everywhere. Her marks are quick and scribbly — strokes that don't fill their shapes, hatching, smudges, a thin black line that wobbles, breaks and wanders. Nothing is smooth, even, polished or finished: it must not look like an illustration.`;
+const HER_COMPOSITION =
+  "Compose it the way she composes: very few things, painted big and close, cropped by the edges, often from an unexpected angle, with plain ground around them — leave out the crowd, the room's details and everything else.";
+
 /** Her version of an invented masterpiece. Image 1 = the painting; the rest = her paintings. */
 export function hersFromInventedPrompt(paletteText: string): string {
-  return `Image 1 is a painting. The other images are paintings by one contemporary artist. Make HER new painting that takes the idea, the arrangement and the mood of image 1 and makes it entirely her own: ${HER_HAND}. For this one, paint it in a bold palette of ${paletteText}, confident and saturated where she would be. It must not be drawn in a cleaner, cuter or more illustrated style. It should look like a painting she made after looking at image 1 for a long time.`;
+  return `Image 1 is a painting. The other images are paintings by one contemporary artist. Make HER new painting from the heart of image 1 — its main one or two figures or objects and the moment they are in — and make it entirely her own: ${HER_HAND}. ${HER_COMPOSITION} ${HER_COLOR_AND_MARKS(paletteText)} It should look like a painting she made after looking at image 1 for a long time.`;
 }
 
-/** Her version of a museum painting — borrows the bones, never a copy or parody. */
+/** Her version of a museum painting — borrows the heart of it, never a copy or parody. */
 export function hersFromMuseumPrompt(paletteText: string): string {
-  return `Image 1 is an old painting from a museum. The other images are paintings by one contemporary artist. Make HER new painting that borrows only the bones of image 1 — its composition, the arrangement of figures, the gesture and the mood — and makes it entirely her own: ${HER_HAND}. For this one, paint it in a bold palette of ${paletteText}, confident and saturated where she would be. It must not look like a copy or a parody of image 1, and must not be drawn in a cleaner, cuter or more illustrated style. It should look like a painting she made after looking at image 1 for a long time.`;
+  return `Image 1 is an old painting from a museum. The other images are paintings by one contemporary artist. Make HER new painting from the heart of image 1 — its main one or two figures or objects and the moment they are in — and make it entirely her own: ${HER_HAND}. ${HER_COMPOSITION} ${HER_COLOR_AND_MARKS(paletteText)} It must not look like a copy or a parody of image 1. It should look like a painting she made after looking at image 1 for a long time.`;
 }
 
 /**
  * "Bring it to today" (v7.1): same arrangement, poses and gestures as image 1,
  * but present-day clothes, objects and activities — validated Sept 25 2026
  * (the sleeping maid at a modern kitchen table beside a robot vacuum; the
- * napping laundresses in hoodies and sneakers on tote bags).
+ * napping laundresses in hoodies and sneakers on tote bags). Keeping the
+ * arrangement is its point, so it takes her color and marks (v7.3) but not
+ * her composition.
  */
 export function hersTodayPrompt(paletteText: string): string {
-  return `Image 1 is a painting. The other images are paintings by one contemporary artist. Make HER new painting that keeps the arrangement, the poses and the gestures of image 1 — but brings the scene into today: the people wear clothes of today and do the present-day version of what they are doing in image 1 (the same moment, updated), with present-day objects and settings. Make it entirely her own: ${HER_HAND}. Paint it in a bold palette of ${paletteText}, confident and saturated where she would be. It must not be drawn in a cleaner, cuter or more illustrated style. It should look like a painting she made after looking at image 1 for a long time.`;
+  return `Image 1 is a painting. The other images are paintings by one contemporary artist. Make HER new painting that keeps the arrangement, the poses and the gestures of image 1 — but brings the scene into today: the people wear clothes of today and do the present-day version of what they are doing in image 1 (the same moment, updated), with present-day objects and settings. Make it entirely her own: ${HER_HAND}. ${HER_COLOR_AND_MARKS(paletteText)} It should look like a painting she made after looking at image 1 for a long time.`;
 }
 
 /** How Matisse draws — the list the model is told to redraw every shape with. */

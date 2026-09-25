@@ -1457,8 +1457,8 @@ one tap away, palette dots, and a heart. Two feeds (toggle at the top):
   - **Casting keeps her look.** Her version is painted by
     `fal-ai/gpt-image-2/edit` (quality high) from the painting + 1–3 of HER
     OWN paintings (`lib/feed/cast.ts` → R2 `inputs/<sourceId>.jpg`) with
-    "draw exactly as she draws them… not cleaner, cuter or more
-    illustrated" (`lib/feed/prompts.ts`). Describing her style in words, or
+    "draw exactly as she draws them" plus the v7.3 painting rules below
+    (`lib/feed/prompts.ts`). Describing her style in words, or
     reference-only prompting, drifts every model to stock storybook
     characters. Nano Banana Pro "corrects" her faces; don't use it for her
     version.
@@ -1470,6 +1470,22 @@ one tap away, palette dots, and a heart. Two feeds (toggle at the top):
     the dots (`lib/feed/palettes.ts`: 5 of hers + 5 colorists) repaint the
     same image via Nano Banana 2 with "museum-grade color" language, on
     first tap. The softer↔bolder slider is a client-side CSS filter.
+  - **Paint like her, not just draw her faces (v7.3).** Zuzi: the versions
+    "look terrible — they don't look like good paintings." The faces were
+    right; three painting decisions were wrong, and the prompts now pin all
+    three (`HER_COMPOSITION`, `HER_COLOR_AND_MARKS` in prompts.ts):
+    COMPOSITION — she paints very few things, big and close, cropped, on
+    plain ground, so her version takes only "the heart of image 1" (its one
+    or two main figures and their moment), never the whole crowded scene;
+    COLOR — the palette goes on in dry, chalky, broken strokes over a toned
+    ground that shows through ("bold… saturated" gave garish digital
+    fields); SURFACE — scribbly, unfinished marks and a wobbling, breaking
+    line, "it must not look like an illustration". "Bring it to today"
+    keeps image 1's arrangement by design, so it takes color and marks only.
+    Tested and REJECTED: a finishing pass through her FLUX LoRA (§16). It
+    adds her real line and side-eyes, but even at strength 0.35 it
+    hallucinates faces and eyes into fruit, folds and patterns, and at 0.55
+    it wakes sleepers and merges figures. Not safe unsupervised.
 
 ### Three feeds, every card a pair (v7.1)
 

@@ -1486,6 +1486,10 @@ one tap away, palette dots, and a heart. Two feeds (toggle at the top):
     adds her real line and side-eyes, but even at strength 0.35 it
     hallucinates faces and eyes into fruit, folds and patterns, and at 0.55
     it wakes sleepers and merges figures. Not safe unsupervised.
+    Cards made before v7.3 were repainted in place by `POST
+    /api/feed/repaint` (background, six at a time; hearted cards untouched;
+    the old image kept under variants `v72:her`; stale palette dots
+    dropped).
 
 ### Three feeds, every card a pair (v7.1)
 
@@ -1587,6 +1591,7 @@ museum card, ~$0.07 per palette dot painted, ~$0.13 per Matisse painting.
     `[id]/related` (versions + more like this), `[id]/again`, `[id]/more`,
     `status` (painter state for debugging),
     `[id]/variant/route.ts` (palette dot), `[id]/matisse` (Matisse
-    checkbox), `prune` (knockoff sweep), `import/route.ts` (seed cards,
+    checkbox), `prune` (knockoff sweep), `repaint` (v7.3 repaint),
+    `import/route.ts` (seed cards,
     ids `seed-*`, images pre-uploaded under R2 `feed/`)
   - `drizzle/0013_feed_cards.sql`, `docs/SCHEMA.md` (feed_cards)

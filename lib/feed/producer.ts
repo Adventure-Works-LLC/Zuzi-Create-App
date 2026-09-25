@@ -487,3 +487,67 @@ export function matisseStatus(cardId: string): { key: string } | { painting: tru
   }
   return { painting: true };
 }
+
+// ------------------------------------------------------------ v7.3 repaint
+
+/** Variants key holding a card's pre-v7.3 her version, so a repaint can be undone. */
+export const PREVIOUS_HER_KEY = "v72:her";
+
+const repaintRun = { running: false, total: 0, done: 0, failed: 0, lastError: "" };
+
+export function repaintStatus(): typeof repaintRun {
+  return { ...repaintRun };
+}
+
+/**
+ * Repaint these cards' her versions in the v7.3 style, six at a time, in the
+ * background (Zuzi: the old ones "don't look like good paintings"). Keeps the
+ * card's palette, cast and "today" choice, and its place in the feed; the old
+ * image stays in R2 under variants[PREVIOUS_HER_KEY]. Palette dots made from
+ * the old image are dropped so they repaint from the new one. Safe to rerun:
+ * already-repainted and hearted cards are skipped.
+ */
+export function startRepaint(ids: string[]): boolean {
+  if (repaintRun.running) return false;
+  Object.assign(repaintRun, { running: true, total: ids.length, done: 0, failed: 0, lastError: "" });
+  const queue = [...ids];
+  const worker = async () => {
+    for (let id = queue.shift(); id; id = queue.shift()) {
+      try {
+        await repaintOne(id);
+        repaintRun.done++;
+      } catch (e) {
+        repaintRun.failed++;
+        repaintRun.lastError = e instanceof Error ? e.message : String(e);
+        console.error(`[feed] repaint ${id} failed:`, repaintRun.lastError);
+      }
+    }
+  };
+  void Promise.all(Array.from({ length: 6 }, worker)).finally(() => {
+    repaintRun.running = false;
+  });
+  return true;
+}
+
+async function repaintOne(id: string): Promise<void> {
+  const card = getCard(id);
+  if (!card || card.status !== "ready" || !card.orig_key || !card.her_key || card.saved_at) return;
+  const vars = parseJson<Record<string, string>>(card.variants, {});
+  if (vars[PREVIOUS_HER_KEY]) return;
+  if (monthlyUsageUsd() >= monthlyCap()) throw new Error("monthly_cap_reached");
+  const pb = parseJson<{ cast?: string[]; asMade?: string; today?: boolean }>(card.brief, {});
+  let h = 0;
+  for (const ch of id) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  const palette: PaletteKey = isPaletteKey(pb.asMade) ? pb.asMade : HER_PALETTES[h % HER_PALETTES.length];
+  const text = PALETTES[palette].text;
+  const prompt = pb.today ? hersTodayPrompt(text) : card.feed === "museum" ? hersFromMuseumPrompt(text) : hersFromInventedPrompt(text);
+  const hers = await paintHers(await getObject(card.orig_key), await castImages(pb.cast ?? ["cat", "chef"]), prompt);
+  addCost(id, FEED_PRICE_USD.hers);
+  const key = `feed/${id}/her-v73.jpg`;
+  await put(key, hers);
+  const hd = await dims(hers);
+  const fresh = parseJson<Record<string, string>>(getCard(id)?.variants, {});
+  const kept: Record<string, string> = { [PREVIOUS_HER_KEY]: card.her_key };
+  if (fresh[MATISSE_KEY]) kept[MATISSE_KEY] = fresh[MATISSE_KEY];
+  updateCard(id, { her_key: key, her_w: hd.w, her_h: hd.h, variants: JSON.stringify(kept) });
+}

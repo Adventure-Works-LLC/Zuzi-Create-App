@@ -210,3 +210,13 @@ export function hideCards(ids: string[], reason: string): void {
   if (ids.length === 0) return;
   db().update(feed_cards).set({ status: "hidden", error: reason }).where(inArray(feed_cards.id, ids)).run();
 }
+
+/** Unsaved main-feed cards (any feed) that became ready before `before` — the v7.3 repaint set. */
+export function listUnsavedRootsBefore(before: number): FeedCard[] {
+  return db()
+    .select()
+    .from(feed_cards)
+    .where(and(eq(feed_cards.status, "ready"), isNull(feed_cards.parent_id), isNull(feed_cards.saved_at), lt(feed_cards.ready_at, before)))
+    .orderBy(desc(feed_cards.ready_at))
+    .all();
+}

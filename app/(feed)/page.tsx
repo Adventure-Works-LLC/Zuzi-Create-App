@@ -441,6 +441,7 @@ export default function ScrollPage() {
           onZoom={setZoom}
           onError={flash}
           matisse={matisse}
+          onToggleMatisse={toggleMatisse}
         />
       ) : null}
 
@@ -496,8 +497,10 @@ function Detail({
   onZoom,
   onError,
   matisse,
+  onToggleMatisse,
 }: {
   matisse: boolean;
+  onToggleMatisse: (on: boolean) => void;
   id: string;
   depth: number;
   cols: number;
@@ -617,11 +620,23 @@ function Detail({
         <button type="button" className="zs-back" onClick={depth > 1 ? onBack : onClose}>
           {depth > 1 ? "← Back" : "← Scroll"}
         </button>
-        {depth > 1 ? (
-          <button type="button" className="zs-back zs-back--quiet" onClick={onClose}>
-            Close
-          </button>
-        ) : null}
+        {/* The same checkbox as the Scroll header — Jeff looked for it here. */}
+        <div className="zs-detail-tools">
+          <label className="zs-check" htmlFor="zs-matisse-detail">
+            <input
+              id="zs-matisse-detail"
+              type="checkbox"
+              checked={matisse}
+              onChange={(e) => onToggleMatisse(e.target.checked)}
+            />
+            Painted by Matisse
+          </label>
+          {depth > 1 ? (
+            <button type="button" className="zs-back zs-back--quiet" onClick={onClose}>
+              Close
+            </button>
+          ) : null}
+        </div>
       </div>
 
       <div className="zs-detail-main">
@@ -782,6 +797,9 @@ function Card({
   const src = showOrig && card.orig ? card.orig.url : asMatisse && card.matisse ? card.matisse.url : current?.url ?? card.her.url;
   const dims = showOrig && card.orig ? card.orig : asMatisse && card.matisse ? card.matisse : card.her;
   const palName = asMatisse ? "as Matisse would paint it" : current ? current.name : "as made";
+  // While Matisse paints (~2 min) her version dims under a clear label, so
+  // ticking the box visibly does something (Jeff: "nothing changed").
+  const mWaiting = matisse && !showOrig && !card.matisse && mState !== "failed";
 
   async function pick(p: PaletteDTO) {
     setShowOrig(false);
@@ -835,14 +853,14 @@ function Card({
             width={dims.w}
             height={dims.h}
             loading={big ? "eager" : "lazy"}
-            className={showOrig ? undefined : "zs-hers"}
+            className={showOrig ? undefined : mWaiting ? "zs-hers zs-waiting" : "zs-hers"}
           />
         </button>
         {showOrig ? (
           <span className="zs-origtag">{card.feed === "museum" ? "The original" : "The invented original"}</span>
         ) : matisse && !card.matisse ? (
-          <span className="zs-origtag">
-            {mState === "failed" ? "Matisse couldn't paint this one" : "Matisse is painting…"}
+          <span className="zs-origtag zs-mtag">
+            {mState === "failed" ? "Matisse couldn't paint this one" : "Matisse is painting… about 2 min"}
           </span>
         ) : null}
         <button
@@ -882,7 +900,9 @@ function Card({
           ))}
           <span className="zs-palname">{showOrig ? "" : pending ? "painting…" : palName}</span>
         </div>
-        {matisse && !showOrig ? <p className="zs-palname zs-matisse-label">{palName}</p> : null}
+        {matisse && !showOrig ? (
+          <p className="zs-palname zs-matisse-label">{mWaiting ? "Matisse is painting this one" : palName}</p>
+        ) : null}
         <p className="zs-cardtitle">{card.title}</p>
         {big ? <p className="zs-byline">{card.byline}</p> : null}
         {card.orig ? (
